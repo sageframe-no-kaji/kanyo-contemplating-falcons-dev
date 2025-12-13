@@ -487,7 +487,7 @@ git push
 
 Before moving to Ho 1, verify:
 
-- [ ] Claude Code installed and authenticated
+- [x] Claude Code installed and authenticated
 - [ ] Successfully created files with all three models (Opus, Sonnet, Haiku)
 - [ ] Git repo created and pushed to GitHub
 - [ ] Can make changes → stage → commit → push
