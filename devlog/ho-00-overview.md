@@ -316,3 +316,35 @@ Begin when ready to commit 1-1.5 hours to foundational tool learning.
 **Project Start Date:** December 2025
 **Target Demo Date:** February 2026
 **Maintained by:** Tyro Sageframe
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ YOUR LAPTOP (Development)                                      │
+│  - Write code                                                  │
+│  - Run tests                                                   │ 
+│  - Git push to GitHub                                          │
+└────────────────────────────────────────────────────────────────┘
+                         ↓ push code
+┌────────────────────────────────────────────────────────────────┐
+│ GITHUB ACTIONS (Detection Pipeline) - FREE                     │
+│  - Runs Python every hour                                      │
+│  - Downloads stream with yt-dlp                                │
+│  - Detects falcons with YOLOv8                                 │
+│  - Generates site/ with Jinja2                                 │
+│  - Pushes site/ to Cloudflare                                  │
+└────────────────────────────────────────────────────────────────┘
+                         ↓ deploy
+┌────────────────────────────────────────────────────────────────┐
+│ CLOUDFLARE PAGES (Static Hosting) - FREE                       │
+│  - Hosts HTML/CSS/JSON                                         │
+│  - Global CDN                                                  │
+│  - https://kanyo.pages.dev                                     │
+└────────────────────────────────────────────────────────────────┘
+                         ↓ visit
+┌────────────────────────────────────────────────────────────────┐
+│ USERS (Falcon Enthusiasts)                                     │
+│  - See timeline                                                │
+│  - Click to watch on YouTube                                   │
+│  - (Later: Add tags via Cloudflare Workers)                    │
+└────────────────────────────────────────────────────────────────┘
+```
