@@ -11,15 +11,15 @@ from datetime import datetime, timedelta
 
 # ANSI color codes
 class Colors:
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    GREEN = '\033[92m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    MAGENTA = '\033[95m'
-    WHITE = '\033[97m'
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    GREEN = "\033[92m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    MAGENTA = "\033[95m"
+    WHITE = "\033[97m"
 
 
 # Weather conditions with emoji
@@ -48,7 +48,7 @@ def get_mock_weather():
         "color": color,
         "temp": temp,
         "humidity": humidity,
-        "wind_speed": wind_speed
+        "wind_speed": wind_speed,
     }
 
 
@@ -80,9 +80,13 @@ def print_forecast():
         weather = get_mock_weather()
         day_name = forecast_date.strftime("%A")
 
-        print(f"{Colors.BOLD}{Colors.GREEN}{day_name}, {forecast_date.strftime('%B %d')}:{Colors.RESET}")
+        print(
+            f"{Colors.BOLD}{Colors.GREEN}{day_name}, {forecast_date.strftime('%B %d')}:{Colors.RESET}"
+        )
         print(f"  {weather['color']}{weather['emoji']}  {weather['condition']}{Colors.RESET}")
-        print(f"  {Colors.RED}High: {weather['temp']}°C{Colors.RESET} / {Colors.BLUE}Low: {weather['temp'] - random.randint(5, 10)}°C{Colors.RESET}")
+        print(
+            f"  {Colors.RED}High: {weather['temp']}°C{Colors.RESET} / {Colors.BLUE}Low: {weather['temp'] - random.randint(5, 10)}°C{Colors.RESET}"
+        )
         print()
 
 
@@ -93,7 +97,7 @@ def main():
         print(f"{Colors.YELLOW}Usage: python weather.py <city_name>{Colors.RESET}")
         sys.exit(1)
 
-    city = ' '.join(sys.argv[1:])
+    city = " ".join(sys.argv[1:])
 
     print_header(city)
 

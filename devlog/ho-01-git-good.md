@@ -516,6 +516,7 @@ Create a logging utility that:
 4. Has convenience functions: get_logger(name)
 
 Keep it simple - under 50 lines.
+In addition to thos 50 lines ass an explanatory comment describing behavior at the top
 ```
 
 ### Test Logger
@@ -849,12 +850,9 @@ pytest --cov                    # With coverage
 ## Configuration Schema
 
 See `config.yaml` - all settings documented inline.
-```
-
 ### Update Main README
 
 **Edit `README.md` to be comprehensive:**
-```markdown
 # Kanyo (観鷹)
 **Contemplating Falcons**
 
@@ -873,7 +871,6 @@ Born from a conversation with Claudia Goldin (Nobel laureate in Economics) on a 
 
 ## Quick Start
 
-```bash
 # Clone and setup
 git clone https://github.com/YOUR_USERNAME/kanyo.git
 cd kanyo

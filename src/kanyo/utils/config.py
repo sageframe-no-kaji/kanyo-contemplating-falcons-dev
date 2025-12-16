@@ -17,11 +17,11 @@ import yaml
 # Defaults
 # ──────────────────────────────────────────────────────────────────────────────
 DEFAULTS: dict[str, Any] = {
-    "video_source": "",                     # YouTube URL (required)
-    "detection_confidence": 0.5,            # 0.0–1.0
-    "detection_interval": 60,               # seconds between checks
-    "output_dir": "output",                 # results directory
-    "model_path": "models/yolov8n.pt",      # YOLOv8 weights
+    "video_source": "",  # YouTube URL (required)
+    "detection_confidence": 0.5,  # 0.0–1.0
+    "detection_interval": 60,  # seconds between checks
+    "output_dir": "output",  # results directory
+    "model_path": "models/yolov8n.pt",  # YOLOv8 weights
 }
 
 REQUIRED_FIELDS = ["video_source"]
