@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
-import pytest
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -26,18 +25,22 @@ class TestImports:
     def test_public_exports(self):
         """Verify public API exports are available."""
         from kanyo.detection import (
-            StreamCapture,
-            Frame,
-            FalconDetector,
             Detection,
+            EventStore,
+            FalconDetector,
             FalconEvent,
             FalconVisit,
-            EventStore,
+            Frame,
+            StreamCapture,
         )
 
         assert StreamCapture is not None
         assert Frame is not None
         assert FalconDetector is not None
+        assert Detection is not None
+        assert FalconEvent is not None
+        assert FalconVisit is not None
+        assert EventStore is not None
 
 
 class TestConfig:

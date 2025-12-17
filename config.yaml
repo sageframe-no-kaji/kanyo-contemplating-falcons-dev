@@ -44,6 +44,10 @@ clip_exit_before: 60           # seconds before exit to include
 clip_exit_after: 30            # seconds after exit to include
 clip_merge_threshold: 180      # merge into one clip if events within N seconds
 
+# Thumbnail settings (one per event)
+thumbnail_entrance_offset: 5   # seconds after entrance to capture thumbnail
+thumbnail_exit_offset: -10     # seconds before exit (negative = before event)
+
 # Compression settings
 clip_compress: true            # re-encode for smaller files (~10x smaller)
 clip_crf: 23                   # quality: 18=high/larger, 23=balanced, 28=low/smaller

@@ -6,14 +6,15 @@ Uses StreamCapture for video, FalconDetector for inference,
 and EventStore for persistence.
 """
 
-import cv2
 import time
 from datetime import datetime
 from pathlib import Path
 
+import cv2
+
 from kanyo.detection.capture import StreamCapture
 from kanyo.detection.detect import FalconDetector
-from kanyo.detection.events import FalconVisit, EventStore
+from kanyo.detection.events import EventStore, FalconVisit
 from kanyo.utils.config import load_config
 from kanyo.utils.logger import get_logger, setup_logging_from_config
 from kanyo.utils.notifications import send_email
@@ -101,7 +102,10 @@ class RealtimeMonitor:
                 logger.info(f"🦅 FALCON ENTERED at {now.strftime('%I:%M:%S %p')}")
                 self.send_notification(
                     subject="🦅 Falcon Active Now!",
-                    message=f"Falcon detected at {now.strftime('%I:%M %p')}.\n\nWatch: {self.stream_url}",
+                    message=(
+                        f"Falcon detected at {now.strftime('%I:%M %p')}.\n\n"
+                        f"Watch: {self.stream_url}"
+                    ),
                 )
             else:
                 # Still present - update peak confidence
@@ -117,9 +121,7 @@ class RealtimeMonitor:
                 if elapsed > self.exit_timeout:
                     # FALCON EXITED
                     self.current_visit.end_time = now
-                    logger.info(
-                        f"🦅 FALCON EXITED after {self.current_visit.duration_str}"
-                    )
+                    logger.info(f"🦅 FALCON EXITED after {self.current_visit.duration_str}")
 
                     # Persist and reset
                     self.event_store.append(self.current_visit)

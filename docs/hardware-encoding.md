@@ -17,7 +17,7 @@ That's it! Kanyo auto-detects the best encoder for your system.
 Run this to see what encoders are available:
 
 ```bash
-python -m kanyo.generation.clips
+python -m kanyo.utils.encoder
 ```
 
 Example output on Mac:

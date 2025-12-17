@@ -8,7 +8,7 @@ All events include ISO timestamps and duration calculations.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -117,7 +117,7 @@ class EventStore:
             with open(self.events_path) as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            logger.warning(f"Corrupted events file, starting fresh")
+            logger.warning("Corrupted events file, starting fresh")
             return []
 
     def save(self, events: list[dict]) -> None:
@@ -134,7 +134,9 @@ class EventStore:
 
     def get_visits(self) -> list[dict]:
         """Get all falcon_visit events."""
-        return [e for e in self.load() if e.get("event_type") == "falcon_visit" or "start_time" in e]
+        return [
+            e for e in self.load() if e.get("event_type") == "falcon_visit" or "start_time" in e
+        ]
 
     def get_today_visits(self) -> list[dict]:
         """Get visits from today."""

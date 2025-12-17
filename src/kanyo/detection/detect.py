@@ -143,12 +143,19 @@ class FalconDetector:
                 # Only include detections matching target classes
                 if class_id not in self.target_classes:
                     continue
+                bbox_list = list(map(int, box.xyxy[0].tolist()))
+                bbox: tuple[int, int, int, int] = (
+                    bbox_list[0],
+                    bbox_list[1],
+                    bbox_list[2],
+                    bbox_list[3],
+                )
                 detections.append(
                     Detection(
                         class_id=class_id,
                         class_name=result.names[class_id],
                         confidence=float(box.conf[0]),
-                        bbox=tuple(map(int, box.xyxy[0].tolist())),
+                        bbox=bbox,
                         timestamp=timestamp,
                     )
                 )
@@ -174,4 +181,3 @@ class FalconDetector:
         if not detections:
             return None
         return max(detections, key=lambda d: d.confidence)
-
