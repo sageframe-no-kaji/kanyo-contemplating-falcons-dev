@@ -30,7 +30,7 @@ class RealtimeMonitor:
 
     Orchestrates:
     - StreamCapture: video frame capture with reconnection
-    - FalconDetector: YOLO-based bird detection
+    - FalconDetector: YOLO-based animal detection
     - EventStore: JSON persistence for visit events
     """
 
@@ -40,6 +40,8 @@ class RealtimeMonitor:
         confidence_threshold: float = 0.5,
         exit_timeout_seconds: int = 120,
         process_interval_frames: int = 30,
+        detect_any_animal: bool = True,
+        animal_classes: list[int] | None = None,
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
@@ -47,7 +49,11 @@ class RealtimeMonitor:
 
         # Components (orchestrated modules)
         self.capture = StreamCapture(stream_url)
-        self.detector = FalconDetector(confidence_threshold=confidence_threshold)
+        self.detector = FalconDetector(
+            confidence_threshold=confidence_threshold,
+            detect_any_animal=detect_any_animal,
+            animal_classes=animal_classes,
+        )
         self.event_store = EventStore()
 
         # State
@@ -76,11 +82,11 @@ class RealtimeMonitor:
         """Process a single frame for falcon detection."""
         now = datetime.now()
 
-        # Run detection
+        # Run detection (detect_birds filters by target_classes which includes animals)
         detections = self.detector.detect_birds(frame, timestamp=now)
-        birds_found = len(detections) > 0
+        falcon_present = len(detections) > 0
 
-        if birds_found:
+        if falcon_present:
             best = self.detector.get_best_detection(detections)
             confidence = best.confidence if best else 0
 
@@ -156,10 +162,22 @@ def main():
     setup_logging_from_config(config)
     logger = get_logger(__name__)
 
+    logger.info("Configuration loaded:")
+    logger.info(f"  video_source: {config.get('video_source')}")
+    logger.info(f"  detection_confidence: {config.get('detection_confidence')}")
+    logger.info(f"  frame_interval: {config.get('frame_interval', 30)}")
+    logger.info(f"  detect_any_animal: {config.get('detect_any_animal', True)}")
+    logger.info(f"  animal_classes: {config.get('animal_classes')}")
+    logger.info(f"  exit_timeout: {config.get('exit_timeout', 120)}")
+
     try:
         monitor = RealtimeMonitor(
             stream_url=config.get("video_source", DEFAULT_STREAM_URL),
             confidence_threshold=config.get("detection_confidence", 0.5),
+            exit_timeout_seconds=config.get("exit_timeout", 120),
+            process_interval_frames=config.get("frame_interval", 30),
+            detect_any_animal=config.get("detect_any_animal", True),
+            animal_classes=config.get("animal_classes"),
         )
         monitor.run()
     except Exception as e:

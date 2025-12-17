@@ -22,7 +22,11 @@ def main():
     print(f"  video_source:         {config['video_source']}")
     print(f"  detection_confidence: {config['detection_confidence']}")
     print(f"  detection_interval:   {config['detection_interval']}s")
+    print(f"  frame_interval:       {config.get('frame_interval', 30)}")
     print(f"  model_path:           {config['model_path']}")
+    print(f"  detect_any_animal:    {config.get('detect_any_animal', True)}")
+    print(f"  exit_timeout:         {config.get('exit_timeout', 120)}s")
+    print(f"  animal_classes:       {config.get('animal_classes', [])}")
 
     print("\nOutput & Storage:")
     print(f"  output_dir:           {config['output_dir']}")
