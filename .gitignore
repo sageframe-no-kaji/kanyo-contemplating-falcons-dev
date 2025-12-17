@@ -225,3 +225,5 @@ models/*.pt
 
 # coverage
 .coverage
+clips/
+*.mp4
