@@ -47,6 +47,7 @@ class RealtimeMonitor:
         proxy_url: str | None = None,
         buffer_dir: str | None = None,
         chunk_minutes: int = 10,
+        output_fps: int = 30,
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
@@ -59,6 +60,7 @@ class RealtimeMonitor:
             proxy_url=proxy_url,
             buffer_dir=buffer_dir,
             chunk_minutes=chunk_minutes,
+            output_fps=output_fps,
         )
         self.detector = FalconDetector(
             confidence_threshold=confidence_threshold,
@@ -195,6 +197,7 @@ def main():
             proxy_url=config.get("live_proxy_url"),
             buffer_dir=config.get("buffer_dir"),
             chunk_minutes=config.get("continuous_chunk_minutes", 10),
+            output_fps=config.get("clip_fps", 30),
         )
         monitor.run()
     except Exception as e:

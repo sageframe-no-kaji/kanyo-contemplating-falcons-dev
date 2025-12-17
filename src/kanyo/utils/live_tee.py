@@ -36,6 +36,7 @@ class FFmpegTeeManager:
         buffer_dir: str | Path,
         chunk_minutes: int = 10,
         encoder: str | None = None,
+        fps: int = 30,
     ):
         """
         Initialize tee manager.
@@ -46,12 +47,14 @@ class FFmpegTeeManager:
             buffer_dir: Directory for segment files
             chunk_minutes: Segment duration in minutes
             encoder: Hardware encoder override (auto-detect if None)
+            fps: Output framerate for segments (default: 30)
         """
         self.stream_url = stream_url
         self.proxy_url = proxy_url
         self.buffer_dir = Path(buffer_dir)
         self.chunk_minutes = chunk_minutes
         self.encoder = encoder or detect_hardware_encoder()
+        self.fps = fps
         self.process: subprocess.Popen | None = None
 
         # Create buffer directory
@@ -128,7 +131,7 @@ class FFmpegTeeManager:
         cmd.extend(
             [
                 "-r",
-                "30",  # 30fps output
+                str(self.fps),
                 "-f",
                 "segment",
                 "-segment_time",

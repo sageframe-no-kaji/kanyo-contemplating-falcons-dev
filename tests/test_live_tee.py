@@ -1,6 +1,5 @@
 """Tests for live_tee module."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,6 +39,7 @@ class TestFFmpegTeeManager:
         )
 
         assert buffer_dir.exists()
+        assert tee_manager.buffer_dir == buffer_dir
 
     def test_build_command_libx264(self, tee_manager):
         """Build command uses libx264 fallback."""
@@ -98,6 +98,39 @@ class TestFFmpegTeeManager:
         assert "h264_nvenc" in cmd
         assert "-preset" in cmd
         assert "fast" in cmd
+
+    def test_build_command_custom_fps(self, tmp_path):
+        """Build command with custom framerate."""
+        tee_manager = FFmpegTeeManager(
+            stream_url="https://test.url",
+            proxy_url="udp://127.0.0.1:12345",
+            buffer_dir=tmp_path,
+            encoder="libx264",
+            fps=15,
+        )
+
+        cmd = tee_manager.build_command()
+
+        # Check that the framerate is set correctly
+        assert "-r" in cmd
+        r_index = cmd.index("-r")
+        assert cmd[r_index + 1] == "15"
+
+    def test_build_command_default_fps(self, tmp_path):
+        """Build command uses default 30fps when not specified."""
+        tee_manager = FFmpegTeeManager(
+            stream_url="https://test.url",
+            proxy_url="udp://127.0.0.1:12345",
+            buffer_dir=tmp_path,
+            encoder="libx264",
+        )
+
+        cmd = tee_manager.build_command()
+
+        # Check that default framerate is 30
+        assert "-r" in cmd
+        r_index = cmd.index("-r")
+        assert cmd[r_index + 1] == "30"
 
     def test_is_running_false_when_not_started(self, tee_manager):
         """is_running returns False when not started."""

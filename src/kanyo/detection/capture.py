@@ -55,6 +55,7 @@ class StreamCapture:
         proxy_url: str | None = None,
         buffer_dir: str | None = None,
         chunk_minutes: int = 10,
+        output_fps: int = 30,
     ):
         """
         Initialize stream capture.
@@ -67,6 +68,7 @@ class StreamCapture:
             proxy_url: Local proxy URL when using tee mode
             buffer_dir: Directory for segment files in tee mode
             chunk_minutes: Segment duration in tee mode
+            output_fps: Output framerate for segments in tee mode
         """
         self.stream_url = stream_url
         self.max_height = max_height
@@ -75,6 +77,7 @@ class StreamCapture:
         self.proxy_url = proxy_url or "udp://127.0.0.1:12345"
         self.buffer_dir = buffer_dir or "/tmp/kanyo-buffer"
         self.chunk_minutes = chunk_minutes
+        self.output_fps = output_fps
         self._cap: cv2.VideoCapture | None = None
         self._frame_count = 0
         self._tee_manager: FFmpegTeeManager | None = None
@@ -130,6 +133,7 @@ class StreamCapture:
                     proxy_url=self.proxy_url,
                     buffer_dir=self.buffer_dir,
                     chunk_minutes=self.chunk_minutes,
+                    fps=self.output_fps,
                 )
 
                 if not self._tee_manager.start():
