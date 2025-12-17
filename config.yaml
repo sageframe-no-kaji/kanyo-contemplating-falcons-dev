@@ -6,8 +6,26 @@
 # ─────────────────────────────────────────────────────────────────────────────
 video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"  # Falcon cam (required)
 detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
-detection_interval: 60         # seconds between detection runs
+detection_interval: 60         # seconds between detection runs (for notifications)
+frame_interval: 30             # process every Nth frame (30 = 2fps at 60fps source)
 model_path: "models/yolov8n.pt"
+detect_any_animal: true        # treat any animal as "falcon" (model misclassifies)
+exit_timeout: 60               # seconds of no detection before falcon "left" (using debounce)
+visit_merge_timeout: 60        # merge visits if re-enter within N seconds (debounce)
+
+# COCO class IDs to detect when detect_any_animal is true
+# Model often misclassifies falcons as: bird(14), cat(15), dog(16)
+animal_classes:
+  - 14  # bird
+  - 15  # cat
+  - 16  # dog
+  - 17  # horse
+  - 18  # sheep
+  - 19  # cow
+  - 20  # elephant
+  - 21  # bear
+  - 22  # zebra
+  - 23  # giraffe
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Output & Storage

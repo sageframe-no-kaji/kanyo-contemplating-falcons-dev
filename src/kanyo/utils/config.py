@@ -20,8 +20,13 @@ DEFAULTS: dict[str, Any] = {
     # Stream & Detection
     "video_source": "",  # YouTube URL (required)
     "detection_confidence": 0.5,  # 0.0–1.0
-    "detection_interval": 60,  # seconds between checks
+    "detection_interval": 60,  # seconds between notification checks
+    "frame_interval": 30,  # process every Nth frame (30 = 2fps at 60fps)
     "model_path": "models/yolov8n.pt",  # YOLOv8 weights
+    "detect_any_animal": True,  # treat any animal as falcon
+    "exit_timeout": 60,  # seconds before falcon "left" (with debouce)
+    "visit_merge_timeout": 60,  # merge visits if re-enter within N seconds
+    "animal_classes": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],  # COCO animal IDs
     # Output & Storage
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
