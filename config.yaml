@@ -1,8 +1,29 @@
 # Kanyo configuration
 # Override any value with env var: KANYO_<KEY> (e.g., KANYO_VIDEO_SOURCE)
 
-video_source: "https://www.youtube.com/watch?v=EXAMPLE"   # required
-detection_confidence: 0.5      # 0.0–1.0
-detection_interval: 60         # seconds between checks
-output_dir: "output"           # results directory
+# ─────────────────────────────────────────────────────────────────────────────
+# Stream & Detection
+# ─────────────────────────────────────────────────────────────────────────────
+video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"  # Falcon cam (required)
+detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
+detection_interval: 60         # seconds between detection runs
 model_path: "models/yolov8n.pt"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Output & Storage
+# ─────────────────────────────────────────────────────────────────────────────
+output_dir: "output"           # results directory
+data_dir: "data"               # thumbnails, events, etc.
+events_file: "data/events.json"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+log_level: "INFO"              # DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_file: "logs/kanyo.log"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications (optional)
+# ─────────────────────────────────────────────────────────────────────────────
+# notify_email: "you@example.com"
+# notify_sms: "+1234567890"

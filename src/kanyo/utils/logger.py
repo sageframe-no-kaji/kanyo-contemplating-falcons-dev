@@ -2,7 +2,7 @@
 Logging utility for kanyo.
 
 Behavior:
-- Reads log_level and log_file from config.yaml (optional keys, sensible defaults)
+- Reads log_level and log_file from config (via setup_logging_from_config)
 - Logs to BOTH console (stderr) and file (logs/kanyo.log by default)
 - Format: "2025-12-15 10:30:00 | INFO | module_name | message"
 - Call setup_logging() once at startup, then get_logger(__name__) in each module
@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -52,6 +53,14 @@ def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) 
     root.addHandler(file_handler)
 
     _initialized = True
+
+
+def setup_logging_from_config(config: dict[str, Any]) -> None:
+    """Initialize logging using values from a loaded config dict."""
+    setup_logging(
+        level=config.get("log_level", DEFAULT_LEVEL),
+        log_file=config.get("log_file", DEFAULT_LOG_FILE),
+    )
 
 
 def get_logger(name: str) -> logging.Logger:

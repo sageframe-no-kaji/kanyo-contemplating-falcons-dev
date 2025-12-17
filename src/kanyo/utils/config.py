@@ -17,11 +17,18 @@ import yaml
 # Defaults
 # ──────────────────────────────────────────────────────────────────────────────
 DEFAULTS: dict[str, Any] = {
+    # Stream & Detection
     "video_source": "",  # YouTube URL (required)
     "detection_confidence": 0.5,  # 0.0–1.0
     "detection_interval": 60,  # seconds between checks
-    "output_dir": "output",  # results directory
     "model_path": "models/yolov8n.pt",  # YOLOv8 weights
+    # Output & Storage
+    "output_dir": "output",  # results directory
+    "data_dir": "data",  # thumbnails, events, etc.
+    "events_file": "data/events.json",
+    # Logging
+    "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    "log_file": "logs/kanyo.log",
 }
 
 REQUIRED_FIELDS = ["video_source"]
