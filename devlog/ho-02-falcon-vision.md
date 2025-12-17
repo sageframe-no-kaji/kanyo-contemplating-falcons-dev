@@ -279,6 +279,96 @@ PYTHONPATH=src python -m pytest tests/ -v
 
 ---
 
+## Gotchas & Lessons
+
+### YOLOv8 Coordinate Formats
+
+**Gotcha:** Box accessors return different formats
+```python
+box.xywh    # center x, center y, width, height
+box.xyxy    # x1, y1, x2, y2 (corner coordinates)
+box.xyxyn   # normalized (0.0-1.0)
+```
+
+Use `.xyxy[0]` for absolute pixel coordinates in video. Don't assume xywh format.
+
+### ffmpeg Seeking Performance
+
+**Gotcha:** `-ss` flag placement matters enormously
+```bash
+# SLOW - decodes entire file up to timestamp
+ffmpeg -i video.mp4 -ss 00:05:30 output.mp4
+
+# FAST - seeks to timestamp in container (keyframes)
+ffmpeg -ss 00:05:30 -i video.mp4 output.mp4
+```
+
+Always put `-ss` BEFORE `-i` for clip extraction. ~100x faster.
+
+### visit_merge_timeout Tuning
+
+**Gotcha:** Need to understand your bird's behavior
+```yaml
+visit_merge_timeout: 30  # Too low = multiple visits for one perch
+visit_merge_timeout: 120 # Too high = merges separate visits
+```
+
+Observe actual falcon gaps - measure the time between legitimate separate visits and set timeout below that.
+
+### Hardware Encoder Availability
+
+**Gotcha:** Just because ffmpeg lists encoder doesn't mean it works
+```python
+# This can fail silently:
+ffmpeg -c:v h264_vaapi ...  # Lists as available but device missing
+
+# Must test actual encode:
+ffmpeg -vaapi_device /dev/dri/renderD128 -c:v h264_vaapi ...
+```
+
+Always test encode in detection code before using in production.
+
+---
+
+## Performance
+
+### Processing Speed
+
+**14-minute test video:**
+- **With frame_interval=30:** ~45 seconds total processing
+  - That's 2x realtime (14 min video in 7 seconds of processing per minute)
+- **With frame_interval=1 (every frame):** ~18 minutes (runs slower than video)
+
+**Breakdown per 1-minute video:**
+- YOLO inference: ~0.3 seconds
+- Frame reading: ~0.1 seconds  
+- Event merging: negligible
+
+### Clip Extraction Speed
+
+**Per clip with hardware encoding (VideoToolbox Mac):**
+- 90-second clip: ~5-10 seconds
+- 180-second clip: ~10-15 seconds
+- **Speedup: 10-20x vs software**
+
+**Per clip WITHOUT hardware encoding (libx264):**
+- 90-second clip: ~50-90 seconds
+- 180-second clip: ~100-180 seconds
+- Quality same, just slow
+
+### Thumbnail Extraction
+
+- Per thumbnail: ~0.5-1 second
+- Fast because single frame extraction
+
+### Memory Usage
+
+- YOLOv8 nano model: ~200MB loaded
+- Video frames in memory: ~50MB (1080p RGB)
+- Total per process: ~300-400MB
+
+---
+
 ## What's Next (Ho 3?)
 
 - **Live stream monitoring** - Connect to YouTube live stream
@@ -307,3 +397,4 @@ PYTHONPATH=src python -m pytest tests/ -v
 **Time Spent:** ~6-8 hours across sessions
 **Test Count:** 55 passing
 **Coverage:** 54%
+
