@@ -341,7 +341,7 @@ Always test encode in detection code before using in production.
 
 **Breakdown per 1-minute video:**
 - YOLO inference: ~0.3 seconds
-- Frame reading: ~0.1 seconds  
+- Frame reading: ~0.1 seconds
 - Event merging: negligible
 
 ### Clip Extraction Speed
