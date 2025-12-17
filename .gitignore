@@ -216,3 +216,12 @@ scripts/data/
 
 # Model weights (auto-downloads)
 models/*.pt
+
+# macOS
+.DS_Store
+
+# mypy
+.mypy_cache/
+
+# coverage
+.coverage
