@@ -208,3 +208,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 logs/
+
+# Generated test data
+data/*test*.json
+data/samples/
+scripts/data/
+
+# Model weights (auto-downloads)
+models/*.pt
