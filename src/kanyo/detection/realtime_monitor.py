@@ -43,13 +43,23 @@ class RealtimeMonitor:
         process_interval_frames: int = 30,
         detect_any_animal: bool = True,
         animal_classes: list[int] | None = None,
+        use_tee: bool = False,
+        proxy_url: str | None = None,
+        buffer_dir: str | None = None,
+        chunk_minutes: int = 10,
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
         self.process_interval = process_interval_frames
 
         # Components (orchestrated modules)
-        self.capture = StreamCapture(stream_url)
+        self.capture = StreamCapture(
+            stream_url,
+            use_tee=use_tee,
+            proxy_url=proxy_url,
+            buffer_dir=buffer_dir,
+            chunk_minutes=chunk_minutes,
+        )
         self.detector = FalconDetector(
             confidence_threshold=confidence_threshold,
             detect_any_animal=detect_any_animal,
@@ -171,6 +181,7 @@ def main():
     logger.info(f"  detect_any_animal: {config.get('detect_any_animal', True)}")
     logger.info(f"  animal_classes: {config.get('animal_classes')}")
     logger.info(f"  exit_timeout: {config.get('exit_timeout', 120)}")
+    logger.info(f"  live_use_ffmpeg_tee: {config.get('live_use_ffmpeg_tee', False)}")
 
     try:
         monitor = RealtimeMonitor(
@@ -180,6 +191,10 @@ def main():
             process_interval_frames=config.get("frame_interval", 30),
             detect_any_animal=config.get("detect_any_animal", True),
             animal_classes=config.get("animal_classes"),
+            use_tee=config.get("live_use_ffmpeg_tee", False),
+            proxy_url=config.get("live_proxy_url"),
+            buffer_dir=config.get("buffer_dir"),
+            chunk_minutes=config.get("continuous_chunk_minutes", 10),
         )
         monitor.run()
     except Exception as e:

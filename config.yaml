@@ -57,9 +57,13 @@ clip_fps: 30                   # output framerate (30 is fine for playback)
 clip_hardware_encoding: true   # true=auto-detect GPU, false=use software (libx264)
 # clip_encoder: auto           # override: h264_videotoolbox, h264_nvenc, h264_vaapi, libx264
 
-# Continuous recording (placeholder for future implementation)
-continuous_recording: false    # save entire stream instead of event clips
-continuous_chunk_hours: 6      # split continuous recording into N-hour chunks
+# ─────────────────────────────────────────────────────────────────────────────
+# Live Stream Ingestion (YouTube)
+# ─────────────────────────────────────────────────────────────────────────────
+live_use_ffmpeg_tee: true      # use ffmpeg tee to proxy+record YouTube live streams
+live_proxy_url: "udp://127.0.0.1:12345"  # local proxy URL for detection
+buffer_dir: "/tmp/kanyo-buffer"  # where segment recorder writes rolling buffer
+continuous_chunk_minutes: 10   # segment duration for rolling buffer (minutes)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
