@@ -8,10 +8,13 @@ Modules:
     realtime_monitor: Live stream monitoring
 """
 
+from kanyo.detection.capture import StreamCapture, Frame
 from kanyo.detection.detect import FalconDetector, Detection
 from kanyo.detection.events import FalconEvent, FalconVisit, EventStore
 
 __all__ = [
+    "StreamCapture",
+    "Frame",
     "FalconDetector",
     "Detection",
     "FalconEvent",

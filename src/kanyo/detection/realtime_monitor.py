@@ -2,15 +2,16 @@
 Real-time falcon detection with notifications.
 
 Monitors live stream continuously, sends alerts when falcons appear.
-Uses FalconDetector for inference and EventStore for persistence.
+Uses StreamCapture for video, FalconDetector for inference,
+and EventStore for persistence.
 """
 
 import cv2
-import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 
+from kanyo.detection.capture import StreamCapture
 from kanyo.detection.detect import FalconDetector
 from kanyo.detection.events import FalconVisit, EventStore
 from kanyo.utils.config import load_config
@@ -27,8 +28,10 @@ class RealtimeMonitor:
     """
     Monitors a live stream for falcon activity.
 
-    Handles stream connection, frame processing, state tracking,
-    and event persistence with proper timestamps.
+    Orchestrates:
+    - StreamCapture: video frame capture with reconnection
+    - FalconDetector: YOLO-based bird detection
+    - EventStore: JSON persistence for visit events
     """
 
     def __init__(
@@ -42,35 +45,22 @@ class RealtimeMonitor:
         self.exit_timeout = exit_timeout_seconds
         self.process_interval = process_interval_frames
 
-        # Components
+        # Components (orchestrated modules)
+        self.capture = StreamCapture(stream_url)
         self.detector = FalconDetector(confidence_threshold=confidence_threshold)
         self.event_store = EventStore()
 
         # State
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
-        self.frame_count = 0
 
-    def get_direct_stream_url(self) -> str:
-        """Resolve YouTube URL to direct stream URL via yt-dlp."""
-        logger.info("Resolving stream URL...")
-        result = subprocess.run(
-            ["yt-dlp", "-f", "best[height<=720]", "-g", self.stream_url],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            logger.error(f"yt-dlp failed: {result.stderr}")
-            raise RuntimeError("Failed to get stream URL")
-        return result.stdout.strip()
-
-    def save_thumbnail(self, frame, prefix: str = "falcon") -> str:
+    def save_thumbnail(self, frame_data, prefix: str = "falcon") -> str:
         """Save frame as timestamped thumbnail."""
         thumbs_dir = Path("data/thumbs")
         thumbs_dir.mkdir(parents=True, exist_ok=True)
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = thumbs_dir / f"{prefix}_{timestamp_str}.jpg"
-        cv2.imwrite(str(path), frame)
+        cv2.imwrite(str(path), frame_data)
         logger.debug(f"Saved thumbnail: {path}")
         return str(path)
 
@@ -131,47 +121,27 @@ class RealtimeMonitor:
                     self.last_detection_time = None
 
     def run(self) -> None:
-        """Main monitoring loop."""
+        """Main monitoring loop using StreamCapture."""
         logger.info("=" * 60)
         logger.info("Starting Real-Time Falcon Monitoring")
         logger.info(f"Stream: {self.stream_url}")
         logger.info(f"Exit timeout: {self.exit_timeout}s")
+        logger.info(f"Process interval: every {self.process_interval} frames")
         logger.info("=" * 60)
 
-        direct_url = self.get_direct_stream_url()
-        cap = cv2.VideoCapture(direct_url)
-
-        if not cap.isOpened():
-            logger.error("Failed to open stream")
-            return
-
-        logger.info("✅ Connected! Monitoring for falcons...")
         logger.info("Press Ctrl+C to stop")
 
         try:
-            while True:
-                ret, frame = cap.read()
-
-                if not ret:
-                    logger.warning("Stream interrupted, reconnecting in 5s...")
-                    time.sleep(5)
-                    cap.release()
-                    direct_url = self.get_direct_stream_url()
-                    cap = cv2.VideoCapture(direct_url)
-                    continue
-
-                self.frame_count += 1
-
-                if self.frame_count % self.process_interval == 0:
-                    self.process_frame(frame)
-
+            # Use StreamCapture's frame iterator (handles reconnection)
+            for frame in self.capture.frames(skip=self.process_interval):
+                self.process_frame(frame.data)
                 time.sleep(0.01)  # Prevent CPU spin
 
         except KeyboardInterrupt:
             logger.info("\nStopping monitoring...")
 
         finally:
-            cap.release()
+            self.capture.disconnect()
             # Save any ongoing visit
             if self.current_visit is not None:
                 self.current_visit.end_time = datetime.now()
