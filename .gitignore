@@ -227,3 +227,5 @@ models/*.pt
 .coverage
 clips/
 *.mp4
+clips/
+*.mp4
