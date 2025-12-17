@@ -31,6 +31,15 @@ DEFAULTS: dict[str, Any] = {
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
     "events_file": "data/events.json",
+    # Clip Extraction
+    "clips_dir": "clips",
+    "clip_entrance_before": 30,
+    "clip_entrance_after": 60,
+    "clip_exit_before": 60,
+    "clip_exit_after": 30,
+    "clip_merge_threshold": 180,
+    "continuous_recording": False,
+    "continuous_chunk_hours": 6,
     # Logging
     "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     "log_file": "logs/kanyo.log",

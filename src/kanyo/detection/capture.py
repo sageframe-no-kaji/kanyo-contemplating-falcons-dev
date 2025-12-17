@@ -175,6 +175,20 @@ class StreamCapture:
         return self._frame_count
 
     @property
+    def total_frames(self) -> int:
+        """Total frames in the video (0 for live streams)."""
+        if self._cap is None:
+            return 0
+        return int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    @property
+    def fps(self) -> float:
+        """Frames per second of the video."""
+        if self._cap is None:
+            return 0.0
+        return self._cap.get(cv2.CAP_PROP_FPS)
+
+    @property
     def is_connected(self) -> bool:
         """True if currently connected."""
         return self._cap is not None and self._cap.isOpened()

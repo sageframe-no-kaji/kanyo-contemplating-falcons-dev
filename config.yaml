@@ -35,6 +35,29 @@ data_dir: "data"               # thumbnails, events, etc.
 events_file: "data/events.json"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Clip Extraction
+# ─────────────────────────────────────────────────────────────────────────────
+clips_dir: "clips"             # where to save extracted clips
+clip_entrance_before: 30       # seconds before entrance to include
+clip_entrance_after: 60        # seconds after entrance to include
+clip_exit_before: 60           # seconds before exit to include
+clip_exit_after: 30            # seconds after exit to include
+clip_merge_threshold: 180      # merge into one clip if events within N seconds
+
+# Compression settings
+clip_compress: true            # re-encode for smaller files (~10x smaller)
+clip_crf: 23                   # quality: 18=high/larger, 23=balanced, 28=low/smaller
+clip_fps: 30                   # output framerate (30 is fine for playback)
+
+# Hardware encoding (GPU acceleration) - see docs/hardware-encoding.md
+clip_hardware_encoding: true   # true=auto-detect GPU, false=use software (libx264)
+# clip_encoder: auto           # override: h264_videotoolbox, h264_nvenc, h264_vaapi, libx264
+
+# Continuous recording (placeholder for future implementation)
+continuous_recording: false    # save entire stream instead of event clips
+continuous_chunk_hours: 6      # split continuous recording into N-hour chunks
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
 log_level: "INFO"              # DEBUG, INFO, WARNING, ERROR, CRITICAL
