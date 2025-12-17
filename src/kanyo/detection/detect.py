@@ -21,8 +21,21 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# COCO class IDs
+# COCO class IDs - animals that might be detected as "falcon"
+# On a dedicated falcon cam, any animal detection = falcon present
 BIRD_CLASS_ID = 14
+ANIMAL_CLASS_IDS = {
+    14: "bird",
+    15: "cat",
+    16: "dog",
+    17: "horse",
+    18: "sheep",
+    19: "cow",
+    20: "elephant",
+    21: "bear",
+    22: "zebra",
+    23: "giraffe",
+}
 
 
 @dataclass
@@ -62,6 +75,8 @@ class FalconDetector:
         model_path: str | Path = "models/yolov8n.pt",
         confidence_threshold: float = 0.5,
         target_classes: list[int] | None = None,
+        detect_any_animal: bool = True,
+        animal_classes: list[int] | None = None,
     ):
         """
         Initialize detector.
@@ -70,10 +85,21 @@ class FalconDetector:
             model_path: Path to YOLO model (auto-downloads if missing)
             confidence_threshold: Minimum confidence for detections
             target_classes: Class IDs to detect (default: [14] for birds)
+            detect_any_animal: If True, detect any animal (for falcon cams where
+                               the model may misclassify falcons as cats/dogs)
+            animal_classes: COCO class IDs to treat as "animal" when detect_any_animal=True
         """
         self.model_path = Path(model_path)
         self.confidence_threshold = confidence_threshold
-        self.target_classes = target_classes or [BIRD_CLASS_ID]
+        self.detect_any_animal = detect_any_animal
+
+        # Use provided animal_classes or fall back to ANIMAL_CLASS_IDS keys
+        default_animals = list(ANIMAL_CLASS_IDS.keys())
+
+        if detect_any_animal:
+            self.target_classes = animal_classes or default_animals
+        else:
+            self.target_classes = target_classes or [BIRD_CLASS_ID]
         self._model = None
 
     @property
@@ -114,6 +140,9 @@ class FalconDetector:
         for result in results:
             for box in result.boxes:
                 class_id = int(box.cls[0])
+                # Only include detections matching target classes
+                if class_id not in self.target_classes:
+                    continue
                 detections.append(
                     Detection(
                         class_id=class_id,
