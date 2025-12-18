@@ -5,20 +5,22 @@ Monitors live stream continuously, sends alerts when falcons appear.
 Uses StreamCapture for video, FalconDetector for inference,
 and EventStore for persistence.
 """
+
 import os
-os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '-8'
-import time
-from datetime import datetime
-from pathlib import Path
 
-import cv2
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+import time  # noqa: E402
+from datetime import datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-from kanyo.detection.capture import StreamCapture
-from kanyo.detection.detect import FalconDetector
-from kanyo.detection.events import EventStore, FalconVisit
-from kanyo.utils.config import load_config
-from kanyo.utils.logger import get_logger, setup_logging_from_config
-from kanyo.utils.notifications import send_email
+import cv2  # noqa: E402
+
+from kanyo.detection.capture import StreamCapture  # noqa: E402
+from kanyo.detection.detect import FalconDetector  # noqa: E402
+from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
+from kanyo.utils.config import load_config  # noqa: E402
+from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
+from kanyo.utils.notifications import send_email  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -85,7 +87,9 @@ class RealtimeMonitor:
         # State
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
-        self.arrival_clip_scheduled: datetime | None = None  # Time when arrival clip should be created
+        self.arrival_clip_scheduled: datetime | None = (
+            None  # Time when arrival clip should be created
+        )
         self.last_frame = None  # Store last frame for exit/final thumbnail
 
     def get_output_path(self, timestamp: datetime, event_type: str, extension: str) -> Path:
@@ -154,9 +158,12 @@ class RealtimeMonitor:
                 if self.capture.tee_manager:
                     from datetime import timedelta
 
-                    self.arrival_clip_scheduled = now + timedelta(seconds=self.clip_after_seconds)
+                    self.arrival_clip_scheduled = now + timedelta(
+                        seconds=self.clip_after_seconds
+                    )
                     logger.info(
-                        f"Arrival clip scheduled for {self.arrival_clip_scheduled.strftime('%I:%M:%S %p')} "
+                        f"Arrival clip scheduled for "
+                        f"{self.arrival_clip_scheduled.strftime('%I:%M:%S %p')} "
                         f"({self.clip_after_seconds}s from now)"
                     )
             else:
@@ -192,14 +199,14 @@ class RealtimeMonitor:
 
                     # Save exit thumbnail (using last frame with falcon present)
                     if self.last_frame is not None:
-                        exit_thumb_path = self.save_thumbnail(self.last_frame, exit_time, "departure")
+                        exit_thumb_path = self.save_thumbnail(
+                            self.last_frame, exit_time, "departure"
+                        )
                         logger.debug(f"Saved exit thumbnail: {exit_thumb_path}")
 
-                    # Create departure clip (we've already waited exit_timeout, which is > clip_after_seconds)
+                    # Create departure clip (already waited exit_timeout > clip_after_seconds)
                     if self.capture.tee_manager:
                         try:
-                            from pathlib import Path
-
                             # Create clip centered on exit time
                             clip_start = exit_time - timedelta(seconds=self.clip_before_seconds)
                             clip_duration = self.clip_before_seconds + self.clip_after_seconds
@@ -237,7 +244,6 @@ class RealtimeMonitor:
             return
 
         try:
-            from pathlib import Path
             from datetime import timedelta
 
             # Use the visit start time as the clip center point
