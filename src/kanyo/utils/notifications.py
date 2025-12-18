@@ -149,23 +149,24 @@ class NotificationManager:
             headers = {"Title": title}
 
             # Prepare data (image or text)
-            data: bytes | str
             if thumbnail_path:
                 thumb = Path(thumbnail_path)
                 if thumb.exists():
+                    # Use PUT for image uploads (ntfy requirement)
                     headers["Filename"] = thumb.name
-                    headers["X-Message"] = message
+                    headers["Message"] = message  # Use Message, not X-Message
                     data = thumb.read_bytes()
+                    resp = requests.put(url, data=data, headers=headers, timeout=10)
                 else:
                     logger.warning(
                         f"⚠️  Thumbnail not found: {thumbnail_path} - sending text only"
                     )
-                    data = message
+                    data = message.encode("utf-8")
+                    resp = requests.post(url, data=data, headers=headers, timeout=10)
             else:
-                data = message
-
-            # Send request
-            resp = requests.post(url, data=data, headers=headers, timeout=10)
+                # Use POST for text-only notifications
+                data = message.encode("utf-8")
+                resp = requests.post(url, data=data, headers=headers, timeout=10)
 
             if 200 <= resp.status_code < 300:
                 logger.info(f"📧 Notification sent: {title}")
