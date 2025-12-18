@@ -721,6 +721,173 @@ PYTHONPATH=src python -m kanyo.detection.realtime_monitor --config test_config_h
 4. **Separate config per stream** - Different topics for different cameras
 5. **Test with real streams early** - Synthetic tests can't catch all issues
 6. **Refactor for clarity** - NotificationManager made code much cleaner
+7. **Container formats matter for streaming** - MPEG-TS for segments, MP4 for final clips
+
+---
+
+## Troubleshooting: The "moov atom not found" Saga
+
+### Problem: Empty Video Clips (261 bytes)
+
+**Symptoms:**
+- Notifications working perfectly with images
+- Clips folder created but files only 261 bytes
+- Error: `[mov,mp4,m4a,3gp,3g2,mj2] moov atom not found`
+- Error: `Impossible to open '/tmp/kanyo-buffer/segment_YYYYMMDD_HHMMSS.mp4'`
+
+**Timeline of failed fixes:**
+1. ❌ **Attempt 1**: Added `-movflags +faststart+frag_keyframe+empty_moov`
+   - Theory: Create fragmented MP4 with early moov atom
+   - Result: Failed - VideoToolbox encoder doesn't support proper fragmentation
+   
+2. ❌ **Attempt 2**: Cleaned buffer and reordered ffmpeg command
+   - Theory: Old segments causing issues, command order matters
+   - Result: Failed - new segments still unreadable
+   
+3. ❌ **Attempt 3**: Added 2-second delay before extraction
+   - Theory: Need time for buffer flush
+   - Result: Failed - 2 seconds doesn't help when segment needs 10 minutes to finalize
+
+### Root Cause Analysis
+
+**The fundamental problem:** MP4 container format architecture is incompatible with reading incomplete files.
+
+**MP4 structure requirements:**
+- **moov atom** (movie metadata): Written at END of file during finalization
+- **mdat atom** (media data): Contains video/audio frames
+- File is unreadable until moov atom exists
+
+**Our workflow creates a timing conflict:**
+1. ffmpeg starts 10-minute segment at 11:33:35
+2. Falcon arrives at 11:33:55 (20 seconds into segment)
+3. Clip extraction needs timespan: 11:33:50 to 11:34:10
+4. Extraction attempts to read segment at 11:34:10 (35 seconds elapsed)
+5. **Problem**: Segment won't be finalized until 11:43:35 (10 minutes)
+6. **Result**: No moov atom exists → file unreadable → clip extraction fails
+
+**Why movflags didn't help:**
+- `+faststart`: Only moves moov to beginning AFTER finalization
+- `+frag_keyframe`: Creates fragmented MP4 with multiple moov atoms
+- `+empty_moov`: Creates initial empty moov structure
+- **Critical failure**: VideoToolbox hardware encoder doesn't properly support fragmented MP4. Even with these flags, it still finalizes moov at the end.
+
+### The Solution: Switch to MPEG-TS Format
+
+**MPEG-TS (MPEG Transport Stream) characteristics:**
+1. **Stream-oriented, not file-oriented** - Designed for broadcast TV and live streaming
+2. **No finalization needed** - Each 188-byte packet is self-contained
+3. **Partial file reading** - Can read any portion while still being written
+4. **PAT/PMT repeated** - Program tables repeated periodically for stream synchronization
+5. **No moov atom** - No global metadata structure required
+
+**Implementation changes in `live_tee.py`:**
+
+```python
+# Line 73: Segment filename pattern
+segment_pattern = str(self.buffer_dir / "segment_%Y%m%d_%H%M%S.ts")  # Changed from .mp4
+
+# Line 291: Regex pattern for parsing filenames
+pattern = r"segment_(\d{8})_(\d{6})\.ts"  # Changed from \.mp4
+
+# Lines 243, 261, 326: Glob patterns for finding segments
+segments = sorted(self.buffer_dir.glob("segment_*.ts"))  # Changed from segment_*.mp4
+
+# Removed movflags entirely (not applicable to TS format)
+```
+
+**Why this works:**
+
+| Scenario | MP4 Behavior | MPEG-TS Behavior |
+|----------|--------------|------------------|
+| Read at 20 seconds | ❌ moov atom missing | ✅ Packets available immediately |
+| Read at 5 minutes | ❌ Still not finalized | ✅ Read first 5 minutes fine |
+| Segment rotation | ✅ Complete file | ✅ Complete file |
+| Final clip output | ✅ Use MP4 for compatibility | ✅ Convert TS→MP4 for delivery |
+
+**The complete flow now:**
+
+```
+1. ffmpeg records to: segment_20251218_113335.ts (MPEG-TS format)
+   └─ Packets written immediately as encoded
+   
+2. Falcon arrives at 11:33:55
+   └─ Clip scheduled for 15 seconds later
+   
+3. At 11:34:10, clip extraction runs:
+   ├─ Time range: 11:33:50 to 11:34:10 (20 seconds)
+   ├─ Source: segment_20251218_113335.ts (only 35 seconds recorded)
+   ├─ ✅ CAN READ: TS format allows reading incomplete segments
+   └─ ffmpeg concat extracts 20-second span from .ts segment
+   
+4. Output: falcon_113355_arrival.mp4 (9.2MB valid video)
+   └─ Final clip converted to MP4 for compatibility
+```
+
+**Verification of fix:**
+```
+Before: -rw-r--r--  1 user  staff   261B Dec 18 11:35 falcon_113500_arrival.mp4
+After:  -rw-r--r--  1 user  staff   9.2M Dec 18 11:41 falcon_114059_arrival.mp4
+```
+
+### Why This Is The Right Solution
+
+**Professional video systems use the same approach:**
+- **Live TV broadcasts** → MPEG-TS
+- **HLS streaming** → MPEG-TS segments (.ts files)
+- **DVR systems** → MPEG-TS for recording, MP4 for playback
+- **YouTube live** → MPEG-TS internally, transcoded for delivery
+
+**Key insight:** Use the right container format for the right stage:
+- **Recording buffer** → MPEG-TS (stream-oriented, partial reads)
+- **Final delivery** → MP4 (broad compatibility, smaller size)
+
+### Implementation Details
+
+**Buffer segments:**
+```
+/tmp/kanyo-buffer/
+├── segment_20251218_114054.ts  # 10-minute rolling segments
+├── segment_20251218_115054.ts  # MPEG-TS format
+└── segment_20251218_120054.ts  # Can read while writing
+```
+
+**Extraction process:**
+```python
+# live_tee.py extract_clip() method
+1. Find overlapping segments: glob("segment_*.ts")
+2. Parse timestamps from filenames: segment_(\d{8})_(\d{6})\.ts
+3. Build concat file with segments covering time range
+4. ffmpeg concat protocol extracts span from TS segments
+5. Output as MP4: falcon_HHMMSS_arrival.mp4
+```
+
+**Edge cases handled:**
+- ✅ Clip spans multiple segments → concat handles multiple .ts files
+- ✅ Reading incomplete segment → TS format allows it
+- ✅ Segment rotation during extraction → segments locked while reading
+- ✅ Final output compatibility → converted to MP4 for broad playback support
+
+### Lessons Learned
+
+1. **Container format = architectural choice** - Not just file extension
+2. **MP4 is file-oriented** - Designed for complete, finalized files
+3. **MPEG-TS is stream-oriented** - Designed for partial, live access
+4. **Hardware encoder limitations** - VideoToolbox doesn't properly fragment MP4
+5. **Right tool for the job** - TS for buffer, MP4 for delivery
+6. **Industry patterns exist for a reason** - DVR/HLS systems use same approach
+
+### Quick Reference: MP4 vs MPEG-TS
+
+| Feature | MP4 | MPEG-TS |
+|---------|-----|---------|
+| Metadata location | End (moov atom) | Distributed (PAT/PMT) |
+| Partial reads | ❌ No | ✅ Yes |
+| Finalization required | ✅ Yes | ❌ No |
+| File size | Smaller | Larger |
+| Compatibility | Universal | Streaming systems |
+| Use case | Final delivery | Live recording |
+
+**Bottom line:** If you need to read a file while it's being written, use MPEG-TS. If you need maximum compatibility for completed files, use MP4.
 
 ---
 

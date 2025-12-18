@@ -42,7 +42,8 @@ class NotificationManager:
 
         Args:
             config: Dictionary with keys:
-                - ntfy_enabled (bool): Enable/disable notifications
+                - telegram_enabled (bool): Enable/disable Telegram public alerts
+                - ntfy_admin_enabled (bool): Enable/disable ntfy admin errors
                 - notification_cooldown_minutes (int): Cooldown period
 
         Env vars:
@@ -50,7 +51,8 @@ class NotificationManager:
             - TELEGRAM_CHANNEL: Channel ID or @username
             - NTFY_ADMIN_TOPIC: Topic for admin/error notifications
         """
-        self.enabled = bool(config.get("ntfy_enabled", False))
+        self.telegram_enabled = bool(config.get("telegram_enabled", False))
+        self.ntfy_admin_enabled = bool(config.get("ntfy_admin_enabled", False))
         self.cooldown_minutes = int(config.get("notification_cooldown_minutes", 5))
         self.last_departure_time: datetime | None = None
 
@@ -59,23 +61,27 @@ class NotificationManager:
         self.telegram_channel = os.getenv("TELEGRAM_CHANNEL", "")
         self.ntfy_admin_topic = os.getenv("NTFY_ADMIN_TOPIC", "")
 
-        # Validate configuration
-        if self.enabled:
+        # Validate Telegram configuration
+        if self.telegram_enabled:
             if not self.telegram_token or not self.telegram_channel:
                 logger.warning(
-                    "⚠️  ntfy_enabled is True but TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL "
-                    "not set - disabling notifications"
+                    "⚠️  telegram_enabled is True but TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL "
+                    "not set - disabling Telegram notifications"
                 )
-                self.enabled = False
+                self.telegram_enabled = False
             else:
                 logger.info(
-                    f"📧 Notifications enabled: Telegram={self.telegram_channel}, "
+                    f"📧 Telegram enabled: {self.telegram_channel}, "
                     f"cooldown={self.cooldown_minutes}min"
                 )
-                if self.ntfy_admin_topic:
-                    logger.info(f"🔧 Admin errors → ntfy topic: {self.ntfy_admin_topic}")
-                else:
-                    logger.warning("⚠️  NTFY_ADMIN_TOPIC not set - error reporting disabled")
+
+        # Validate ntfy admin configuration
+        if self.ntfy_admin_enabled:
+            if self.ntfy_admin_topic:
+                logger.info(f"🔧 Admin errors enabled → ntfy: {self.ntfy_admin_topic}")
+            else:
+                logger.warning("⚠️  ntfy_admin_enabled is True but NTFY_ADMIN_TOPIC not set")
+                self.ntfy_admin_enabled = False
 
     def send_arrival(self, timestamp: datetime, thumbnail_path: Path | str | None) -> bool:
         """
@@ -88,7 +94,7 @@ class NotificationManager:
         Returns:
             True if notification sent, False if suppressed or failed
         """
-        if not self.enabled:
+        if not self.telegram_enabled:
             return False
 
         # Check cooldown
@@ -130,7 +136,7 @@ class NotificationManager:
         Returns:
             True if notification sent, False if failed
         """
-        if not self.enabled:
+        if not self.telegram_enabled:
             return False
 
         # Build message
@@ -211,7 +217,7 @@ class NotificationManager:
         Args:
             message: Error message text
         """
-        if not self.ntfy_admin_topic:
+        if not self.ntfy_admin_enabled or not self.ntfy_admin_topic:
             return
 
         try:

@@ -70,7 +70,7 @@ class FFmpegTeeManager:
         Returns list of command arguments.
         """
         chunk_seconds = self.chunk_minutes * 60
-        segment_pattern = str(self.buffer_dir / "segment_%Y%m%d_%H%M%S.mp4")
+        segment_pattern = str(self.buffer_dir / "segment_%Y%m%d_%H%M%S.ts")  # Use .ts for live segments
 
         # Base command - YouTube-optimized input flags
         cmd = [
@@ -112,6 +112,20 @@ class FFmpegTeeManager:
         # Output 2: Segments (hardware encoded)
         cmd.extend(["-map", "0:v"])
 
+        # Common segment output settings (BEFORE encoder-specific flags)
+        cmd.extend(
+            [
+                "-f",
+                "segment",
+                "-segment_time",
+                str(chunk_seconds),
+                "-reset_timestamps",
+                "1",
+                "-strftime",
+                "1",
+            ]
+        )
+
         # Platform-specific encoder flags
         if self.encoder == "h264_vaapi":
             # Intel/AMD VAAPI on Linux
@@ -131,7 +145,7 @@ class FFmpegTeeManager:
             )
         elif self.encoder == "h264_videotoolbox":
             # macOS VideoToolbox
-            cmd.extend(["-c:v", "h264_videotoolbox", "-crf", "23"])
+            cmd.extend(["-c:v", "h264_videotoolbox", "-b:v", "4M"])
         elif self.encoder == "h264_nvenc":
             # NVIDIA NVENC
             cmd.extend(["-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "4M"])
@@ -139,21 +153,11 @@ class FFmpegTeeManager:
             # Software fallback
             cmd.extend(["-c:v", "libx264", "-preset", "fast", "-crf", "23"])
 
-        # Common segment output settings
+        # Output format and framerate (AFTER encoder)
         cmd.extend(
             [
                 "-r",
                 str(self.fps),
-                "-f",
-                "segment",
-                "-segment_time",
-                str(chunk_seconds),
-                "-reset_timestamps",
-                "1",
-                "-movflags",
-                "+faststart+frag_keyframe",
-                "-strftime",
-                "1",
                 segment_pattern,
             ]
         )
@@ -234,7 +238,7 @@ class FFmpegTeeManager:
         Returns sorted list of segment paths (newest first).
         """
         segments = sorted(
-            self.buffer_dir.glob("segment_*.mp4"),
+            self.buffer_dir.glob("segment_*.ts"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -252,7 +256,7 @@ class FFmpegTeeManager:
         cutoff_time = time.time() - (keep_minutes * 60)
         deleted = 0
 
-        for segment in self.buffer_dir.glob("segment_*.mp4"):
+        for segment in self.buffer_dir.glob("segment_*.ts"):
             if segment.stat().st_mtime < cutoff_time:
                 try:
                     segment.unlink()
@@ -274,7 +278,7 @@ class FFmpegTeeManager:
         Parse segment filename to get time range.
 
         Args:
-            segment_path: Path to segment file (e.g., segment_20231217_143000.mp4)
+            segment_path: Path to segment file (e.g., segment_20231217_143000.ts)
             chunk_minutes: Duration of each segment in minutes
 
         Returns:
@@ -283,8 +287,8 @@ class FFmpegTeeManager:
         Raises:
             ValueError: If filename doesn't match expected pattern
         """
-        # Pattern: segment_YYYYMMDD_HHMMSS.mp4
-        pattern = r"segment_(\d{8})_(\d{6})\.mp4"
+        # Pattern: segment_YYYYMMDD_HHMMSS.ts
+        pattern = r"segment_(\d{8})_(\d{6})\.ts"
         match = re.match(pattern, segment_path.name)
 
         if not match:
@@ -317,7 +321,7 @@ class FFmpegTeeManager:
         """
         overlapping_segments = []
 
-        for segment in self.buffer_dir.glob("segment_*.mp4"):
+        for segment in self.buffer_dir.glob("segment_*.ts"):
             try:
                 seg_start, seg_end = self.get_segment_timerange(segment, self.chunk_minutes)
 
@@ -371,6 +375,11 @@ class FFmpegTeeManager:
             return False
 
         logger.info(f"Extracting clip from {len(segments)} segment(s): {start_time} to {end_time}")
+
+        # CRITICAL: Wait briefly to ensure segment buffer is flushed to disk
+        # Active segments may have data in ffmpeg's internal buffers
+        import time
+        time.sleep(2)
 
         try:
             if len(segments) == 1:

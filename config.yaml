@@ -4,7 +4,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
-video_source: "https://www.youtube.com/watch?v=yv2RtoIMNzA"  # NSW Falcon Cam
+video_source: "https://www.youtube.com/live/glczTFRRAK4"  # FAS falcon cam
 detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
 frame_interval: 3              # process every 3rd frame (~10fps detection at 30fps source)
 model_path: "models/yolov8n.pt"
@@ -64,8 +64,18 @@ log_level: "INFO"              # DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_file: "logs/kanyo.log"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Notifications (optional)
+# Notifications
 # ─────────────────────────────────────────────────────────────────────────────
-ntfy_enabled: true
-ntfy_topic: "kanyo_falcon_cam_nsw"  # NSW falcon cam notifications
-notification_cooldown_minutes: 5        # Cooldown after departure to suppress next arrival
+# Enable/disable Telegram public alerts (falcon arrivals/departures with images)
+telegram_enabled: true
+
+# Enable/disable ntfy admin error notifications (system errors, text only)
+ntfy_admin_enabled: true
+
+# Cooldown applies to arrival notifications only (departure always sent)
+notification_cooldown_minutes: 5
+
+# Credentials are in .env file:
+#   TELEGRAM_BOT_TOKEN - Bot authentication token
+#   TELEGRAM_CHANNEL - Channel ID or @username (public alerts with images)
+#   NTFY_ADMIN_TOPIC - Topic for admin/error notifications (text only)
