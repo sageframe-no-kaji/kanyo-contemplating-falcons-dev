@@ -82,7 +82,13 @@ class RealtimeMonitor:
             detect_any_animal=detect_any_animal,
             animal_classes=animal_classes,
         )
-        self.event_store = EventStore()
+
+        # Set up date-organized events file
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_dir = Path(self.clips_dir) / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
+        events_path = date_dir / f"events_{date_str}.json"
+        self.event_store = EventStore(events_path)
 
         # State
         self.current_visit: FalconVisit | None = None
