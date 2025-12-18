@@ -739,11 +739,11 @@ PYTHONPATH=src python -m kanyo.detection.realtime_monitor --config test_config_h
 1. ❌ **Attempt 1**: Added `-movflags +faststart+frag_keyframe+empty_moov`
    - Theory: Create fragmented MP4 with early moov atom
    - Result: Failed - VideoToolbox encoder doesn't support proper fragmentation
-   
+
 2. ❌ **Attempt 2**: Cleaned buffer and reordered ffmpeg command
    - Theory: Old segments causing issues, command order matters
    - Result: Failed - new segments still unreadable
-   
+
 3. ❌ **Attempt 3**: Added 2-second delay before extraction
    - Theory: Need time for buffer flush
    - Result: Failed - 2 seconds doesn't help when segment needs 10 minutes to finalize
@@ -809,16 +809,16 @@ segments = sorted(self.buffer_dir.glob("segment_*.ts"))  # Changed from segment_
 ```
 1. ffmpeg records to: segment_20251218_113335.ts (MPEG-TS format)
    └─ Packets written immediately as encoded
-   
+
 2. Falcon arrives at 11:33:55
    └─ Clip scheduled for 15 seconds later
-   
+
 3. At 11:34:10, clip extraction runs:
    ├─ Time range: 11:33:50 to 11:34:10 (20 seconds)
    ├─ Source: segment_20251218_113335.ts (only 35 seconds recorded)
    ├─ ✅ CAN READ: TS format allows reading incomplete segments
    └─ ffmpeg concat extracts 20-second span from .ts segment
-   
+
 4. Output: falcon_113355_arrival.mp4 (9.2MB valid video)
    └─ Final clip converted to MP4 for compatibility
 ```
@@ -874,35 +874,11 @@ After:  -rw-r--r--  1 user  staff   9.2M Dec 18 11:41 falcon_114059_arrival.mp4
 3. **MPEG-TS is stream-oriented** - Designed for partial, live access
 4. **Hardware encoder limitations** - VideoToolbox doesn't properly fragment MP4
 5. **Right tool for the job** - TS for buffer, MP4 for delivery
-6. **Industry patterns exist for a reason** - DVR/HLS systems use same approach
+# Remove old MP4 segments
+rm /tmp/kanyo-buffer/*.mp4
 
-### Quick Reference: MP4 vs MPEG-TS
+# Check what's left
+ls -lh /tmp/kanyo-buffer/
 
-| Feature | MP4 | MPEG-TS |
-|---------|-----|---------|
-| Metadata location | End (moov atom) | Distributed (PAT/PMT) |
-| Partial reads | ❌ No | ✅ Yes |
-| Finalization required | ✅ Yes | ❌ No |
-| File size | Smaller | Larger |
-| Compatibility | Universal | Streaming systems |
-| Use case | Final delivery | Live recording |
-
-**Bottom line:** If you need to read a file while it's being written, use MPEG-TS. If you need maximum compatibility for completed files, use MP4.
-
----
-
-## Success Criteria - Final Status
-
-✅ Run `python realtime_monitor.py` on Mac - DONE
-✅ See it connect to falcon cam - DONE
-✅ Watch log messages as it processes frames - DONE
-✅ Get notification on phone when falcon detected - DONE
-✅ Not get spammed (cooldown works) - DONE
-✅ Stop cleanly with Ctrl+C - DONE
-✅ Leave running for extended periods without crashes - TESTED
-
-**Ho 3 Complete!** 🦅
-
----
-
-**Next: Ho 4 - Docker deployment to bird box**
+# Watch new segments being created
+watch -n 10 'ls -lth /tmp/kanyo-buffer/ | head -5'
