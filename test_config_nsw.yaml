@@ -1,10 +1,10 @@
-# Kanyo configuration
+# Kanyo configuration - NSW Falcon Cam Test
 # Override any value with env var: KANYO_<KEY> (e.g., KANYO_VIDEO_SOURCE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
-video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"  # Falcon cam (required)
+video_source: "https://www.youtube.com/watch?v=yv2RtoIMNzA"  # NSW Falcon Cam
 detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
 detection_interval: 60         # seconds between detection runs (for notifications)
 frame_interval: 30             # process every Nth frame (30 = 2fps at 60fps source)
@@ -58,12 +58,13 @@ clip_hardware_encoding: true   # true=auto-detect GPU, false=use software (libx2
 # clip_encoder: auto           # override: h264_videotoolbox, h264_nvenc, h264_vaapi, libx264
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Live Stream Ingestion (YouTube)
+# Live Stream Ingestion (YouTube) - TEST CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 live_use_ffmpeg_tee: true      # use ffmpeg tee to proxy+record YouTube live streams
 live_proxy_url: "udp://127.0.0.1:12345"  # local proxy URL for detection
-buffer_dir: "/tmp/kanyo-buffer"  # where segment recorder writes rolling buffer
-continuous_chunk_minutes: 10   # segment duration for rolling buffer (minutes)
+buffer_dir: "/tmp/kanyo-test-buffer"  # where segment recorder writes rolling buffer
+continuous_chunk_minutes: 2    # shorter segments for testing (2 minutes)
+max_runtime_seconds: 300       # 5 minute test duration
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging

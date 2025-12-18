@@ -72,17 +72,26 @@ class FFmpegTeeManager:
         chunk_seconds = self.chunk_minutes * 60
         segment_pattern = str(self.buffer_dir / "segment_%Y%m%d_%H%M%S.mp4")
 
-        # Base command - input with low-latency flags
+        # Base command - YouTube-optimized input flags
         cmd = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
-            "warning",
+            "fatal",  # Only show fatal errors (suppresses h264 warnings)
+            "-err_detect",
+            "ignore_err",  # Ignore decode errors, keep streaming
             "-fflags",
-            "nobuffer",
-            "-flags",
-            "low_delay",
-            "-re",  # Read at native framerate
+            "+genpts+discardcorrupt",  # Generate PTS, discard corrupt packets
+            "-analyzeduration",
+            "10000000",  # Analyze 10 seconds
+            "-probesize",
+            "10000000",  # Probe 10MB
+            "-reconnect",
+            "1",  # Auto-reconnect on failure
+            "-reconnect_streamed",
+            "1",  # Reconnect for live streams
+            "-reconnect_delay_max",
+            "5",  # Max 5 second reconnect delay
             "-i",
             self.stream_url,
         ]

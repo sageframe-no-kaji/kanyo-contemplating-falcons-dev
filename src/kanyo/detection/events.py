@@ -46,13 +46,15 @@ class FalconVisit:
     """
     A complete falcon visit (enter → exit).
 
-    Tracks start/end times, duration, and associated thumbnails.
+    Tracks start/end times, duration, and associated thumbnails/clips.
     """
 
     start_time: datetime
     end_time: datetime | None = None
     peak_confidence: float = 0.0
     thumbnail_path: str | None = None
+    arrival_clip_path: str | None = None
+    departure_clip_path: str | None = None
     id: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S"))
 
     @property
@@ -95,6 +97,8 @@ class FalconVisit:
             "duration_str": self.duration_str,
             "peak_confidence": round(self.peak_confidence, 3),
             "thumbnail_path": self.thumbnail_path,
+            "arrival_clip_path": self.arrival_clip_path,
+            "departure_clip_path": self.departure_clip_path,
         }
 
 

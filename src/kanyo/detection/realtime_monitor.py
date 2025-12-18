@@ -48,10 +48,18 @@ class RealtimeMonitor:
         buffer_dir: str | None = None,
         chunk_minutes: int = 10,
         output_fps: int = 30,
+        clip_before_seconds: int = 30,
+        clip_after_seconds: int = 60,
+        clip_fps: int = 30,
+        clip_crf: int = 23,
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
         self.process_interval = process_interval_frames
+        self.clip_before_seconds = clip_before_seconds
+        self.clip_after_seconds = clip_after_seconds
+        self.clip_fps = clip_fps
+        self.clip_crf = clip_crf
 
         # Components (orchestrated modules)
         self.capture = StreamCapture(
@@ -72,6 +80,8 @@ class RealtimeMonitor:
         # State
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
+        self.arrival_clip_scheduled: datetime | None = None  # Time when arrival clip should be created
+        self.last_frame = None  # Store last frame for exit/final thumbnail
 
     def save_thumbnail(self, frame_data, prefix: str = "falcon") -> str:
         """Save frame as timestamped thumbnail."""
@@ -119,12 +129,33 @@ class RealtimeMonitor:
                         f"Watch: {self.stream_url}"
                     ),
                 )
+
+                # Schedule arrival clip creation after clip_after_seconds
+                if self.capture.tee_manager:
+                    from datetime import timedelta
+
+                    self.arrival_clip_scheduled = now + timedelta(seconds=self.clip_after_seconds)
+                    logger.info(
+                        f"Arrival clip scheduled for {self.arrival_clip_scheduled.strftime('%I:%M:%S %p')} "
+                        f"({self.clip_after_seconds}s from now)"
+                    )
             else:
                 # Still present - update peak confidence
                 if confidence > self.current_visit.peak_confidence:
                     self.current_visit.peak_confidence = confidence
 
             self.last_detection_time = now
+            self.last_frame = frame  # Store for potential exit thumbnail
+
+            # Check if it's time to create scheduled arrival clip
+            if (
+                self.arrival_clip_scheduled
+                and now >= self.arrival_clip_scheduled
+                and self.current_visit
+                and not self.current_visit.arrival_clip_path
+            ):
+                self._create_arrival_clip()
+                self.arrival_clip_scheduled = None
 
         elif self.current_visit is not None:
             # No detection - check if falcon left
@@ -132,13 +163,139 @@ class RealtimeMonitor:
                 elapsed = (now - self.last_detection_time).total_seconds()
                 if elapsed > self.exit_timeout:
                     # FALCON EXITED
-                    self.current_visit.end_time = now
+                    # Set end_time to when falcon actually left (exit_timeout seconds ago)
+                    from datetime import timedelta
+
+                    exit_time = now - timedelta(seconds=self.exit_timeout)
+                    self.current_visit.end_time = exit_time
                     logger.info(f"🦅 FALCON EXITED after {self.current_visit.duration_str}")
+
+                    # Save exit thumbnail (using last frame with falcon present)
+                    if self.last_frame is not None:
+                        exit_thumb_path = self.save_thumbnail(self.last_frame, "exit")
+                        logger.debug(f"Saved exit thumbnail: {exit_thumb_path}")
+
+                    # Create departure clip (we've already waited exit_timeout, which is > clip_after_seconds)
+                    if self.capture.tee_manager:
+                        try:
+                            from pathlib import Path
+
+                            # Create clip centered on exit time
+                            clip_start = exit_time - timedelta(seconds=self.clip_before_seconds)
+                            clip_duration = self.clip_before_seconds + self.clip_after_seconds
+
+                            clip_filename = f"falcon_{exit_time.strftime('%Y%m%d_%H%M%S')}_departure.mp4"
+                            clip_path = Path("clips") / clip_filename
+                            clip_path.parent.mkdir(parents=True, exist_ok=True)
+
+                            logger.info(f"Creating departure clip: {clip_filename}")
+
+                            success = self.capture.tee_manager.extract_clip(
+                                start_time=clip_start,
+                                duration_seconds=clip_duration,
+                                output_path=clip_path,
+                                fps=self.clip_fps,
+                                crf=self.clip_crf,
+                            )
+
+                            if success:
+                                logger.info(f"✅ Departure clip saved: {clip_path}")
+                                self.current_visit.departure_clip_path = str(clip_path)
+                            else:
+                                logger.warning("Failed to create departure clip")
+
+                        except Exception as e:
+                            logger.error(f"Error creating departure clip: {e}")
 
                     # Persist and reset
                     self.event_store.append(self.current_visit)
                     self.current_visit = None
                     self.last_detection_time = None
+                    self.arrival_clip_scheduled = None
+                    self.last_frame = None
+
+    def _create_arrival_clip(self) -> None:
+        """Create arrival clip for current visit."""
+        if not self.current_visit or not self.capture.tee_manager:
+            return
+
+        try:
+            from pathlib import Path
+            from datetime import timedelta
+
+            # Use the visit start time as the clip center point
+            clip_center = self.current_visit.start_time
+            clip_start = clip_center - timedelta(seconds=self.clip_before_seconds)
+            clip_duration = self.clip_before_seconds + self.clip_after_seconds
+
+            clip_filename = f"falcon_{clip_center.strftime('%Y%m%d_%H%M%S')}_arrival.mp4"
+            clip_path = Path("clips") / clip_filename
+            clip_path.parent.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Creating arrival clip: {clip_filename}")
+
+            success = self.capture.tee_manager.extract_clip(
+                start_time=clip_start,
+                duration_seconds=clip_duration,
+                output_path=clip_path,
+                fps=self.clip_fps,
+                crf=self.clip_crf,
+            )
+
+            if success:
+                logger.info(f"✅ Arrival clip saved: {clip_path}")
+                self.current_visit.arrival_clip_path = str(clip_path)
+            else:
+                logger.warning("Failed to create arrival clip")
+
+        except Exception as e:
+            logger.error(f"Error creating arrival clip: {e}")
+
+    def create_final_clip(self) -> None:
+        """Create clip of current visit if falcon still present when monitor stops."""
+        if not self.current_visit:
+            return
+
+        # Save final thumbnail if we have a frame
+        if self.last_frame is not None:
+            final_thumb_path = self.save_thumbnail(self.last_frame, "final")
+            logger.debug(f"Saved final thumbnail: {final_thumb_path}")
+
+        if not self.capture.tee_manager:
+            return
+
+        try:
+            from pathlib import Path
+            from datetime import timedelta
+
+            now = datetime.now()
+            # Create clip of last N seconds before shutdown
+            clip_duration = self.clip_before_seconds + self.clip_after_seconds
+            clip_start = now - timedelta(seconds=clip_duration)
+
+            clip_filename = f"falcon_{now.strftime('%Y%m%d_%H%M%S')}_final.mp4"
+            clip_path = Path("clips") / clip_filename
+            clip_path.parent.mkdir(parents=True, exist_ok=True)
+
+            logger.info(
+                f"Monitor ending with falcon present - creating final clip: {clip_filename}"
+            )
+
+            success = self.capture.tee_manager.extract_clip(
+                start_time=clip_start,
+                duration_seconds=clip_duration,
+                output_path=clip_path,
+                fps=self.clip_fps,
+                crf=self.clip_crf,
+            )
+
+            if success:
+                logger.info(f"✅ Final clip saved: {clip_path}")
+            else:
+                logger.warning("Failed to create final clip")
+
+        except Exception as e:
+            logger.error(f"Error creating final clip: {e}")
 
     def run(self) -> None:
         """Main monitoring loop using StreamCapture."""
@@ -161,6 +318,9 @@ class RealtimeMonitor:
             logger.info("\nStopping monitoring...")
 
         finally:
+            # Create final clip if falcon still present
+            self.create_final_clip()
+
             self.capture.disconnect()
             # Save any ongoing visit
             if self.current_visit is not None:
@@ -198,6 +358,10 @@ def main():
             buffer_dir=config.get("buffer_dir"),
             chunk_minutes=config.get("continuous_chunk_minutes", 10),
             output_fps=config.get("clip_fps", 30),
+            clip_before_seconds=config.get("clip_entrance_before", 30),
+            clip_after_seconds=config.get("clip_entrance_after", 60),
+            clip_fps=config.get("clip_fps", 30),
+            clip_crf=config.get("clip_crf", 23),
         )
         monitor.run()
     except Exception as e:
