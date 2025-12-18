@@ -411,4 +411,331 @@ notification_enabled: true    # Easy on/off switch
 
 ---
 
-**Ready to start Ho 3?** 🦅
+# IMPLEMENTATION NOTES
+
+*Everything below documents what we actually built, decisions made, pitfalls encountered, and lessons learned.*
+
+---
+
+## What We Built
+
+### NotificationManager Class
+
+Refactored all notification logic into a clean, encapsulated class in `src/kanyo/utils/notifications.py`:
+
+```python
+class NotificationManager:
+    """Encapsulates all ntfy.sh notification logic with smart cooldown."""
+
+    def __init__(self, config: dict):
+        """Initialize from config, validate settings."""
+
+    def send_arrival(self, timestamp: datetime, thumbnail_path: Path | None) -> bool:
+        """Send arrival notification if not in cooldown. Returns True if sent."""
+
+    def send_departure(self, timestamp: datetime, thumbnail_path: Path | None,
+                       visit_duration_str: str) -> bool:
+        """Always send departure notification. Updates cooldown timer."""
+
+    def _send_ntfy(self, title: str, message: str, thumbnail_path: Path | None) -> bool:
+        """Actually send HTTP POST to ntfy.sh with optional image attachment."""
+```
+
+**Key Design Decisions:**
+
+1. **Clean API for realtime_monitor.py:**
+   ```python
+   self.notifications = NotificationManager(config)
+   # Later:
+   self.notifications.send_arrival(now, thumbnail_path)
+   self.notifications.send_departure(exit_time, thumb_path, duration)
+   ```
+
+2. **Internal state management** - Cooldown tracking is internal, caller doesn't need to know
+
+3. **Config validation on init** - Logs warnings if ntfy_topic missing, fails gracefully
+
+---
+
+## Smart Cooldown Logic
+
+### The Problem We Solved
+
+Original concept: "Simple cooldown after any notification"
+
+But this creates a problem:
+- Falcon arrives → notification sent → cooldown starts
+- Falcon leaves 5 min later → departure suppressed by cooldown!
+- User knows falcon arrived but never hears it left
+
+### The Solution: Cooldown Starts After Departure
+
+**Logic:**
+1. **Arrival during cooldown** → SUPPRESS (we know bird is around)
+2. **Departure** → ALWAYS SEND (critical info)
+3. **Cooldown timer resets** after departure
+
+This ensures:
+- Each "visit" gets both arrival AND departure notifications
+- Repeat visits within cooldown only get departure
+- User always knows when falcon leaves
+
+**Implementation:**
+```python
+def send_arrival(self, timestamp, thumbnail_path):
+    if self._in_cooldown(timestamp):
+        logger.debug("Suppressing arrival - still in cooldown")
+        return False
+    return self._send_ntfy("Falcon Arrived", ...)
+
+def send_departure(self, timestamp, thumbnail_path, visit_duration_str):
+    # Always send, always update cooldown
+    self.last_departure_time = timestamp
+    return self._send_ntfy("Falcon Departed", ...)
+```
+
+---
+
+## ntfy.sh Integration
+
+### API Details
+
+**Basic text notification:**
+```bash
+curl -d "Message body" -H "Title: My Title" https://ntfy.sh/topic
+```
+
+**With image attachment:**
+```bash
+curl -T image.jpg -H "Title: My Title" -H "Filename: image.jpg" https://ntfy.sh/topic
+```
+
+### Python Implementation
+
+```python
+def _send_ntfy(self, title: str, message: str, thumbnail_path: Path | None) -> bool:
+    url = f"https://ntfy.sh/{self.ntfy_topic}"
+    headers = {"Title": title}
+
+    if thumbnail_path and thumbnail_path.exists():
+        headers["Filename"] = thumbnail_path.name
+        with open(thumbnail_path, "rb") as f:
+            data = f.read()
+    else:
+        data = message.encode("utf-8")
+
+    response = requests.post(url, data=data, headers=headers)
+    return response.ok
+```
+
+---
+
+## Pitfall: Emoji Encoding Error
+
+### The Problem
+
+First version used emoji in titles:
+```python
+title = "🦅 Falcon Arrived"
+```
+
+But ntfy.sh sends headers with latin-1 encoding. Result:
+```
+UnicodeEncodeError: 'latin-1' codec can't encode character '\U0001f985' in position 0
+```
+
+### The Fix
+
+Simple: Don't use emoji in HTTP headers. Plain text works fine:
+```python
+title = "Falcon Arrived"
+title = "Falcon Departed"
+```
+
+**Lesson:** HTTP headers have encoding constraints. Keep them ASCII-safe.
+
+---
+
+## Frame Rate Decision
+
+### Original Planning
+
+Document said: "Start with frame_skip: 30 (1 fps), tune if needed"
+
+### What We Actually Did
+
+**Changed to frame_interval: 3 (10 fps)**
+
+**Reasoning:**
+- 1 fps = only 1 frame per second = 3.3% of frames analyzed
+- Quick movements could be missed entirely
+- 10 fps = much better coverage, still manageable CPU load
+
+**Config setting:**
+```yaml
+frame_interval: 3  # Process every 3rd frame = ~10fps at 30fps source
+```
+
+### Removed detection_interval
+
+Originally had `detection_interval: 60` in configs, but grep search confirmed it was never used anywhere. Removed to avoid confusion.
+
+---
+
+## Topic Separation
+
+### Why Two Topics?
+
+Running monitoring on multiple streams simultaneously. Need separate notification channels:
+
+| Stream | Topic | Use Case |
+|--------|-------|----------|
+| NSW Falcons | `kanyo_falcon_cam_nsw` | Primary overnight monitoring |
+| Harvard Falcons | `kanyo_falcon_cam_fas` | Testing, backup stream |
+
+### Config Setup
+
+**config.yaml (NSW - primary):**
+```yaml
+video_source: "https://www.youtube.com/watch?v=yv2RtoIMNzA"
+ntfy_topic: "kanyo_falcon_cam_nsw"
+```
+
+**test_config_harvard.yaml:**
+```yaml
+video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"
+ntfy_topic: "kanyo_falcon_cam_fas"
+```
+
+---
+
+## Testing Results
+
+### Real Stream Testing
+
+1. **Harvard stream** - Connected successfully, no falcon present at time of testing
+2. **NSW stream** - FALCON DETECTED! Multiple visits observed, clips created successfully
+
+### End-to-End Flow Verified
+
+1. ✅ Stream connects via yt-dlp
+2. ✅ Frames extracted at 10fps
+3. ✅ YOLOv8 detection runs
+4. ✅ Bird presence tracked (state machine)
+5. ✅ Visit events logged to `clips/YYYY-MM-DD/events_YYYY-MM-DD.json`
+6. ✅ Thumbnails saved (first frame of visit)
+7. ✅ Video clips created (post-visit)
+8. ✅ ntfy.sh notifications sent with images
+9. ✅ Notifications received on phone
+
+### Test Notification
+
+```bash
+curl -d "Test from Kanyo - if you see this, notifications are working" \
+     https://ntfy.sh/kanyo_falcon_cam_nsw
+```
+Result: Received on phone within seconds ✅
+
+---
+
+## Final Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     realtime_monitor.py                         │
+│                                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │  StreamCapture  │  │  FalconDetector │  │ NotificationMgr │ │
+│  │  (yt-dlp/ffmpeg)│  │  (YOLOv8)       │  │ (ntfy.sh)       │ │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘ │
+│           │                    │                    │           │
+│           ▼                    ▼                    ▼           │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                     Main Event Loop                         ││
+│  │                                                             ││
+│  │  1. Capture frame from stream                               ││
+│  │  2. Run detection (every frame_interval frames)             ││
+│  │  3. Update visit state machine                              ││
+│  │  4. On ENTERED: save thumbnail, send_arrival()              ││
+│  │  5. On EXITED: create clip, send_departure()                ││
+│  │  6. Log everything to EventStore                            ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+
+Output Files:
+  clips/2025-MM-DD/
+    ├── events_2025-MM-DD.json      # All detection events
+    ├── visit_123456_thumb.jpg      # Thumbnail per visit
+    └── visit_123456.mp4            # Clip per visit
+```
+
+---
+
+## Git Commits
+
+1. **realtime: Save events to date-organized path and tidy data folder**
+   - EventStore now saves to `clips/YYYY-MM-DD/events_YYYY-MM-DD.json`
+   - Cleaned up data folder organization
+
+2. **refactor: Extract notification logic to NotificationManager class**
+   - New `src/kanyo/utils/notifications.py` module
+   - Clean API: `send_arrival()`, `send_departure()`
+   - Internal cooldown state management
+
+3. **config: Fix frame rate and setup NSW/Harvard topics**
+   - frame_interval: 30 → 3 (10fps detection)
+   - Removed unused detection_interval
+   - Separate topics: kanyo_falcon_cam_nsw, kanyo_falcon_cam_fas
+
+---
+
+## How to Run
+
+### Subscribe to notifications first:
+1. Install ntfy app on phone
+2. Subscribe to `kanyo_falcon_cam_nsw` topic
+
+### Start monitoring:
+```bash
+cd kanyo-contemplating-falcons-dev
+PYTHONPATH=src python -m kanyo.detection.realtime_monitor
+```
+
+### Background monitoring (overnight):
+```bash
+nohup PYTHONPATH=src python -m kanyo.detection.realtime_monitor > logs/nsw_monitor.log 2>&1 &
+```
+
+### Using different config:
+```bash
+PYTHONPATH=src python -m kanyo.detection.realtime_monitor --config test_config_harvard.yaml
+```
+
+---
+
+## Lessons Learned
+
+1. **Cooldown timing matters** - Start cooldown after departure, not arrival
+2. **HTTP headers need ASCII** - No emoji in ntfy titles (latin-1 encoding)
+3. **Frame rate affects detection quality** - 10fps much better than 1fps
+4. **Separate config per stream** - Different topics for different cameras
+5. **Test with real streams early** - Synthetic tests can't catch all issues
+6. **Refactor for clarity** - NotificationManager made code much cleaner
+
+---
+
+## Success Criteria - Final Status
+
+✅ Run `python realtime_monitor.py` on Mac - DONE
+✅ See it connect to falcon cam - DONE
+✅ Watch log messages as it processes frames - DONE
+✅ Get notification on phone when falcon detected - DONE
+✅ Not get spammed (cooldown works) - DONE
+✅ Stop cleanly with Ctrl+C - DONE
+✅ Leave running for extended periods without crashes - TESTED
+
+**Ho 3 Complete!** 🦅
+
+---
+
+**Next: Ho 4 - Docker deployment to bird box**
