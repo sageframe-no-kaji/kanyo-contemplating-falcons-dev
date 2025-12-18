@@ -1,6 +1,7 @@
 """
 Configuration management for kanyo.
 - Loads from config.yaml
+- Loads secrets from .env file
 - Environment variable overrides (KANYO_<KEY>)
 - Sensible defaults with validation
 """
@@ -55,6 +56,27 @@ REQUIRED_FIELDS = ["video_source"]
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
+def _load_env_file(env_path: Path = Path(".env")) -> None:
+    """Load .env file into os.environ (simple implementation without python-dotenv)."""
+    if not env_path.exists():
+        return
+
+    with env_path.open() as f:
+        for line in f:
+            line = line.strip()
+            # Skip empty lines and comments
+            if not line or line.startswith("#"):
+                continue
+            # Parse KEY=VALUE
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                # Don't override existing env vars
+                if key and key not in os.environ:
+                    os.environ[key] = value
+
+
 def _cast(value: str, reference: Any) -> Any:
     """Cast string value to match the type of reference."""
     if isinstance(reference, bool):
@@ -71,7 +93,10 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> None:
     for key, default in DEFAULTS.items():
         env_key = f"KANYO_{key.upper()}"
         if env_key in os.environ:
-            cfg[key] = _cast(os.environ[env_key], default)
+            value = os.environ[env_key]
+            # Skip empty values
+            if value:
+                cfg[key] = _cast(value, default)
 
 
 def _validate(cfg: dict[str, Any]) -> None:
@@ -91,7 +116,11 @@ def _validate(cfg: dict[str, Any]) -> None:
 def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
     """
     Load configuration with priority: env vars > YAML file > defaults.
+    Also loads .env file for secrets/credentials.
     """
+    # Load .env file first
+    _load_env_file()
+
     cfg = DEFAULTS.copy()
 
     # Load YAML if present

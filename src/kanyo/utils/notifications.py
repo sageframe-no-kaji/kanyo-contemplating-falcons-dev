@@ -1,12 +1,16 @@
 """
-Notification utilities for ntfy.sh push notifications.
+Notification utilities for Telegram (public) and ntfy (admin/errors).
 
-NotificationManager encapsulates all notification logic with smart cooldown
-to prevent spam while ensuring complete arrival+departure pairs are sent.
+NotificationManager routes notifications to appropriate channels:
+- Telegram: Public alerts (arrival/departure) with images
+- ntfy: Admin errors only (text)
+
+Cooldown logic prevents spam while ensuring complete arrival+departure pairs.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,45 +24,62 @@ logger = get_logger(__name__)
 
 class NotificationManager:
     """
-    Manages push notifications via ntfy.sh with smart cooldown logic.
+    Manages push notifications via Telegram (public) and ntfy (admin/errors).
+
+    Channel routing:
+    - Telegram: Falcon arrival/departure alerts with images (public)
+    - ntfy admin: Errors and delivery failures only (text)
 
     Cooldown applies ONLY to arrival notifications:
     - Arrival notifications suppressed during cooldown period
     - Departure notifications always sent (complete the visit story)
     - Cooldown starts AFTER each departure notification
-
-    This prevents spam from repeated visits while ensuring you see
-    complete arrival+departure notification pairs for genuine visits.
     """
 
     def __init__(self, config: dict[str, Any]):
         """
-        Initialize notification manager from config.
+        Initialize notification manager from config + env.
 
         Args:
             config: Dictionary with keys:
                 - ntfy_enabled (bool): Enable/disable notifications
-                - ntfy_topic (str): Topic name for ntfy.sh
                 - notification_cooldown_minutes (int): Cooldown period
+
+        Env vars:
+            - TELEGRAM_BOT_TOKEN: Bot token for Telegram API
+            - TELEGRAM_CHANNEL: Channel ID or @username
+            - NTFY_ADMIN_TOPIC: Topic for admin/error notifications
         """
         self.enabled = bool(config.get("ntfy_enabled", False))
-        self.topic = config.get("ntfy_topic", "")
         self.cooldown_minutes = int(config.get("notification_cooldown_minutes", 5))
         self.last_departure_time: datetime | None = None
 
-        if self.enabled and not self.topic:
-            logger.warning("⚠️  ntfy_enabled is True but ntfy_topic is empty - disabling notifications")
-            self.enabled = False
+        # Load credentials from environment
+        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.telegram_channel = os.getenv("TELEGRAM_CHANNEL", "")
+        self.ntfy_admin_topic = os.getenv("NTFY_ADMIN_TOPIC", "")
 
+        # Validate configuration
         if self.enabled:
-            logger.info(
-                f"📧 Notifications enabled: topic='{self.topic}', "
-                f"cooldown={self.cooldown_minutes}min"
-            )
+            if not self.telegram_token or not self.telegram_channel:
+                logger.warning(
+                    "⚠️  ntfy_enabled is True but TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL "
+                    "not set - disabling notifications"
+                )
+                self.enabled = False
+            else:
+                logger.info(
+                    f"📧 Notifications enabled: Telegram={self.telegram_channel}, "
+                    f"cooldown={self.cooldown_minutes}min"
+                )
+                if self.ntfy_admin_topic:
+                    logger.info(f"🔧 Admin errors → ntfy topic: {self.ntfy_admin_topic}")
+                else:
+                    logger.warning("⚠️  NTFY_ADMIN_TOPIC not set - error reporting disabled")
 
     def send_arrival(self, timestamp: datetime, thumbnail_path: Path | str | None) -> bool:
         """
-        Send arrival notification if cooldown period has passed.
+        Send arrival notification to Telegram if cooldown period has passed.
 
         Args:
             timestamp: Time of falcon arrival
@@ -86,10 +107,9 @@ class NotificationManager:
 
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
-        title = "Falcon Arrived"
-        message = f"Detected at {ts_str}"
+        caption = f"🦅 Falcon arrived at {ts_str}"
 
-        return self._send_ntfy(title, message, thumbnail_path)
+        return self._send_telegram_photo(caption, thumbnail_path)
 
     def send_departure(
         self,
@@ -98,7 +118,7 @@ class NotificationManager:
         visit_duration_str: str | None = None,
     ) -> bool:
         """
-        Send departure notification (always, regardless of cooldown).
+        Send departure notification to Telegram (always, regardless of cooldown).
 
         After sending, starts new cooldown period.
 
@@ -115,14 +135,13 @@ class NotificationManager:
 
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
-        title = "Falcon Departed"
         if visit_duration_str:
-            message = f"Left at {ts_str} (visit: {visit_duration_str})"
+            caption = f"👋 Falcon departed at {ts_str} (visit: {visit_duration_str})"
         else:
-            message = f"Left at {ts_str}"
+            caption = f"👋 Falcon departed at {ts_str}"
 
         # Always send departure (no cooldown check)
-        success = self._send_ntfy(title, message, thumbnail_path)
+        success = self._send_telegram_photo(caption, thumbnail_path)
 
         # Start cooldown after departure
         if success:
@@ -130,60 +149,85 @@ class NotificationManager:
 
         return success
 
-    def _send_ntfy(
-        self, title: str, message: str, thumbnail_path: Path | str | None
-    ) -> bool:
+    def _send_telegram_photo(self, caption: str, photo_path: Path | str | None) -> bool:
         """
-        Send notification to ntfy.sh with optional image attachment.
+        Send photo message to Telegram channel.
 
         Args:
-            title: Notification title
-            message: Notification message body
-            thumbnail_path: Optional path to image attachment
+            caption: Photo caption text
+            photo_path: Path to image file
 
         Returns:
             True if sent successfully, False otherwise
         """
+        if not photo_path:
+            logger.error("❌ Telegram requires image - no photo_path provided")
+            self._send_admin_error("Telegram alert failed: missing image")
+            return False
+
+        photo = Path(photo_path)
+        if not photo.exists():
+            logger.error(f"❌ Photo not found: {photo_path}")
+            self._send_admin_error(f"Telegram alert failed: image not found ({photo.name})")
+            return False
+
         try:
-            url = f"https://ntfy.sh/{self.topic}"
-            headers = {"Title": title}
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendPhoto"
 
-            # Prepare data (image or text)
-            if thumbnail_path:
-                thumb = Path(thumbnail_path)
-                if thumb.exists():
-                    # Use PUT for image uploads (ntfy requirement)
-                    headers["Filename"] = thumb.name
-                    headers["Message"] = message  # Use Message, not X-Message
-                    data = thumb.read_bytes()
-                    resp = requests.put(url, data=data, headers=headers, timeout=10)
-                else:
-                    logger.warning(
-                        f"⚠️  Thumbnail not found: {thumbnail_path} - sending text only"
-                    )
-                    data = message.encode("utf-8")
-                    resp = requests.post(url, data=data, headers=headers, timeout=10)
-            else:
-                # Use POST for text-only notifications
-                data = message.encode("utf-8")
-                resp = requests.post(url, data=data, headers=headers, timeout=10)
+            with photo.open("rb") as f:
+                files = {"photo": f}
+                data = {
+                    "chat_id": self.telegram_channel,
+                    "caption": caption,
+                }
+                resp = requests.post(url, data=data, files=files, timeout=10)
 
-            if 200 <= resp.status_code < 300:
-                logger.info(f"📧 Notification sent: {title}")
+            if resp.status_code == 200:
+                logger.info(f"📧 Telegram sent: {caption}")
                 return True
             else:
-                logger.error(
-                    f"❌ ntfy.sh returned {resp.status_code} for '{title}': "
-                    f"{resp.text[:200]}"
-                )
+                error_msg = resp.text[:200]
+                logger.error(f"❌ Telegram API error {resp.status_code}: {error_msg}")
+                self._send_admin_error(f"Telegram delivery failed: {resp.status_code}")
                 return False
 
         except requests.Timeout:
-            logger.error(f"❌ Notification timeout for '{title}' (10s)")
+            logger.error(f"❌ Telegram timeout (10s): {caption}")
+            self._send_admin_error("Telegram delivery timeout")
             return False
         except requests.ConnectionError as e:
-            logger.error(f"❌ Connection error sending '{title}': {e}")
+            logger.error(f"❌ Telegram connection error: {e}")
+            self._send_admin_error(f"Telegram connection failed: {e}")
             return False
         except Exception as e:
-            logger.error(f"❌ Unexpected error sending '{title}': {e}")
+            logger.error(f"❌ Telegram unexpected error: {e}")
+            self._send_admin_error(f"Telegram error: {e}")
             return False
+
+    def _send_admin_error(self, message: str) -> None:
+        """
+        Send error notification to ntfy admin topic (text only).
+
+        Args:
+            message: Error message text
+        """
+        if not self.ntfy_admin_topic:
+            return
+
+        try:
+            url = f"https://ntfy.sh/{self.ntfy_admin_topic}"
+            headers = {
+                "Title": "Kanyo Error",  # Removed emoji to avoid encoding issues
+                "Content-Type": "text/plain; charset=utf-8"
+            }
+            data = message.encode("utf-8")
+            resp = requests.post(url, data=data, headers=headers, timeout=5)
+
+            if resp.status_code >= 200 and resp.status_code < 300:
+                logger.debug(f"🔧 Admin error sent to ntfy: {message}")
+            else:
+                logger.warning(f"⚠️  Failed to send admin error to ntfy: {resp.status_code}")
+
+        except Exception as e:
+            logger.warning(f"⚠️  Could not send admin error to ntfy: {e}")
+
