@@ -43,6 +43,10 @@ DEFAULTS: dict[str, Any] = {
     # Logging
     "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     "log_file": "logs/kanyo.log",
+    # Notifications (ntfy)
+    "ntfy_enabled": False,
+    "ntfy_topic": "",
+    "notification_cooldown_minutes": 5,
 }
 
 REQUIRED_FIELDS = ["video_source"]

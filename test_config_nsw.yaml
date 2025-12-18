@@ -68,5 +68,6 @@ log_file: "logs/kanyo.log"
 # ─────────────────────────────────────────────────────────────────────────────
 # Notifications (optional)
 # ─────────────────────────────────────────────────────────────────────────────
-# notify_email: "you@example.com"
-# notify_sms: "+1234567890"
+ntfy_enabled: true
+ntfy_topic: "kanyo_falcon_cam_test_nsw"  # Test topic
+notification_cooldown_minutes: 5

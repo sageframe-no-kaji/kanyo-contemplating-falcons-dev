@@ -20,7 +20,7 @@ from kanyo.detection.detect import FalconDetector  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.utils.config import load_config  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
-from kanyo.utils.notifications import send_email  # noqa: E402
+from kanyo.utils.notifications import NotificationManager  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -90,6 +90,9 @@ class RealtimeMonitor:
         events_path = date_dir / f"events_{date_str}.json"
         self.event_store = EventStore(events_path)
 
+        # Notifications (will be configured from config in main)
+        self.notifications: NotificationManager | None = None
+
         # State
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
@@ -123,14 +126,6 @@ class RealtimeMonitor:
         logger.debug(f"Saved thumbnail: {path}")
         return str(path)
 
-    def send_notification(self, subject: str, message: str) -> None:
-        """Send notification (email/SMS)."""
-        try:
-            send_email(to="notifications@example.com", subject=subject, body=message)
-            logger.info(f"Notification sent: {subject}")
-        except Exception as e:
-            logger.error(f"Failed to send notification: {e}")
-
     def process_frame(self, frame) -> None:
         """Process a single frame for falcon detection."""
         now = datetime.now()
@@ -152,13 +147,9 @@ class RealtimeMonitor:
                 self.current_visit.thumbnail_path = self.save_thumbnail(frame, now, "arrival")
 
                 logger.info(f"🦅 FALCON ENTERED at {now.strftime('%I:%M:%S %p')}")
-                self.send_notification(
-                    subject="🦅 Falcon Active Now!",
-                    message=(
-                        f"Falcon detected at {now.strftime('%I:%M %p')}.\n\n"
-                        f"Watch: {self.stream_url}"
-                    ),
-                )
+                # Send arrival notification (NotificationManager handles cooldown)
+                if self.notifications:
+                    self.notifications.send_arrival(now, self.current_visit.thumbnail_path)
 
                 # Schedule arrival clip creation after clip_after_seconds
                 if self.capture.tee_manager:
@@ -236,6 +227,12 @@ class RealtimeMonitor:
 
                         except Exception as e:
                             logger.error(f"Error creating departure clip: {e}")
+
+                    # Send departure notification (NotificationManager always sends, handles cooldown)
+                    if self.notifications:
+                        visit_duration = self.current_visit.duration_str
+                        thumb_path = exit_thumb_path if "exit_thumb_path" in locals() else None
+                        self.notifications.send_departure(exit_time, thumb_path, visit_duration)
 
                     # Persist and reset
                     self.event_store.append(self.current_visit)
@@ -459,6 +456,8 @@ Examples:
             clips_dir=config.get("clips_dir", "clips"),
             max_runtime_seconds=config.get("max_runtime_seconds"),
         )
+        # Configure notifications from config
+        monitor.notifications = NotificationManager(config)
         monitor.run()
     except KeyboardInterrupt:
         logger.info("\n⏸️  Monitor interrupted by user")

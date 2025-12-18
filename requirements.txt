@@ -13,3 +13,6 @@ pyyaml>=6.0                # Configuration files
 # Web generation
 jinja2>=3.1.0              # Template engine
 markdown>=3.5.0            # Markdown processing
+
+# Notifications
+requests>=2.31.0           # ntfy.sh HTTP POST
