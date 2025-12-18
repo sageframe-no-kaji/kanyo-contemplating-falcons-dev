@@ -54,6 +54,7 @@ class RealtimeMonitor:
         clip_fps: int = 30,
         clip_crf: int = 23,
         clips_dir: str = "clips",
+        max_runtime_seconds: int | None = None,
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
@@ -63,6 +64,7 @@ class RealtimeMonitor:
         self.clip_fps = clip_fps
         self.clip_crf = clip_crf
         self.clips_dir = clips_dir
+        self.max_runtime_seconds = max_runtime_seconds
 
         # Components (orchestrated modules)
         self.capture = StreamCapture(
@@ -313,15 +315,28 @@ class RealtimeMonitor:
         logger.info(f"Stream: {self.stream_url}")
         logger.info(f"Exit timeout: {self.exit_timeout}s")
         logger.info(f"Process interval: every {self.process_interval} frames")
+        if self.max_runtime_seconds:
+            logger.info(f"Test duration: {self.max_runtime_seconds}s")
         logger.info("=" * 60)
 
         logger.info("Press Ctrl+C to stop")
+
+        start_time = time.time()
 
         try:
             # Use StreamCapture's frame iterator (handles reconnection)
             for frame in self.capture.frames(skip=self.process_interval):
                 self.process_frame(frame.data)
                 time.sleep(0.01)  # Prevent CPU spin
+
+                # Check max runtime for test mode
+                if self.max_runtime_seconds:
+                    elapsed = time.time() - start_time
+                    if elapsed >= self.max_runtime_seconds:
+                        logger.info(
+                            f"\n⏱️  Test duration complete: {self.max_runtime_seconds}s elapsed"
+                        )
+                        break
 
         except KeyboardInterrupt:
             logger.info("\nStopping monitoring...")
@@ -340,20 +355,78 @@ class RealtimeMonitor:
 
 
 def main():
-    """Entry point for real-time monitoring."""
-    config = load_config()
+    """Entry point for real-time monitoring with CLI support."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Real-time falcon detection with live stream monitoring",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  Production (24/7):  python -m kanyo.detection.realtime_monitor
+  Test NSW 2 min:     python -m kanyo.detection.realtime_monitor --nsw --duration 2
+  Test Harvard 5 min: python -m kanyo.detection.realtime_monitor --harvard --duration 5
+  Custom config:      python -m kanyo.detection.realtime_monitor --config my_config.yaml
+        """,
+    )
+
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config.yaml",
+        help="Path to configuration file (default: config.yaml)",
+    )
+    parser.add_argument(
+        "--nsw",
+        action="store_true",
+        help="Use NSW Falcon Cam test config (test_config_nsw.yaml)",
+    )
+    parser.add_argument(
+        "--harvard",
+        action="store_true",
+        help="Use Harvard Falcon Cam test config (test_config_harvard.yaml)",
+    )
+    parser.add_argument(
+        "--duration",
+        type=int,
+        metavar="MINUTES",
+        help="Test mode: run for N minutes then exit (overrides max_runtime_seconds)",
+    )
+
+    args = parser.parse_args()
+
+    # Determine config file based on flags
+    if args.harvard:
+        config_file = "test_config_harvard.yaml"
+    elif args.nsw:
+        config_file = "test_config_nsw.yaml"
+    else:
+        config_file = args.config
+
+    # Load config
+    config = load_config(config_file)
     setup_logging_from_config(config)
     logger = get_logger(__name__)
 
-    logger.info("Configuration loaded:")
-    logger.info(f"  video_source: {config.get('video_source')}")
-    logger.info(f"  detection_confidence: {config.get('detection_confidence')}")
-    logger.info(f"  frame_interval: {config.get('frame_interval', 30)}")
-    logger.info(f"  detect_any_animal: {config.get('detect_any_animal', True)}")
-    logger.info(f"  animal_classes: {config.get('animal_classes')}")
-    logger.info(f"  exit_timeout: {config.get('exit_timeout', 120)}")
-    logger.info(f"  live_use_ffmpeg_tee: {config.get('live_use_ffmpeg_tee', False)}")
+    # Apply test duration if specified
+    if args.duration:
+        config["max_runtime_seconds"] = args.duration * 60
+        logger.info(f"⏱️  TEST MODE: Running for {args.duration} minutes")
 
+    logger.info("=" * 80)
+    logger.info("FALCON DETECTION MONITOR")
+    logger.info("=" * 80)
+    logger.info(f"Config file: {config_file}")
+    logger.info(f"Stream: {config.get('video_source')}")
+    logger.info(f"Detection confidence: {config.get('detection_confidence')}")
+    logger.info(f"Frame interval: {config.get('frame_interval', 30)}")
+    logger.info(f"Exit timeout: {config.get('exit_timeout', 120)}s")
+    logger.info(f"Tee mode: {config.get('live_use_ffmpeg_tee', False)}")
+    if args.duration:
+        logger.info(f"Test duration: {args.duration} minutes")
+    logger.info("=" * 80)
+
+    monitor = None
     try:
         monitor = RealtimeMonitor(
             stream_url=config.get("video_source", DEFAULT_STREAM_URL),
@@ -372,11 +445,18 @@ def main():
             clip_fps=config.get("clip_fps", 30),
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
+            max_runtime_seconds=config.get("max_runtime_seconds"),
         )
         monitor.run()
+    except KeyboardInterrupt:
+        logger.info("\n⏸️  Monitor interrupted by user")
     except Exception as e:
-        logger.error(f"Monitor failed: {e}")
+        logger.error(f"Monitor failed: {e}", exc_info=True)
         raise
+    finally:
+        if monitor:
+            monitor.create_final_clip()
+        logger.info("Monitor stopped")
 
 
 if __name__ == "__main__":
