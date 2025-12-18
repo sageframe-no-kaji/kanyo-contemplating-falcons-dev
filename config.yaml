@@ -4,10 +4,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
-video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"  # Falcon cam (required)
+video_source: "https://www.youtube.com/watch?v=yv2RtoIMNzA"  # NSW Falcon Cam
 detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
-detection_interval: 60         # seconds between detection runs (for notifications)
-frame_interval: 30             # process every Nth frame (30 = 2fps at 60fps source)
+frame_interval: 3              # process every 3rd frame (~10fps detection at 30fps source)
 model_path: "models/yolov8n.pt"
 detect_any_animal: true        # treat any animal as "falcon" (model misclassifies)
 exit_timeout: 60               # seconds of no detection before falcon "left" (using debounce)
@@ -68,5 +67,5 @@ log_file: "logs/kanyo.log"
 # Notifications (optional)
 # ─────────────────────────────────────────────────────────────────────────────
 ntfy_enabled: true
-ntfy_topic: "kanyo_falcon_cam_xyz789"  # Change to a unique, private topic
+ntfy_topic: "kanyo_falcon_cam_nsw"  # NSW falcon cam notifications
 notification_cooldown_minutes: 5        # Cooldown after departure to suppress next arrival

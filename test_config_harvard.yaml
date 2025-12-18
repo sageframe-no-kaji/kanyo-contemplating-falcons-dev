@@ -4,10 +4,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
-video_source: "https://www.youtube.com/watch?v=ZdNDWeT9kaY"  # Harvard Falcon Cam
+video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"  # Harvard Falcon Cam
 detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
-detection_interval: 60         # seconds between detection runs (for notifications)
-frame_interval: 30             # process every Nth frame (30 = 2fps at 60fps source)
+frame_interval: 3              # process every 3rd frame (~10fps detection at 30fps source)
 model_path: "models/yolov8n.pt"
 detect_any_animal: true        # treat any animal as "falcon" (model misclassifies)
 exit_timeout: 60               # seconds of no detection before falcon "left" (using debounce)
@@ -56,8 +55,8 @@ clip_hardware_encoding: true   # true=auto-detect GPU, false=use software (libx2
 live_use_ffmpeg_tee: true      # use ffmpeg tee to proxy+record YouTube live streams
 live_proxy_url: "udp://127.0.0.1:12345"  # local proxy URL for detection
 buffer_dir: "/tmp/kanyo-test-buffer"  # where segment recorder writes rolling buffer
-continuous_chunk_minutes: 2    # shorter segments for testing (2 minutes)
-max_runtime_seconds: 300       # 5 minute test duration
+continuous_chunk_minutes: 10   # segment duration (10 minutes for overnight monitoring)
+# max_runtime_seconds: 300     # Commented out for continuous monitoring
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -69,5 +68,5 @@ log_file: "logs/kanyo.log"
 # Notifications (optional)
 # ─────────────────────────────────────────────────────────────────────────────
 ntfy_enabled: true
-ntfy_topic: "kanyo_falcon_cam_test_harvard"  # Test topic
+ntfy_topic: "kanyo_falcon_cam_fas"  # Harvard falcon cam notifications
 notification_cooldown_minutes: 5

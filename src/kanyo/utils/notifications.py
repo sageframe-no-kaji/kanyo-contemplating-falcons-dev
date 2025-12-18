@@ -84,9 +84,9 @@ class NotificationManager:
                 )
                 return False
 
-        # Send arrival notification
+        # Build message
         ts_str = timestamp.strftime("%I:%M %p")
-        title = "🦅 Falcon Arrived"
+        title = "Falcon Arrived"
         message = f"Detected at {ts_str}"
 
         return self._send_ntfy(title, message, thumbnail_path)
@@ -115,7 +115,7 @@ class NotificationManager:
 
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
-        title = "👋 Falcon Departed"
+        title = "Falcon Departed"
         if visit_duration_str:
             message = f"Left at {ts_str} (visit: {visit_duration_str})"
         else:
