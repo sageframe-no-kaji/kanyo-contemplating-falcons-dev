@@ -28,16 +28,9 @@ animal_classes:
   - 23  # giraffe
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Output & Storage
+# Clip Extraction & Storage
 # ─────────────────────────────────────────────────────────────────────────────
-output_dir: "output"           # results directory
-data_dir: "data"               # thumbnails, events, etc.
-events_file: "data/events.json"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Clip Extraction
-# ─────────────────────────────────────────────────────────────────────────────
-clips_dir: "clips"             # where to save extracted clips
+clips_dir: "clips"             # where to save clips and thumbnails (organized by date)
 clip_entrance_before: 5       # seconds before entrance to include
 clip_entrance_after: 15        # seconds after entrance to include
 clip_exit_before: 15           # seconds before exit to include
