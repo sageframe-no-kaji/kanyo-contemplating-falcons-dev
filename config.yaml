@@ -72,16 +72,12 @@ log_file: "logs/kanyo.log"
 # ─────────────────────────────────────────────────────────────────────────────
 # Notifications
 # ─────────────────────────────────────────────────────────────────────────────
-# Enable/disable Telegram public alerts (falcon arrivals/departures with images)
+# Bot token comes from TELEGRAM_BOT_TOKEN in .env (secret)
 telegram_enabled: true
+telegram_channel: "@kanyo_fas_falcon_cam"  # NSW Falcon Cam channel
 
-# Enable/disable ntfy admin error notifications (system errors, text only)
-ntfy_admin_enabled: true
+ntfy_enabled: true
+ntfy_topic: "kanyo_nsw_alerts"  # NSW falcon cam notifications
 
 # Cooldown applies to arrival notifications only (departure always sent)
 notification_cooldown_minutes: 5
-
-# Credentials are in .env file:
-#   TELEGRAM_BOT_TOKEN - Bot authentication token
-#   TELEGRAM_CHANNEL - Channel ID or @username (public alerts with images)
-#   NTFY_ADMIN_TOPIC - Topic for admin/error notifications (text only)
