@@ -281,17 +281,17 @@ class RealtimeMonitor:
 
         elif event_type == FalconEvent.ROOSTING:
             duration_str = self._format_duration(metadata.get("visit_duration", 0))
-            logger.info(f"🏠 Falcon transitioned to ROOSTING state ({duration_str})")
+            logger.info(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")
 
         elif event_type == FalconEvent.ACTIVITY_START:
-            logger.debug("🦅 Falcon activity detected during roost")
+            logger.info("🔄 FALCON ACTIVITY - movement during roost")
             # Optional activity notifications (usually disabled)
             if self.notifications and hasattr(self, "config") and self.config.get("activity_notification", False):
                 self.notifications.send_arrival(timestamp, None)  # Reuse arrival notification
 
         elif event_type == FalconEvent.ACTIVITY_END:
             duration_str = self._format_duration(metadata.get("activity_duration", 0))
-            logger.debug(f"🦅 Falcon settled after activity ({duration_str})")
+            logger.info(f"🏠 FALCON SETTLED - returned to roosting after {duration_str} activity")
 
     def _format_duration(self, seconds: float) -> str:
         """
