@@ -188,9 +188,9 @@ class TestFFmpegTeeManager:
         buffer_dir.mkdir()
 
         # Create test segment files
-        (buffer_dir / "segment_20251217_100000.mp4").touch()
-        (buffer_dir / "segment_20251217_101000.mp4").touch()
-        (buffer_dir / "segment_20251217_102000.mp4").touch()
+        (buffer_dir / "segment_20251217_100000.ts").touch()
+        (buffer_dir / "segment_20251217_101000.ts").touch()
+        (buffer_dir / "segment_20251217_102000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="https://test.url",
@@ -213,7 +213,7 @@ class TestFFmpegTeeManager:
         buffer_dir.mkdir()
 
         # Create old segment
-        old_file = buffer_dir / "segment_old.mp4"
+        old_file = buffer_dir / "segment_old.ts"
         old_file.touch()
         # Set modification time to 2 hours ago
         old_time = time.time() - (2 * 3600)
@@ -223,7 +223,7 @@ class TestFFmpegTeeManager:
         os.utime(old_file, (old_time, old_time))
 
         # Create recent segment
-        new_file = buffer_dir / "segment_new.mp4"
+        new_file = buffer_dir / "segment_new.ts"
         new_file.touch()
 
         tee_manager = FFmpegTeeManager(
@@ -244,7 +244,7 @@ class TestSegmentTimerangeAndExtraction:
 
     def test_get_segment_timerange_valid_filename(self):
         """Parse valid segment filename correctly."""
-        segment = Path("segment_20231217_143000.mp4")
+        segment = Path("segment_20231217_143000.ts")
         start, end = FFmpegTeeManager.get_segment_timerange(segment, chunk_minutes=10)
 
         assert start == datetime(2023, 12, 17, 14, 30, 0)
@@ -252,7 +252,7 @@ class TestSegmentTimerangeAndExtraction:
 
     def test_get_segment_timerange_custom_duration(self):
         """Parse segment with custom chunk duration."""
-        segment = Path("segment_20231217_120000.mp4")
+        segment = Path("segment_20231217_120000.ts")
         start, end = FFmpegTeeManager.get_segment_timerange(segment, chunk_minutes=5)
 
         assert start == datetime(2023, 12, 17, 12, 0, 0)
@@ -260,14 +260,14 @@ class TestSegmentTimerangeAndExtraction:
 
     def test_get_segment_timerange_invalid_filename(self):
         """Invalid filename raises ValueError."""
-        segment = Path("invalid_filename.mp4")
+        segment = Path("invalid_filename.ts")
 
         with pytest.raises(ValueError, match="doesn't match expected pattern"):
             FFmpegTeeManager.get_segment_timerange(segment)
 
     def test_get_segment_timerange_edge_of_day(self):
         """Segment crossing midnight boundary."""
-        segment = Path("segment_20231217_235500.mp4")
+        segment = Path("segment_20231217_235500.ts")
         start, end = FFmpegTeeManager.get_segment_timerange(segment, chunk_minutes=10)
 
         assert start == datetime(2023, 12, 17, 23, 55, 0)
@@ -279,7 +279,7 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segment: 14:30:00 - 14:40:00
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -303,9 +303,9 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segments: 14:30-14:40, 14:40-14:50, 14:50-15:00
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
-        (buffer_dir / "segment_20231217_144000.mp4").touch()
-        (buffer_dir / "segment_20231217_145000.mp4").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
+        (buffer_dir / "segment_20231217_144000.ts").touch()
+        (buffer_dir / "segment_20231217_145000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -330,8 +330,8 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segments: 14:30-14:40, 14:40-14:50
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
-        (buffer_dir / "segment_20231217_144000.mp4").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
+        (buffer_dir / "segment_20231217_144000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -355,7 +355,7 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segment: 14:30-14:40
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -378,9 +378,9 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segments out of order
-        (buffer_dir / "segment_20231217_145000.mp4").touch()
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
-        (buffer_dir / "segment_20231217_144000.mp4").touch()
+        (buffer_dir / "segment_20231217_145000.ts").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
+        (buffer_dir / "segment_20231217_144000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -407,7 +407,7 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segment: 14:30:00 - 14:40:00
-        segment_file = buffer_dir / "segment_20231217_143000.mp4"
+        segment_file = buffer_dir / "segment_20231217_143000.ts"
         segment_file.touch()
 
         tee_manager = FFmpegTeeManager(
@@ -421,7 +421,7 @@ class TestSegmentTimerangeAndExtraction:
         # Mock successful extraction
         mock_run.return_value = Mock(returncode=0, stderr="")
 
-        output_path = tmp_path / "clip.mp4"
+        output_path = tmp_path / "clip.ts"
 
         # Extract clip: 14:32:00 - 14:33:00 (30 seconds offset into segment)
         result = tee_manager.extract_clip(
@@ -450,8 +450,8 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segments: 14:30-14:40, 14:40-14:50
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
-        (buffer_dir / "segment_20231217_144000.mp4").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
+        (buffer_dir / "segment_20231217_144000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -464,7 +464,7 @@ class TestSegmentTimerangeAndExtraction:
         # Mock successful extraction
         mock_run.return_value = Mock(returncode=0, stderr="")
 
-        output_path = tmp_path / "clip.mp4"
+        output_path = tmp_path / "clip.ts"
 
         # Extract clip: 14:38:00 - 14:42:00 (spans two segments)
         result = tee_manager.extract_clip(
@@ -491,7 +491,7 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir.mkdir()
 
         # Create segment
-        (buffer_dir / "segment_20231217_143000.mp4").touch()
+        (buffer_dir / "segment_20231217_143000.ts").touch()
 
         tee_manager = FFmpegTeeManager(
             stream_url="test",
@@ -503,7 +503,7 @@ class TestSegmentTimerangeAndExtraction:
         # Mock failed extraction
         mock_run.return_value = Mock(returncode=1, stderr="Error: file not found")
 
-        output_path = tmp_path / "clip.mp4"
+        output_path = tmp_path / "clip.ts"
 
         result = tee_manager.extract_clip(
             start_time=datetime(2023, 12, 17, 14, 32, 0),
@@ -525,7 +525,7 @@ class TestSegmentTimerangeAndExtraction:
             chunk_minutes=10,
         )
 
-        output_path = tmp_path / "clip.mp4"
+        output_path = tmp_path / "clip.ts"
 
         result = tee_manager.extract_clip(
             start_time=datetime(2023, 12, 17, 14, 32, 0),
@@ -541,7 +541,7 @@ class TestSegmentTimerangeAndExtraction:
         buffer_dir = tmp_path / "buffer"
         buffer_dir.mkdir()
 
-        segment_file = buffer_dir / "segment_20231217_143000.mp4"
+        segment_file = buffer_dir / "segment_20231217_143000.ts"
         segment_file.touch()
 
         tee_manager = FFmpegTeeManager(
@@ -554,7 +554,7 @@ class TestSegmentTimerangeAndExtraction:
 
         mock_run.return_value = Mock(returncode=0, stderr="")
 
-        output_path = tmp_path / "clip.mp4"
+        output_path = tmp_path / "clip.ts"
 
         result = tee_manager.extract_clip(
             start_time=datetime(2023, 12, 17, 14, 32, 0),
