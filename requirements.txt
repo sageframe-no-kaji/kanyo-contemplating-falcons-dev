@@ -1,18 +1,24 @@
 # Core detection
-ultralytics>=8.0.0         # YOLOv8
-opencv-python>=4.8.0       # Video processing
-numpy>=1.24.0              # Array operations
+opencv-python-headless==4.8.1  # Video processing (headless for Docker - no GUI deps)
+ultralytics==8.0.200           # YOLOv8 object detection
+numpy==1.24.3                  # Array operations
+Pillow==10.1.0                 # Image processing
 
-# Stream capture
-yt-dlp>=2023.10.0          # YouTube download
+# Video processing
+yt-dlp==2023.11.16             # YouTube stream download
 
-# Data handling
-python-dateutil>=2.8.0     # Date parsing
-pyyaml>=6.0                # Configuration files
+# Configuration
+pyyaml==6.0.1                  # YAML config files
 
-# Web generation
-jinja2>=3.1.0              # Template engine
-markdown>=3.5.0            # Markdown processing
+# Logging
+loguru==0.7.2                  # Structured logging
 
 # Notifications
-requests>=2.31.0           # ntfy.sh HTTP POST
+requests==2.31.0               # HTTP requests for ntfy/Telegram
+
+# Web generation (optional - for site_generator.py)
+jinja2>=3.1.0                  # Template engine
+markdown>=3.5.0                # Markdown processing
+
+# Data handling (optional)
+python-dateutil>=2.8.0         # Date parsing utilities
