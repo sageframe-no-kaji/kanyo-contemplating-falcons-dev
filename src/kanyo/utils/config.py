@@ -44,9 +44,12 @@ DEFAULTS: dict[str, Any] = {
     # Logging
     "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     "log_file": "logs/kanyo.log",
-    # Notifications (ntfy)
+    # Notifications
+    "telegram_enabled": False,
+    "telegram_channel": "",  # Can be set in YAML or via TELEGRAM_CHANNEL env var
     "ntfy_enabled": False,
-    "ntfy_topic": "",
+    "ntfy_topic": "",  # Can be set in YAML or via NTFY_ADMIN_TOPIC env var
+    "ntfy_admin_enabled": False,  # Alias for ntfy_enabled
     "notification_cooldown_minutes": 5,
 }
 

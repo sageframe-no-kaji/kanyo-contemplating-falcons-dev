@@ -56,10 +56,10 @@ class NotificationManager:
         self.cooldown_minutes = int(config.get("notification_cooldown_minutes", 5))
         self.last_departure_time: datetime | None = None
 
-        # Load credentials from environment
+        # Load credentials - token from env (secret), channel/topic from config or env (backwards compat)
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        self.telegram_channel = os.getenv("TELEGRAM_CHANNEL", "")
-        self.ntfy_admin_topic = os.getenv("NTFY_ADMIN_TOPIC", "")
+        self.telegram_channel = config.get("telegram_channel") or os.getenv("TELEGRAM_CHANNEL", "")
+        self.ntfy_admin_topic = config.get("ntfy_topic") or os.getenv("NTFY_ADMIN_TOPIC", "")
 
         # Validate Telegram configuration
         if self.telegram_enabled:

@@ -71,8 +71,13 @@ log_level: "INFO"              # DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_file: "logs/kanyo.log"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Notifications (optional)
+# Notifications
 # ─────────────────────────────────────────────────────────────────────────────
+# Bot token comes from TELEGRAM_BOT_TOKEN in .env (secret)
+telegram_enabled: true
+telegram_channel: "@kanyo_harvard_falcon_cam"  # Harvard Peregrine channel
+
 ntfy_enabled: true
-ntfy_topic: "kanyo_falcon_cam_fas"  # Harvard falcon cam notifications
+ntfy_topic: "kanyo_harvard_alerts"  # Harvard falcon cam notifications
+
 notification_cooldown_minutes: 5
