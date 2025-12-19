@@ -881,4 +881,3 @@ rm /tmp/kanyo-buffer/*.mp4
 ls -lh /tmp/kanyo-buffer/
 
 # Watch new segments being created
-watch -n 10 'ls -lth /tmp/kanyo-buffer/ | head -5'
