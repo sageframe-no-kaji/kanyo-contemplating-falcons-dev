@@ -1,0 +1,88 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.coverage
+.tox/
+*.cover
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Data (huge, not needed in image - will be bind mounted)
+clips/
+data/
+logs/
+site/
+*.mp4
+*.ts
+*.jpg
+*.png
+*.jpeg
+
+# Models (excluded from build context - downloaded during build instead)
+# See Dockerfile: RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+# This downloads the model INTO the image at build time (~6MB)
+models/
+*.pt
+*.onnx
+*.engine
+
+# Documentation
+devlog/
+docs/
+README.md
+*.md
+
+# Config (will be bind mounted at runtime)
+config.yaml
+.env
+
+# Test configs can stay for image testing
+# test_config_*.yaml
+
+# Tests
+tests/
+
+# Scripts (development only)
+scripts/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# CI/CD
+.github/
+
+# Misc
+*.log
+*.tmp
+.idea*
