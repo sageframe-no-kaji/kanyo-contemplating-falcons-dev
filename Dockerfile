@@ -20,30 +20,34 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Create non-root user and group (before installing Python deps)
+# Create non-root user and group (EARLY, before installing deps)
 RUN groupadd -g ${APP_GID} app && \
     useradd -u ${APP_UID} -g ${APP_GID} -m -s /bin/bash app
 
-# Create directories for runtime and YOLO cache
-RUN mkdir -p /app/clips /app/logs /app/.config
+# Create directories and set ownership
+RUN mkdir -p /app/clips /app/logs /app/.config /app/models && \
+    chown -R app:app /app
 
-# Copy requirements and install Python dependencies
-# Do this BEFORE copying code (better caching)
-COPY requirements.txt .
+# Switch to non-root user (EARLY - do installations as app user)
+USER app
+
+# Add user's local bin to PATH (pip installs executables here)
+ENV PATH="/home/app/.local/bin:${PATH}"
+
+# Copy requirements and install Python dependencies (as app user)
+# Packages install to /home/app/.local automatically
+COPY --chown=app:app requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Set YOLO cache and config directories (before model download)
+# Set YOLO cache directory BEFORE downloading model
 ENV YOLO_CONFIG_DIR=/app/.config
 ENV YOLO_CACHE_DIR=/app/.config
 
-# Download YOLO model directly into app-owned cache directory
+# Download YOLO model (now as app user, into owned directory)
 RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
-# Copy application code INTO the image (not bind mounted)
-COPY src/ ./src/
-
-# Set ownership of runtime-writable directories only
-RUN chown -R app:app /app/src /app/clips /app/logs /app/.config
+# Copy application code (already owned by app user)
+COPY --chown=app:app src/ ./src/
 
 # Set Python path so imports work
 ENV PYTHONPATH=/app/src
