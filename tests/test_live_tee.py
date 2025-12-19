@@ -84,7 +84,8 @@ class TestFFmpegTeeManager:
         cmd = tee_manager.build_command()
 
         assert "h264_videotoolbox" in cmd
-        assert "-crf" in cmd
+        # VideoToolbox uses bitrate mode, not CRF
+        assert "-b:v" in cmd
 
     def test_build_command_nvenc(self, tmp_path):
         """Build command for NVENC encoder."""

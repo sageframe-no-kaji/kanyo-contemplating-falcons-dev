@@ -137,8 +137,10 @@ class FalconDetector:
         )
 
         detections = []
+        total_checked = 0
         for result in results:
             for box in result.boxes:
+                total_checked += 1
                 class_id = int(box.cls[0])
                 # Only include detections matching target classes
                 if class_id not in self.target_classes:
@@ -159,6 +161,13 @@ class FalconDetector:
                         timestamp=timestamp,
                     )
                 )
+
+        # Log confidence at DEBUG level
+        if detections:
+            max_confidence = max(d.confidence for d in detections)
+            logger.debug(f"Falcon detected: confidence={max_confidence:.3f}")
+        else:
+            logger.debug(f"No falcon detected (checked {total_checked} detections)")
 
         return detections
 
