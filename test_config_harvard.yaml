@@ -9,7 +9,13 @@ detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
 frame_interval: 3              # process every 3rd frame (~10fps detection at 30fps source)
 model_path: "models/yolov8n.pt"
 detect_any_animal: true        # treat any animal as "falcon" (model misclassifies)
-exit_timeout: 60               # seconds of no detection before falcon "left" (using debounce)
+
+# State machine configuration for roosting detection
+exit_timeout: 300              # 5 min - mark departed if absent this long during visit
+roosting_threshold: 1800       # 30 min - transition to roosting state
+roosting_exit_timeout: 600     # 10 min - must be absent this long when roosting
+activity_timeout: 180          # 3 min - brief absence during roost is activity
+activity_notification: false   # Send notifications for activity events?
 visit_merge_timeout: 60        # merge visits if re-enter within N seconds (debounce)
 
 # COCO class IDs to detect when detect_any_animal is true

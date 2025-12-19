@@ -18,6 +18,8 @@ import cv2  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
 from kanyo.detection.detect import FalconDetector  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
+from kanyo.detection.event_types import FalconEvent, FalconState  # noqa: E402
+from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
 from kanyo.utils.config import load_config  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
@@ -57,6 +59,10 @@ class RealtimeMonitor:
         clip_crf: int = 23,
         clips_dir: str = "clips",
         max_runtime_seconds: int | None = None,
+        roosting_threshold: int = 1800,
+        roosting_exit_timeout: int = 600,
+        activity_timeout: int = 180,
+        activity_notification: bool = False,
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
@@ -101,6 +107,19 @@ class RealtimeMonitor:
         )
         self.last_frame = None  # Store last frame for exit/final thumbnail
 
+        # Store config for event handlers
+        self.config = {
+            "activity_notification": activity_notification,
+        }
+
+        # State machine for intelligent behavior tracking
+        self.state_machine = FalconStateMachine({
+            "exit_timeout": exit_timeout_seconds,
+            "roosting_threshold": roosting_threshold,
+            "roosting_exit_timeout": roosting_exit_timeout,
+            "activity_timeout": activity_timeout,
+        })
+
     def get_output_path(self, timestamp: datetime, event_type: str, extension: str) -> Path:
         """
         Generate date-organized output path for clips/thumbnails.
@@ -130,116 +149,20 @@ class RealtimeMonitor:
         """Process a single frame for falcon detection."""
         now = datetime.now()
 
-        # Run detection (detect_birds filters by target_classes which includes animals)
+        # Run YOLO detection (detect_birds filters by target_classes which includes animals)
         detections = self.detector.detect_birds(frame, timestamp=now)
-        falcon_present = len(detections) > 0
+        falcon_detected = len(detections) > 0
 
-        if falcon_present:
-            best = self.detector.get_best_detection(detections)
-            confidence = best.confidence if best else 0
+        # Store frame for thumbnails
+        if falcon_detected:
+            self.last_frame = frame
 
-            if self.current_visit is None:
-                # FALCON ENTERED
-                self.current_visit = FalconVisit(
-                    start_time=now,
-                    peak_confidence=confidence,
-                )
-                self.current_visit.thumbnail_path = self.save_thumbnail(frame, now, "arrival")
+        # Update state machine with detection result
+        events = self.state_machine.update(falcon_detected, now)
 
-                logger.info(f"🦅 FALCON ENTERED at {now.strftime('%I:%M:%S %p')}")
-                # Send arrival notification (NotificationManager handles cooldown)
-                if self.notifications:
-                    self.notifications.send_arrival(now, self.current_visit.thumbnail_path)
-
-                # Schedule arrival clip creation after clip_after_seconds
-                if self.capture.tee_manager:
-                    from datetime import timedelta
-
-                    self.arrival_clip_scheduled = now + timedelta(
-                        seconds=self.clip_after_seconds
-                    )
-                    logger.info(
-                        f"Arrival clip scheduled for "
-                        f"{self.arrival_clip_scheduled.strftime('%I:%M:%S %p')} "
-                        f"({self.clip_after_seconds}s from now)"
-                    )
-            else:
-                # Still present - update peak confidence
-                if confidence > self.current_visit.peak_confidence:
-                    self.current_visit.peak_confidence = confidence
-
-            self.last_detection_time = now
-            self.last_frame = frame  # Store for potential exit thumbnail
-
-            # Check if it's time to create scheduled arrival clip
-            if (
-                self.arrival_clip_scheduled
-                and now >= self.arrival_clip_scheduled
-                and self.current_visit
-                and not self.current_visit.arrival_clip_path
-            ):
-                self._create_arrival_clip()
-                self.arrival_clip_scheduled = None
-
-        elif self.current_visit is not None:
-            # No detection - check if falcon left
-            if self.last_detection_time:
-                elapsed = (now - self.last_detection_time).total_seconds()
-                if elapsed > self.exit_timeout:
-                    # FALCON EXITED
-                    # Set end_time to when falcon actually left (exit_timeout seconds ago)
-                    from datetime import timedelta
-
-                    exit_time = now - timedelta(seconds=self.exit_timeout)
-                    self.current_visit.end_time = exit_time
-                    logger.info(f"🦅 FALCON EXITED after {self.current_visit.duration_str}")
-
-                    # Save exit thumbnail (using last frame with falcon present)
-                    if self.last_frame is not None:
-                        exit_thumb_path = self.save_thumbnail(
-                            self.last_frame, exit_time, "departure"
-                        )
-                        logger.debug(f"Saved exit thumbnail: {exit_thumb_path}")
-
-                    # Create departure clip (already waited exit_timeout > clip_after_seconds)
-                    if self.capture.tee_manager:
-                        try:
-                            # Create clip centered on exit time
-                            clip_start = exit_time - timedelta(seconds=self.clip_before_seconds)
-                            clip_duration = self.clip_before_seconds + self.clip_after_seconds
-
-                            clip_path = self.get_output_path(exit_time, "departure", "mp4")
-                            logger.info(f"Creating departure clip: {clip_path.name}")
-
-                            success = self.capture.tee_manager.extract_clip(
-                                start_time=clip_start,
-                                duration_seconds=clip_duration,
-                                output_path=clip_path,
-                                fps=self.clip_fps,
-                                crf=self.clip_crf,
-                            )
-
-                            if success:
-                                logger.info(f"✅ Departure clip saved: {clip_path}")
-                                self.current_visit.departure_clip_path = str(clip_path)
-                            else:
-                                logger.warning("Failed to create departure clip")
-
-                        except Exception as e:
-                            logger.error(f"Error creating departure clip: {e}")
-
-                    # Send departure notification (NotificationManager always sends, handles cooldown)
-                    if self.notifications:
-                        visit_duration = self.current_visit.duration_str
-                        thumb_path = exit_thumb_path if "exit_thumb_path" in locals() else None
-                        self.notifications.send_departure(exit_time, thumb_path, visit_duration)
-
-                    # Persist and reset
-                    self.event_store.append(self.current_visit)
-                    self.current_visit = None
-                    self.last_detection_time = None
-                    self.arrival_clip_scheduled = None
-                    self.last_frame = None
+        # Handle any events generated by state machine
+        for event_type, event_time, metadata in events:
+            self._handle_falcon_event(event_type, event_time, metadata)
 
     def _create_arrival_clip(self) -> None:
         """Create arrival clip for current visit."""
@@ -316,6 +239,118 @@ class RealtimeMonitor:
 
         except Exception as e:
             logger.error(f"Error creating final clip: {e}")
+
+    def _handle_falcon_event(self, event_type: FalconEvent, timestamp: datetime, metadata: dict):
+        """
+        Handle falcon state machine events.
+
+        Routes events from state machine to appropriate actions:
+        notifications, thumbnails, and clip creation.
+        """
+        if event_type == FalconEvent.ARRIVED:
+            logger.info(f"🦅 FALCON ARRIVED at {timestamp.strftime('%I:%M:%S %p')}")
+            # Send arrival notification
+            if self.notifications:
+                # Capture thumbnail if we have a frame
+                thumb_path = None
+                if self.last_frame is not None:
+                    thumb_path = self.save_thumbnail(self.last_frame, timestamp, "arrival")
+                self.notifications.send_arrival(timestamp, thumb_path)
+
+        elif event_type == FalconEvent.DEPARTED:
+            duration = metadata.get("visit_duration") or metadata.get("total_visit_duration", 0)
+            duration_str = self._format_duration(duration)
+            activity_count = metadata.get("activity_periods", 0)
+            activity_str = f", {activity_count} activity periods" if activity_count > 0 else ""
+
+            logger.info(
+                f"🦅 FALCON DEPARTED at {timestamp.strftime('%I:%M:%S %p')} "
+                f"({duration_str} visit{activity_str})"
+            )
+
+            # Send departure notification
+            if self.notifications:
+                thumb_path = None
+                if self.last_frame is not None:
+                    thumb_path = self.save_thumbnail(self.last_frame, timestamp, "departure")
+                self.notifications.send_departure(timestamp, thumb_path, duration_str)
+
+            # Create visit clip if we have start and end times
+            if "visit_start" in metadata and "visit_end" in metadata:
+                self._create_visit_clip(metadata["visit_start"], metadata["visit_end"])
+
+        elif event_type == FalconEvent.ROOSTING:
+            duration_str = self._format_duration(metadata.get("visit_duration", 0))
+            logger.info(f"🏠 Falcon transitioned to ROOSTING state ({duration_str})")
+
+        elif event_type == FalconEvent.ACTIVITY_START:
+            logger.debug("🦅 Falcon activity detected during roost")
+            # Optional activity notifications (usually disabled)
+            if self.notifications and hasattr(self, "config") and self.config.get("activity_notification", False):
+                self.notifications.send_arrival(timestamp, None)  # Reuse arrival notification
+
+        elif event_type == FalconEvent.ACTIVITY_END:
+            duration_str = self._format_duration(metadata.get("activity_duration", 0))
+            logger.debug(f"🦅 Falcon settled after activity ({duration_str})")
+
+    def _format_duration(self, seconds: float) -> str:
+        """
+        Format duration as human-readable string.
+
+        Args:
+            seconds: Duration in seconds
+
+        Returns:
+            Formatted string like "5m 23s" or "2h 15m"
+        """
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s" if secs > 0 else f"{minutes}m"
+        else:
+            hours = int(seconds / 3600)
+            minutes = int((seconds % 3600) / 60)
+            return f"{hours}h {minutes}m" if minutes > 0 else f"{hours}h"
+
+    def _create_visit_clip(self, start_time: datetime, end_time: datetime):
+        """
+        Create a clip for the entire visit.
+
+        Args:
+            start_time: Visit start timestamp
+            end_time: Visit end timestamp
+        """
+        if not self.capture.tee_manager:
+            return
+
+        try:
+            from datetime import timedelta
+
+            # Add buffer before and after
+            clip_start = start_time - timedelta(seconds=self.clip_before_seconds)
+            clip_end = end_time + timedelta(seconds=self.clip_after_seconds)
+            clip_duration = (clip_end - clip_start).total_seconds()
+
+            clip_path = self.get_output_path(start_time, "visit", "mp4")
+            logger.info(f"Creating visit clip: {clip_path.name}")
+
+            success = self.capture.tee_manager.extract_clip(
+                start_time=clip_start,
+                duration_seconds=clip_duration,
+                output_path=clip_path,
+                fps=self.clip_fps,
+                crf=self.clip_crf,
+            )
+
+            if success:
+                logger.info(f"✅ Visit clip saved: {clip_path}")
+            else:
+                logger.warning("Failed to create visit clip")
+
+        except Exception as e:
+            logger.error(f"Error creating visit clip: {e}")
 
     def run(self) -> None:
         """Main monitoring loop using StreamCapture."""
@@ -440,7 +475,7 @@ Examples:
         monitor = RealtimeMonitor(
             stream_url=config.get("video_source", DEFAULT_STREAM_URL),
             confidence_threshold=config.get("detection_confidence", 0.5),
-            exit_timeout_seconds=config.get("exit_timeout", 120),
+            exit_timeout_seconds=config.get("exit_timeout", 300),
             process_interval_frames=config.get("frame_interval", 30),
             detect_any_animal=config.get("detect_any_animal", True),
             animal_classes=config.get("animal_classes"),
@@ -455,6 +490,10 @@ Examples:
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
             max_runtime_seconds=config.get("max_runtime_seconds"),
+            roosting_threshold=config.get("roosting_threshold", 1800),
+            roosting_exit_timeout=config.get("roosting_exit_timeout", 600),
+            activity_timeout=config.get("activity_timeout", 180),
+            activity_notification=config.get("activity_notification", False),
         )
         # Configure notifications from config
         monitor.notifications = NotificationManager(config)
