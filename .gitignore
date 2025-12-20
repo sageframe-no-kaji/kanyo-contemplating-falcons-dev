@@ -1,5 +1,8 @@
 config.local.yaml
 
+# Docker - user-specific production config
+docker-compose.yml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -145,6 +148,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env.docker
 
 # Spyder project settings
 .spyderproject
