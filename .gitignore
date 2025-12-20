@@ -3,6 +3,9 @@ config.local.yaml
 # Docker - user-specific production config
 docker-compose.yml
 
+# Data - production configs and outputs
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
