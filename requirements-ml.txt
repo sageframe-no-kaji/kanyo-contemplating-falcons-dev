@@ -1,0 +1,16 @@
+# ML detection backend - CPU + OpenVINO only
+# Install AFTER requirements-base.txt to avoid dependency resolution chaos
+
+# PyTorch CPU-only (extra-index-url to supplement PyPI with CPU-only wheels)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+torchvision==0.20.1
+
+# Intel iGPU acceleration (from PyPI, optional - falls back to CPU)
+openvino>=2024.0
+
+# Computer vision
+opencv-python-headless==4.8.1.78  # Video processing (headless for Docker - no GUI deps)
+
+# Detection framework (install LAST, after PyTorch is locked)
+ultralytics==8.3.0                 # YOLOv8 object detection

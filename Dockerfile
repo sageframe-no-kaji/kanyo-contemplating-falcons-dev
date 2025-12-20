@@ -34,10 +34,16 @@ USER app
 # Add user's local bin to PATH (pip installs executables here)
 ENV PATH="/home/app/.local/bin:${PATH}"
 
-# Copy requirements and install Python dependencies (as app user)
-# Packages install to /home/app/.local automatically
-COPY --chown=app:app requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# STAGED DEPENDENCY INSTALL: Base runtime first, then ML backend
+# This prevents pip from resolving massive dependency graphs all at once
+
+# Stage 1: Install base runtime dependencies (fast, stable)
+COPY --chown=app:app requirements-base.txt .
+RUN pip install --no-cache-dir -r requirements-base.txt
+
+# Stage 2: Install ML backend (CPU + OpenVINO only, with explicit PyTorch CPU wheels)
+COPY --chown=app:app requirements-ml.txt .
+RUN pip install --no-cache-dir -r requirements-ml.txt
 
 # Set YOLO cache directory BEFORE downloading model
 ENV YOLO_CONFIG_DIR=/app/.config

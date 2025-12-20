@@ -1,0 +1,21 @@
+# Base runtime dependencies (fast, stable, no ML)
+# Install these first to establish core functionality
+
+# Configuration & logging
+pyyaml==6.0.1                  # YAML config files
+loguru==0.7.2                  # Structured logging
+python-dateutil>=2.8.0         # Date parsing utilities
+
+# Video processing (lightweight)
+yt-dlp==2023.11.16             # YouTube stream download
+
+# Notifications
+requests==2.31.0               # HTTP requests for ntfy/Telegram
+
+# Web generation (optional)
+jinja2>=3.1.0                  # Template engine
+markdown>=3.5.0                # Markdown processing
+
+# Core array operations
+numpy==1.24.3                  # Array operations (needed by OpenCV)
+Pillow==10.1.0                 # Image processing
