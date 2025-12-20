@@ -1,0 +1,142 @@
+# ============================================================================
+# Kanyo – Example config.yaml
+# Tier 1 / Reference Configuration (Single Stream)
+#
+# This file is meant to be:
+# - Human-readable
+# - Easy to copy and modify by hand
+# - Safe to use as a starting point
+#
+# Any value can be overridden with an environment variable:
+#   KANYO_<KEY>
+#   e.g. KANYO_VIDEO_SOURCE, KANYO_LOG_LEVEL
+# ============================================================================
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stream & Detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Live video source (YouTube, RTSP, file, etc.)
+video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"
+
+# Detection sensitivity
+detection_confidence: 0.5     # 0.0–1.0 (higher = fewer false positives)
+frame_interval: 3             # Process every Nth frame
+
+# YOLO model location (inside container)
+model_path: "models/yolov8n.pt"
+
+# Treat any detected animal as a valid target
+detect_any_animal: true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Visit / Roosting State Machine
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Timeouts are in seconds
+exit_timeout: 300             # Mark departed if absent this long during a visit
+visit_merge_timeout: 60       # Merge visits if re-enter within this window
+
+# Roosting behavior
+roosting_threshold: 1800      # 30 min continuous presence → roosting
+roosting_exit_timeout: 600    # Must be absent this long to exit roosting
+activity_timeout: 180         # Brief absence during roost counts as activity
+activity_notification: false # Send notifications for roost activity events
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Detection Classes (COCO IDs)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Used when detect_any_animal = true
+animal_classes:
+  - 14  # bird
+  - 15  # cat
+  - 16  # dog
+  - 17  # horse
+  - 18  # sheep
+  - 19  # cow
+  - 20  # elephant
+  - 21  # bear
+  - 22  # zebra
+  - 23  # giraffe
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clip Extraction & Storage
+# ─────────────────────────────────────────────────────────────────────────────
+
+# These paths are INSIDE the container
+# (bind-mounted from the host or ZFS dataset)
+clips_dir: "/app/clips"
+log_file: "/app/logs/kanyo.log"
+
+# Clip timing (seconds)
+clip_entrance_before: 5
+clip_entrance_after: 15
+clip_exit_before: 15
+clip_exit_after: 5
+clip_merge_threshold: 180     # Merge clips if events occur within this window
+
+# Thumbnail capture
+thumbnail_entrance_offset: 5
+thumbnail_exit_offset: -10
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Encoding & Compression
+# ─────────────────────────────────────────────────────────────────────────────
+
+clip_compress: true
+clip_crf: 23                 # 18 = high quality, 23 = balanced, 28 = small
+clip_fps: 30
+
+# Hardware encoding (auto-detect GPU)
+clip_hardware_encoding: true
+# clip_encoder: auto          # Optional override:
+#                             # h264_nvenc | h264_vaapi | h264_videotoolbox | libx264
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Live Stream Ingestion (YouTube Proxy Mode)
+# ─────────────────────────────────────────────────────────────────────────────
+
+live_use_ffmpeg_tee: true
+live_proxy_url: "udp://127.0.0.1:12345"
+
+# Temporary rolling buffer (inside container)
+buffer_dir: "/tmp/kanyo-buffer"
+continuous_chunk_minutes: 10
+
+# max_runtime_seconds: 300    # Uncomment for test runs only
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+
+log_level: "INFO"             # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Telegram notifications
+telegram_enabled: true
+telegram_channel: "@kanyo_example_channel"
+# Bot token is provided via TELEGRAM_BOT_TOKEN env var
+
+# ntfy (admin / error notifications only)
+ntfy_admin_enabled: false
+ntfy_topic: "kanyo_admin_errors"
+
+# Cooldown between notifications (minutes)
+notification_cooldown_minutes: 5
+
+
+# ============================================================================
+# End of example config.yaml
+# ============================================================================
