@@ -21,12 +21,10 @@ services:
   # Camera 1
   # =========================
   cam-1:
-    # Build the image from the local Dockerfile
-    # If you already built/pushed the image, you can remove this
-    build: .
-
-    # Image name used by both services
-    image: kanyo:latest
+    # Pull pre-built image from GitHub Container Registry
+    # For local development/testing, you can build: docker build -t kanyo:cpu .
+    image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu
+    pull_policy: always
 
     # Explicit container name for easy `docker ps` / logs / debugging
     container_name: kanyo-cam-1
@@ -63,8 +61,8 @@ services:
   # Camera 2
   # =========================
   cam-2:
-    build: .
-    image: kanyo:latest
+    image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu
+    pull_policy: always
     container_name: kanyo-cam-2
 
     env_file:

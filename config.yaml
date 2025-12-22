@@ -1,10 +1,10 @@
-# Kanyo configuration
+# Kanyo configuration - Harvard Falcon Cam Test
 # Override any value with env var: KANYO_<KEY> (e.g., KANYO_VIDEO_SOURCE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
-video_source: "https://www.youtube.com/watch?v=yv2RtoIMNzA"  # NSW falcon cam
+video_source: "https://www.youtube.com/watch?v=glczTFRRAK4"  # Harvard Falcon Cam
 detection_confidence: 0.5      # 0.0–1.0, higher = fewer false positives
 frame_interval: 3              # process every 3rd frame (~10fps detection at 30fps source)
 model_path: "models/yolov8n.pt"
@@ -56,12 +56,13 @@ clip_hardware_encoding: true   # true=auto-detect GPU, false=use software (libx2
 # clip_encoder: auto           # override: h264_videotoolbox, h264_nvenc, h264_vaapi, libx264
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Live Stream Ingestion (YouTube)
+# Live Stream Ingestion (YouTube) - TEST CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 live_use_ffmpeg_tee: true      # use ffmpeg tee to proxy+record YouTube live streams
 live_proxy_url: "udp://127.0.0.1:12345"  # local proxy URL for detection
-buffer_dir: "/tmp/kanyo-buffer"  # where segment recorder writes rolling buffer
-continuous_chunk_minutes: 10   # segment duration for rolling buffer (minutes)
+buffer_dir: "/tmp/kanyo-harvard-buffer"  # where segment recorder writes rolling buffer
+continuous_chunk_minutes: 10   # segment duration (10 minutes for overnight monitoring)
+# max_runtime_seconds: 300     # Commented out for continuous monitoring
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -74,10 +75,10 @@ log_file: "logs/kanyo.log"
 # ─────────────────────────────────────────────────────────────────────────────
 # Bot token comes from TELEGRAM_BOT_TOKEN in .env (secret)
 telegram_enabled: true
-telegram_channel: "@kanyo_fas_falcon_cam"  # NSW Falcon Cam channel
+telegram_channel: "@kanyo_fas_falcon_cam"  # Harvard Peregrine channel
 
-ntfy_enabled: true
-ntfy_topic: "kanyo_nsw_alerts"  # NSW falcon cam notifications
+# ntfy admin alerts (errors only, not falcon detections)
+ntfy_admin_enabled: false
+ntfy_topic: "kanyo_admin_errors"  # Admin/error notifications only
 
-# Cooldown applies to arrival notifications only (departure always sent)
 notification_cooldown_minutes: 5

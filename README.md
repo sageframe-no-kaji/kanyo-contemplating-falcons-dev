@@ -17,10 +17,26 @@ Born from a conversation with Claudia Goldin (Nobel laureate in Economics) on a 
 
 ## Quick Start
 
+### Using Pre-built Docker Image (Recommended)
+
+```bash
+# Pull the CPU-only image from GitHub Container Registry
+docker pull ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu
+
+# Copy example docker-compose file
+cp docker-compose.example.yml docker-compose.yml
+
+# Edit docker-compose.yml with your settings
+# Then start:
+docker compose up -d
+```
+
+### Local Development
+
 ```bash
 # Clone and setup
-git clone https://github.com/YOUR_USERNAME/kanyo.git
-cd kanyo
+git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
+cd kanyo-contemplating-falcons-dev
 
 # Create virtual environment
 python3 -m venv venv
