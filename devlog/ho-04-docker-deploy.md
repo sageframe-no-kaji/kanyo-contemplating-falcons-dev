@@ -188,7 +188,7 @@ services:
     build: .
     volumes:
       - /opt/services/kanyo-harvard/clips:/app/clips
-  
+
   nsw:
     build: .
     volumes:
@@ -1293,17 +1293,17 @@ services:
     volumes:
       # Docker socket (manage containers)
       - /var/run/docker.sock:/var/run/docker.sock
-      
+
       # Web UI state (persistent in kanyo-admin ZFS)
       - ./web/config.json:/app/config.json
       - ./web/users.db:/app/users.db
       - ./web/settings.yaml:/app/settings.yaml
-      
+
       # Read-only access to stream data (for browsing clips)
       - ${KANYO_HARVARD_DATA}/clips:/app/data/harvard/clips:ro
       - ${KANYO_HARVARD_DATA}/logs:/app/data/harvard/logs:ro
       - ${KANYO_HARVARD_DATA}/config.yaml:/app/data/harvard/config.yaml:ro
-      
+
       - ${KANYO_NSW_DATA}/clips:/app/data/nsw/clips:ro
       - ${KANYO_NSW_DATA}/logs:/app/data/nsw/logs:ro
       - ${KANYO_NSW_DATA}/config.yaml:/app/data/nsw/config.yaml:ro
@@ -1312,7 +1312,7 @@ services:
   # Existing stream services...
   harvard:
     # ...
-  
+
   nsw:
     # ...
 ```
@@ -1675,7 +1675,7 @@ python -m kanyo.detection.realtime_monitor --config data/nsw/config.yaml
 
 This proved:
 - **Not a Docker problem**
-- **Not a container configuration issue**  
+- **Not a container configuration issue**
 - **Code bug affecting all systems with limited RAM**
 
 ---
@@ -1795,13 +1795,13 @@ if detection.count > 0:
 # ... hundreds of lines per second
 ```
 
-**Realization:** System was working perfectly all along! 
+**Realization:** System was working perfectly all along!
 
 **Design Intent:**
 - **Silent during continuous presence** (by design)
 - Only logs **state transitions**:
   - `ARRIVED` - falcon enters frame
-  - `DEPARTED` - falcon exits frame  
+  - `DEPARTED` - falcon exits frame
   - `ROOSTING` - settled for extended period
   - `ACTIVITY_START/END` - movement during roost
 
@@ -1870,28 +1870,100 @@ frame_interval: 3
 
 ---
 
-### Production Deployment Checklist
+### Current Status (As of Dec 24, 2025)
 
-After fixing the bug, here's the validated deployment process:
+#### ✅ Native Deployment: WORKING
 
-#### 1. Code Preparation
-
-- [x] Fix committed to git (`0c26fe1`)
-- [x] All tests passing (84/84 ✅)
-- [x] Clean commit history
-- [x] Pushed to GitHub
-
-#### 2. Docker Image Rebuild
+Fix validated on test VM (192.168.1.252) running natively:
 
 ```bash
-# GitHub Actions automatically builds on push to main
-# Image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu
-
-# Wait for build completion (~5-10 minutes)
-# Check: https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/actions
+cd /opt/services/kanyo-admin
+python -m kanyo.detection.realtime_monitor --config data/nsw/config.yaml
+# ✅ Runs successfully - no std::bad_alloc crash
 ```
 
-#### 3. VM Deployment
+**Commits:**
+- `0c26fe1` - Critical bug fix (model pre-loading)
+- `508f14a` - Env consolidation
+- `97851ba` - Documentation
+- `b81894d` - Config cleanup
+- `2301380` - Updated documentation
+
+**Tests:** 84/84 passing ✅
+
+#### ⚠️ Docker Deployment: PENDING
+
+**Status:** Image rebuild in progress (GitHub Actions)
+
+**Docker Image Variants:**
+
+The project builds **three** Docker images for different hardware:
+
+1. **`ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu`**
+   - Software encoding only (libx264)
+   - Works on any system
+   - **Slower** clip compression
+   - Use for: Testing, low-power devices
+
+2. **`ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:vaapi`**
+   - Intel Quick Sync Video (VA-API)
+   - **Fastest** for Intel GPUs
+   - Use for: Intel systems with iGPU (like your HP ProDesk)
+
+3. **`ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia`**
+   - NVIDIA NVENC hardware encoding
+   - Use for: Systems with NVIDIA GPUs
+
+**Next Steps:**
+
+1. Wait for GitHub Actions build completion
+2. Pull updated image to test VM
+3. Deploy with docker-compose
+4. Verify fix works in containers
+5. Monitor for stability
+
+**docker-compose.yml Configuration:**
+
+```yaml
+services:
+  harvard:
+    # Change image tag based on your hardware:
+    # - :cpu    → software encoding (any system)
+    # - :vaapi  → Intel GPU hardware encoding (recommended for HP ProDesk)
+    # - :nvidia → NVIDIA GPU hardware encoding
+    image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:vaapi
+    container_name: kanyo-harvard
+    # ... rest of config
+```
+
+**Hardware Encoding Detection:**
+
+The system auto-detects available encoders:
+
+```bash
+# Check what's available in container
+docker compose exec harvard python -m kanyo.utils.encoder --detect
+
+# Expected output on Intel system:
+# ✓ h264_vaapi (Intel Quick Sync)
+```
+
+---
+
+### Docker Deployment Procedure (UNTESTED WITH FIX)
+
+When GitHub Actions completes the rebuild:
+
+#### 1. Verify Image Build
+
+```bash
+# Check GitHub Actions status
+# https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/actions
+
+# Look for successful "Docker Build and Push" workflow
+```
+
+#### 2. Deploy to Test VM
 
 ```bash
 # On test VM (192.168.1.252)
@@ -1905,28 +1977,54 @@ sudo docker compose up -d
 
 # Verify both streams running
 sudo docker compose ps
-# Should show:
+# Expected:
 #   kanyo-harvard   Up
 #   kanyo-nsw       Up
-
-# Check logs for successful startup
-sudo docker compose logs -f harvard
-# Look for: "Pre-loading YOLO model..." and "✅ Model loaded successfully"
 ```
 
-#### 4. Validation
+#### 3. Validate Fix in Containers
 
 ```bash
-# Monitor for 1+ hour
-sudo docker compose logs -f
+# Check Harvard stream logs
+sudo docker compose logs -f harvard
 
-# Verify state transitions logged
-# Check clips being created
-ls -lh /opt/services/kanyo-harvard/clips/$(date +%Y-%m-%d)/
+# Look for these log lines in order:
+# 1. "Pre-loading YOLO model..."
+# 2. "✅ Model loaded successfully"
+# 3. "✅ Connected to tee proxy"
+# 4. "Starting falcon detection..."
 
-# Verify Telegram notifications
-# (falcon arrival should trigger notification)
+# If crash occurs:
+# - Check memory: docker stats
+# - Check logs: docker compose logs harvard
+# - Fall back to native deployment
 ```
+
+#### 4. Monitor for Stability
+
+```bash
+# Watch both containers
+watch -n 5 'sudo docker compose ps'
+
+# Check resource usage
+docker stats kanyo-harvard kanyo-nsw
+
+# Monitor logs for state transitions
+sudo docker compose logs -f | grep -E "(ARRIVED|DEPARTED|ROOSTING)"
+
+# Verify clips being created
+ls -lh /opt/services/kanyo-harvard/clips/$(date +%Y-%m-%d)/
+```
+
+#### 5. Production Validation Checklist
+
+- [ ] Both containers stay running (24+ hours)
+- [ ] No std::bad_alloc crashes
+- [ ] State transitions logged correctly
+- [ ] Clips created in expected directories
+- [ ] Telegram notifications received
+- [ ] Memory usage stable (<4GB per container)
+- [ ] CPU usage reasonable (<50% avg)
 
 ---
 
