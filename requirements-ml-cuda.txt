@@ -1,0 +1,13 @@
+# ML detection backend - CUDA-enabled for NVIDIA GPUs
+# Install AFTER requirements-base.txt to avoid dependency resolution chaos
+
+# PyTorch with CUDA 12.1 support
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1
+torchvision==0.20.1
+
+# Computer vision
+opencv-python-headless==4.8.1.78  # Video processing (headless for Docker - no GUI deps)
+
+# Detection framework (install LAST, after PyTorch is locked)
+ultralytics==8.3.0                 # YOLOv8 object detection

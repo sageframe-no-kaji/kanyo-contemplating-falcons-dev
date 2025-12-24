@@ -1,0 +1,78 @@
+# CUDA-enabled image for NVIDIA GPU inference
+# Base image: NVIDIA CUDA 12.1 runtime with Python 3.11
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+# Build args for runtime user/group (defaults to 1000:1000)
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+# Install Python 3.11 and system dependencies
+# ffmpeg: video processing
+# libgl1, libglib2.0-0: OpenCV dependencies
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Set working directory
+WORKDIR /app
+
+# Create non-root user and group (EARLY, before installing deps)
+RUN groupadd -g ${APP_GID} app && \
+    useradd -u ${APP_UID} -g ${APP_GID} -m -s /bin/bash app
+
+# Create directories and set ownership
+RUN mkdir -p /app/clips /app/logs /app/.config /app/models && \
+    chown -R app:app /app
+
+# Switch to non-root user (EARLY - do installations as app user)
+USER app
+
+# Add user's local bin to PATH (pip installs executables here)
+ENV PATH="/home/app/.local/bin:${PATH}"
+
+# STAGED DEPENDENCY INSTALL: Base runtime first, then ML backend with CUDA
+
+# Stage 1: Install base runtime dependencies (fast, stable)
+COPY --chown=app:app requirements-base.txt .
+RUN pip install --no-cache-dir -r requirements-base.txt
+
+# Stage 2: Install ML backend (CUDA-enabled PyTorch)
+COPY --chown=app:app requirements-ml-cuda.txt .
+RUN pip install --no-cache-dir -r requirements-ml-cuda.txt
+
+# Set YOLO cache directory BEFORE downloading model
+ENV YOLO_CONFIG_DIR=/app/.config
+ENV YOLO_CACHE_DIR=/app/.config
+
+# Download YOLO model (now as app user, into owned directory)
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+# Copy application code (already owned by app user)
+COPY --chown=app:app src/ ./src/
+
+# Set Python path so imports work
+ENV PYTHONPATH=/app/src
+
+# Suppress OpenCV h264 warnings
+ENV OPENCV_FFMPEG_LOGLEVEL=-8
+
+# Set safe default umask for runtime file creation
+ENV UMASK=027
+
+# Switch to non-root user (final privilege change)
+USER app
+
+# Run the detection monitor with umask applied
+CMD ["/bin/sh", "-c", "umask ${UMASK} && exec python -m kanyo.detection.realtime_monitor"]

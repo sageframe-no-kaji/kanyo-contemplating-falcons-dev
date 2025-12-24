@@ -1,0 +1,69 @@
+# Docker Compose for local NVIDIA GPU testing
+# Use nvidia runtime for GPU access
+
+services:
+  harvard-gpu:
+    image: kanyo-contemplating-falcons:nvidia-local
+    container_name: kanyo-harvard-gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.nvidia
+    env_file: .env
+    shm_size: '2gb'
+    volumes:
+      # Config with stream-specific channels/topics
+      - ./data/harvard/config.yaml:/app/config.yaml:ro
+      # Data from local directories
+      - ./clips/harvard:/app/clips
+      - ./logs/harvard:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MALLOC_ARENA_MAX=2
+      - MALLOC_MMAP_THRESHOLD_=131072
+      - MALLOC_TRIM_THRESHOLD_=131072
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nsw-gpu:
+    image: kanyo-contemplating-falcons:nvidia-local
+    container_name: kanyo-nsw-gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.nvidia
+    env_file: .env
+    shm_size: '2gb'
+    volumes:
+      # Config with stream-specific channels/topics
+      - ./data/nsw/config.yaml:/app/config.yaml:ro
+      # Data from local directories
+      - ./clips/nsw:/app/clips
+      - ./logs/nsw:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MALLOC_ARENA_MAX=2
+      - MALLOC_MMAP_THRESHOLD_=131072
+      - MALLOC_TRIM_THRESHOLD_=131072
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
