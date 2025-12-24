@@ -138,10 +138,18 @@ class FalconDetector:
 
         detections = []
         total_checked = 0
+        all_detections_debug = []
+
         for result in results:
             for box in result.boxes:
                 total_checked += 1
                 class_id = int(box.cls[0])
+                confidence = float(box.conf[0])
+                class_name = result.names[class_id]
+
+                # Debug: log ALL detections
+                all_detections_debug.append(f"{class_name}({class_id}):{confidence:.2f}")
+
                 # Only include detections matching target classes
                 if class_id not in self.target_classes:
                     continue
@@ -155,19 +163,22 @@ class FalconDetector:
                 detections.append(
                     Detection(
                         class_id=class_id,
-                        class_name=result.names[class_id],
-                        confidence=float(box.conf[0]),
+                        class_name=class_name,
+                        confidence=confidence,
                         bbox=bbox,
                         timestamp=timestamp,
                     )
                 )
 
-        # Log confidence at DEBUG level
+        # Debug logging
+        if all_detections_debug:
+            logger.debug(f"YOLO found {total_checked} objects: {', '.join(all_detections_debug[:5])}")
+
         if detections:
             max_confidence = max(d.confidence for d in detections)
             logger.debug(f"Falcon detected: confidence={max_confidence:.3f}")
         else:
-            logger.debug(f"No falcon detected (checked {total_checked} detections)")
+            logger.debug(f"No falcon detected (checked {total_checked} detections, targets={self.target_classes})")
 
         return detections
 
