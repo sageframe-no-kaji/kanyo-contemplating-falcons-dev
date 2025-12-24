@@ -24,14 +24,14 @@ ssh -t "${REMOTE_HOST}" "sudo mkdir -p ${DEPLOY_DIR}/data/{harvard,nsw}"
 # Step 2: Copy deployment files to temp location
 echo "Copying deployment files..."
 scp docker-compose.nvidia.yml "${REMOTE_HOST}:/tmp/"
-scp .env.docker "${REMOTE_HOST}:/tmp/"
+scp .env "${REMOTE_HOST}:/tmp/"
 scp data/harvard/config.yaml "${REMOTE_HOST}:/tmp/harvard-config.yaml"
 scp data/nsw/config.yaml "${REMOTE_HOST}:/tmp/nsw-config.yaml"
 
 # Step 3: Move files to final location with sudo
 echo "Installing files..."
 ssh -t "${REMOTE_HOST}" "sudo mv /tmp/docker-compose.nvidia.yml ${DEPLOY_DIR}/docker-compose.yml && \
-    sudo mv /tmp/.env.docker ${DEPLOY_DIR}/.env && \
+    sudo mv /tmp/.env ${DEPLOY_DIR}/.env && \
     sudo mv /tmp/harvard-config.yaml ${DEPLOY_DIR}/data/harvard/config.yaml && \
     sudo mv /tmp/nsw-config.yaml ${DEPLOY_DIR}/data/nsw/config.yaml"
 
