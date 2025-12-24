@@ -19,7 +19,7 @@ echo ""
 
 # Step 1: Create directory structure
 echo "Creating directory structure..."
-ssh "${REMOTE_HOST}" "sudo mkdir -p ${DEPLOY_DIR}/data/{harvard,nsw}"
+ssh -t "${REMOTE_HOST}" "sudo mkdir -p ${DEPLOY_DIR}/data/{harvard,nsw}"
 
 # Step 2: Copy deployment files to temp location
 echo "Copying deployment files..."
@@ -30,7 +30,7 @@ scp data/nsw/config.yaml "${REMOTE_HOST}:/tmp/nsw-config.yaml"
 
 # Step 3: Move files to final location with sudo
 echo "Installing files..."
-ssh "${REMOTE_HOST}" "sudo mv /tmp/docker-compose.nvidia.yml ${DEPLOY_DIR}/docker-compose.yml && \
+ssh -t "${REMOTE_HOST}" "sudo mv /tmp/docker-compose.nvidia.yml ${DEPLOY_DIR}/docker-compose.yml && \
     sudo mv /tmp/.env.docker ${DEPLOY_DIR}/.env && \
     sudo mv /tmp/harvard-config.yaml ${DEPLOY_DIR}/data/harvard/config.yaml && \
     sudo mv /tmp/nsw-config.yaml ${DEPLOY_DIR}/data/nsw/config.yaml"
@@ -50,9 +50,9 @@ read -p "Pull and start containers now? (y/N) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "Pulling images..."
-    ssh "${REMOTE_HOST}" "cd ${DEPLOY_DIR} && sudo docker compose pull"
+    ssh -t "${REMOTE_HOST}" "cd ${DEPLOY_DIR} && sudo docker compose pull"
     echo "Starting containers..."
-    ssh "${REMOTE_HOST}" "cd ${DEPLOY_DIR} && sudo docker compose up -d"
+    ssh -t "${REMOTE_HOST}" "cd ${DEPLOY_DIR} && sudo docker compose up -d"
     echo ""
     echo "✓ Containers started!"
     echo ""
