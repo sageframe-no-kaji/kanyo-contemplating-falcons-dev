@@ -20,7 +20,7 @@ from kanyo.detection.detect import FalconDetector  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.detection.event_types import FalconEvent, FalconState  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
-from kanyo.utils.config import load_config  # noqa: E402
+from kanyo.utils.config import load_config, get_now_tz  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
 
@@ -63,6 +63,7 @@ class RealtimeMonitor:
         roosting_exit_timeout: int = 600,
         activity_timeout: int = 180,
         activity_notification: bool = False,
+        full_config: dict | None = None,  # Full config with timezone_obj
     ):
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
@@ -73,6 +74,9 @@ class RealtimeMonitor:
         self.clip_crf = clip_crf
         self.clips_dir = clips_dir
         self.max_runtime_seconds = max_runtime_seconds
+
+        # Store full config for timezone and other settings
+        self.full_config = full_config or {}
 
         # Components (orchestrated modules)
         self.capture = StreamCapture(
@@ -90,7 +94,7 @@ class RealtimeMonitor:
         )
 
         # Set up date-organized events file
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = get_now_tz(self.full_config).strftime("%Y-%m-%d")
         date_dir = Path(self.clips_dir) / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
         events_path = date_dir / f"events_{date_str}.json"
@@ -147,7 +151,7 @@ class RealtimeMonitor:
 
     def process_frame(self, frame) -> None:
         """Process a single frame for falcon detection."""
-        now = datetime.now()
+        now = get_now_tz(self.full_config)
 
         # Run YOLO detection (detect_birds filters by target_classes which includes animals)
         detections = self.detector.detect_birds(frame, timestamp=now)
@@ -202,7 +206,7 @@ class RealtimeMonitor:
         if not self.current_visit:
             return
 
-        now = datetime.now()
+        now = get_now_tz(self.full_config)
 
         # Save final thumbnail if we have a frame
         if self.last_frame is not None:
@@ -391,7 +395,7 @@ class RealtimeMonitor:
                         falcon_detected = len(initial_detections) > 0
 
                         # Initialize state machine based on what we found
-                        self.state_machine.initialize_state(falcon_detected, datetime.now())
+                        self.state_machine.initialize_state(falcon_detected, get_now_tz(self.full_config))
 
                         # Report initial state with details
                         state_name = self.state_machine.state.value
@@ -410,7 +414,7 @@ class RealtimeMonitor:
                                 self.clip_generator.generate_clip(
                                     frame.data,
                                     event_type="falcon_roosting_initial",
-                                    timestamp=datetime.now(),
+                                    timestamp=get_now_tz(self.full_config),
                                     description=f"Falcon already roosting at startup (confidence: {max_conf:.2f})"
                                 )
                         else:
@@ -421,7 +425,7 @@ class RealtimeMonitor:
                         # We'll use a flag to control frame skipping manually
                     else:
                         # Still initializing - process every frame
-                        detections = self.detector.detect_birds(frame.data, timestamp=datetime.now())
+                        detections = self.detector.detect_birds(frame.data, timestamp=get_now_tz(self.full_config))
                         if detections:
                             logger.debug(f"🔍 Init {elapsed:.1f}s: Found {len(detections)} bird(s), max conf={max(d.confidence for d in detections):.2f}")
                             initial_detections.extend(detections)
@@ -462,7 +466,7 @@ class RealtimeMonitor:
             self.capture.disconnect()
             # Save any ongoing visit
             if self.current_visit is not None:
-                self.current_visit.end_time = datetime.now()
+                self.current_visit.end_time = get_now_tz(self.full_config)
                 self.event_store.append(self.current_visit)
                 logger.info(f"Saved ongoing visit: {self.current_visit.duration_str}")
             logger.info("Monitoring stopped")
@@ -564,6 +568,7 @@ Examples:
             roosting_exit_timeout=config.get("roosting_exit_timeout", 600),
             activity_timeout=config.get("activity_timeout", 180),
             activity_notification=config.get("activity_notification", False),
+            full_config=config,  # Pass full config with timezone_obj
         )
         # Configure notifications from config
         monitor.notifications = NotificationManager(config)

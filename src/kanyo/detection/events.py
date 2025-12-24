@@ -55,7 +55,12 @@ class FalconVisit:
     thumbnail_path: str | None = None
     arrival_clip_path: str | None = None
     departure_clip_path: str | None = None
-    id: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S"))
+    id: str = field(default="")
+
+    def __post_init__(self):
+        \"\"\"Generate ID from start_time if not provided.\"\"\"
+        if not self.id:
+            self.id = self.start_time.strftime("%Y%m%d_%H%M%S")
 
     @property
     def duration(self) -> timedelta | None:

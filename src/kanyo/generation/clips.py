@@ -314,6 +314,8 @@ class ClipExtractor:
                     str(clip.duration_secs),
                     "-c",
                     "copy",
+                    "-movflags",
+                    "+faststart",
                     "-avoid_negative_ts",
                     "make_zero",
                     str(output_path),

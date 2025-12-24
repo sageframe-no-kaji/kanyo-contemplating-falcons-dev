@@ -9,6 +9,7 @@ Configuration management for kanyo.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ DEFAULTS: dict[str, Any] = {
     "exit_timeout": 60,  # seconds before falcon "left" (with debouce)
     "visit_merge_timeout": 60,  # merge visits if re-enter within N seconds
     "animal_classes": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],  # COCO animal IDs
+    "timezone": "+00:00",  # GMT offset (e.g., -05:00 for NY, +10:00 for Sydney)
     # Output & Storage
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
@@ -102,6 +104,26 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> None:
                 cfg[key] = _cast(value, default)
 
 
+def _parse_timezone(tz_str: str) -> timezone:
+    """Parse timezone string like '+10:00' or '-05:00' into timezone object."""
+    if not tz_str or tz_str == "+00:00":
+        return timezone.utc
+
+    # Parse ±HH:MM format
+    sign = 1 if tz_str[0] == "+" else -1
+    parts = tz_str[1:].split(":")
+    hours = int(parts[0])
+    minutes = int(parts[1]) if len(parts) > 1 else 0
+    offset = timedelta(hours=sign * hours, minutes=sign * minutes)
+    return timezone(offset)
+
+
+def get_now_tz(config: dict[str, Any]) -> datetime:
+    """Get current time in the configured timezone."""
+    tz_obj = config.get("timezone_obj", timezone.utc)
+    return datetime.now(tz_obj)
+
+
 def _validate(cfg: dict[str, Any]) -> None:
     """Raise ValueError if required fields are missing or invalid."""
     for field in REQUIRED_FIELDS:
@@ -135,4 +157,11 @@ def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
 
     _apply_env_overrides(cfg)
     _validate(cfg)
+
+    # Parse timezone string into timezone object
+    if "timezone" in cfg and isinstance(cfg["timezone"], str):
+        cfg["timezone_obj"] = _parse_timezone(cfg["timezone"])
+    else:
+        cfg["timezone_obj"] = timezone.utc
+
     return cfg

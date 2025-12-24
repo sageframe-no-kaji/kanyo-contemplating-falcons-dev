@@ -620,7 +620,7 @@ docker compose exec nsw ls -la /tmp/kanyo-buffer/*.ts
 **Completed:** 2025-12-24
 **Deployment Target:** Proxmox VM `shingan` (192.168.1.22) with NVIDIA RTX 3050
 **Time Spent:** ~4 hours
-**Issues Encountered:** 
+**Issues Encountered:**
 - Initial permission errors on log directories (resolved with chmod)
 - Had to shut down duplicate deployment on 192.168.1.252 to avoid double notifications
 **Ready for Ho-06:** Yes

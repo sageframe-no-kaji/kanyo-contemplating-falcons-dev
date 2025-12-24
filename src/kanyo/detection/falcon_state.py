@@ -296,9 +296,12 @@ class FalconStateMachine:
         # Exit initialization mode
         self.initializing = False
 
-    def get_state_info(self) -> dict:
+    def get_state_info(self, current_time: datetime | None = None) -> dict:
         """
         Get current state information.
+
+        Args:
+            current_time: Current timestamp for calculating durations (defaults to last_detection)
 
         Returns:
             Dictionary with current state and relevant timing information
@@ -320,6 +323,9 @@ class FalconStateMachine:
             info["roosting_duration"] = (self.last_detection - self.roosting_start).total_seconds()
 
         if self.last_absence_start:
-            info["current_absence_duration"] = (datetime.now() - self.last_absence_start).total_seconds()
+            # Use provided current_time or last_detection
+            ref_time = current_time or self.last_detection
+            if ref_time:
+                info["current_absence_duration"] = (ref_time - self.last_absence_start).total_seconds()
 
         return info
