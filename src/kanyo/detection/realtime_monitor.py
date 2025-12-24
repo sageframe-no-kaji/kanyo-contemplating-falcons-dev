@@ -372,11 +372,34 @@ class RealtimeMonitor:
         logger.info("✅ Model loaded successfully")
 
         start_time = time.time()
+        initial_state_reported = False
+        frames_processed = 0
 
         try:
             # Use StreamCapture's frame iterator (handles reconnection)
             for frame in self.capture.frames(skip=self.process_interval):
                 self.process_frame(frame.data)
+                frames_processed += 1
+
+                # Report initial state after processing first 5 frames
+                if not initial_state_reported and frames_processed >= 5:
+                    initial_state_reported = True
+                    state_name = self.state_machine.state.value
+
+                    # Run detection on current frame to get count
+                    detections = self.detector.detect_birds(frame.data, timestamp=datetime.now())
+                    bird_count = len(detections)
+
+                    if bird_count > 0:
+                        max_conf = max(d.confidence for d in detections)
+                        logger.info(
+                            f"📊 Initial state: {state_name.upper()} "
+                            f"({bird_count} bird{'s' if bird_count > 1 else ''} detected, "
+                            f"max confidence: {max_conf:.2f})"
+                        )
+                    else:
+                        logger.info(f"📊 Initial state: {state_name.upper()} (no birds detected)")
+
                 time.sleep(0.01)  # Prevent CPU spin
 
                 # Check max runtime for test mode
