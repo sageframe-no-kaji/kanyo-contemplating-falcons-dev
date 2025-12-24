@@ -615,8 +615,112 @@ docker compose exec nsw ls -la /tmp/kanyo-buffer/*.ts
 
 ---
 
-**Completed:** ___________
-**Deployment Target:** ___________
-**Time Spent:** ___________
-**Issues Encountered:** ___________
-**Ready for Ho-06:** Yes / No
+## Actual Deployment Log
+
+**Completed:** 2025-12-24
+**Deployment Target:** Proxmox VM `shingan` (192.168.1.22) with NVIDIA RTX 3050
+**Time Spent:** ~4 hours
+**Issues Encountered:** 
+- Initial permission errors on log directories (resolved with chmod)
+- Had to shut down duplicate deployment on 192.168.1.252 to avoid double notifications
+**Ready for Ho-06:** Yes
+
+### Final Deployment Configuration
+
+**Environment:** Proxmox VM `shingan` running Ubuntu 24.04.3 LTS
+**Hardware:** NVIDIA GeForce RTX 3050 (8GB VRAM) with CUDA 12.2 passthrough
+**Docker Image:** `ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia`
+**Location:** `/opt/services/kanyo-gpu/`
+
+**Containers Running:**
+- `kanyo-nsw-gpu` - NSW Peregrine Falcon Cam
+- `kanyo-harvard-gpu` - Harvard Peregrine Falcon Cam
+
+Both containers using GPU acceleration for YOLO inference.
+
+### Verification Results
+
+**✅ Stream Connection:**
+- Both streams connected successfully via ffmpeg tee mode
+- Using software encoder (libx264) for clips
+- Continuous stream capture working
+
+**✅ GPU Access:**
+```
+NVIDIA GeForce RTX 3050 OEM
+Driver Version: 535.274.02
+CUDA Version: 12.2
+GPU Memory: 325MiB / 8192MiB allocated
+```
+
+**✅ Detection Performance:**
+- Model loaded successfully (yolov8n.pt)
+- Detection confidence: 0.3
+- Frame interval: 1 (processing every frame)
+- Detection running smoothly
+
+**✅ Resource Usage:**
+- GPU: 0% idle (will increase with detections)
+- Container memory: ~325MB GPU + system RAM
+- CPU: Minimal (offloaded to GPU)
+
+**✅ Auto-restart:**
+- Configured with `restart: unless-stopped`
+- Tested container restart - recovered successfully
+
+**✅ Notifications:**
+- Telegram bot configured: `@kanyo_nsw_falcon_cam` and `@kanyo_harvard_falcon_cam`
+- Cooldown: 5 minutes
+- Both channels active
+
+### Configuration Files
+
+**docker-compose.yml:**
+- Using nvidia runtime with GPU reservations
+- Separate volumes for harvard and nsw data/configs
+- 2GB shared memory allocated per container
+- JSON logging with 10MB max file size, 3 file rotation
+
+**Config files:**
+- `/opt/services/kanyo-gpu/data/nsw/config.yaml`
+- `/opt/services/kanyo-gpu/data/harvard/config.yaml`
+
+### Commands Reference
+
+**View logs:**
+```bash
+cd /opt/services/kanyo-gpu
+docker compose logs -f nsw-gpu
+docker compose logs -f harvard-gpu
+```
+
+**Restart containers:**
+```bash
+docker compose restart
+```
+
+**Pull updated image:**
+```bash
+docker compose pull
+docker compose up -d
+```
+
+**Check GPU status:**
+```bash
+docker exec kanyo-nsw-gpu nvidia-smi
+```
+
+**Monitor container status:**
+```bash
+docker compose ps
+docker stats kanyo-nsw-gpu kanyo-harvard-gpu
+```
+
+### Next Steps
+
+- [x] GPU deployment complete
+- [x] Both streams monitoring
+- [x] Notifications configured
+- [ ] Wait for clip generation to verify full pipeline
+- [ ] Build admin interface (Ho-06)
+- [ ] Static site generation (Ho-07)
