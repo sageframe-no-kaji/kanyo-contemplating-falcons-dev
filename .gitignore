@@ -1,4 +1,5 @@
 config.local.yaml
+config.yaml
 
 # Docker - user-specific production config
 docker-compose.yml
