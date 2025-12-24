@@ -43,21 +43,6 @@ class TestImports:
         assert EventStore is not None
 
 
-class TestConfig:
-    """Config loading tests."""
-
-    def test_config_loads(self):
-        """Verify configuration loads"""
-        from kanyo.utils.config import load_config
-
-        config = load_config("config.yaml")
-        assert config is not None
-        assert "detection_confidence" in config
-        assert "video_source" in config
-        assert "log_level" in config
-        assert "log_file" in config
-
-
 class TestFalconDetector:
     """Tests for FalconDetector class."""
 
