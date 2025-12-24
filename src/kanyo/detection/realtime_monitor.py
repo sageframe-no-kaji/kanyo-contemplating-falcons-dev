@@ -372,33 +372,74 @@ class RealtimeMonitor:
         logger.info("✅ Model loaded successfully")
 
         start_time = time.time()
-        initial_state_reported = False
-        frames_processed = 0
+        initialization_complete = False
+        initialization_duration = 30  # Process every frame for first 30 seconds
+        initial_detections = []  # Track detections during initialization
 
         try:
-            # Use StreamCapture's frame iterator (handles reconnection)
-            for frame in self.capture.frames(skip=self.process_interval):
-                self.process_frame(frame.data)
-                frames_processed += 1
+            # Use StreamCapture's frame iterator
+            # During initialization: process EVERY frame (skip=0)
+            # After initialization: use configured frame_interval (skip=self.process_interval)
+            for frame in self.capture.frames(skip=0):
+                elapsed = time.time() - start_time
 
-                # Report initial state after processing first 5 frames
-                if not initial_state_reported and frames_processed >= 5:
-                    initial_state_reported = True
-                    state_name = self.state_machine.state.value
+                # During initialization (first 30 seconds), collect detections without processing state
+                if not initialization_complete:
+                    if elapsed >= initialization_duration:
+                        # Initialization period complete
+                        initialization_complete = True
+                        falcon_detected = len(initial_detections) > 0
 
-                    # Run detection on current frame to get count
-                    detections = self.detector.detect_birds(frame.data, timestamp=datetime.now())
-                    bird_count = len(detections)
+                        # Initialize state machine based on what we found
+                        self.state_machine.initialize_state(falcon_detected, datetime.now())
 
-                    if bird_count > 0:
-                        max_conf = max(d.confidence for d in detections)
-                        logger.info(
-                            f"📊 Initial state: {state_name.upper()} "
-                            f"({bird_count} bird{'s' if bird_count > 1 else ''} detected, "
-                            f"max confidence: {max_conf:.2f})"
-                        )
+                        # Report initial state with details
+                        state_name = self.state_machine.state.value
+                        if falcon_detected:
+                            max_conf = max(d.confidence for d in initial_detections)
+                            bird_count = len(set(d.box_id for d in initial_detections))  # Unique detections
+                            logger.info(
+                                f"📊 Initial state after {initialization_duration}s: {state_name.upper()} "
+                                f"({bird_count} bird{'s' if bird_count > 1 else ''} detected across {len(initial_detections)} detections, "
+                                f"max confidence: {max_conf:.2f})"
+                            )
+
+                            # Generate initial clip if falcon is roosting
+                            if self.clip_generator:
+                                logger.info("📹 Generating clip for already-present falcon...")
+                                self.clip_generator.generate_clip(
+                                    frame.data,
+                                    event_type="falcon_roosting_initial",
+                                    timestamp=datetime.now(),
+                                    description=f"Falcon already roosting at startup (confidence: {max_conf:.2f})"
+                                )
+                        else:
+                            logger.info(f"📊 Initial state after {initialization_duration}s: {state_name.upper()} (no birds detected in {int(elapsed * 30)} frames)")
+
+                        logger.info(f"🎯 Switching to normal operation (processing every {self.process_interval} frames)")
+                        # Now switch to skipping frames - need to restart the iterator
+                        # We'll use a flag to control frame skipping manually
                     else:
-                        logger.info(f"📊 Initial state: {state_name.upper()} (no birds detected)")
+                        # Still initializing - process every frame
+                        detections = self.detector.detect_birds(frame.data, timestamp=datetime.now())
+                        if detections:
+                            logger.debug(f"🔍 Init {elapsed:.1f}s: Found {len(detections)} bird(s), max conf={max(d.confidence for d in detections):.2f}")
+                            initial_detections.extend(detections)
+                        continue  # Skip normal processing during initialization
+
+                # After initialization: skip frames based on process_interval
+                # We need to manually implement frame skipping since we can't change the iterator
+                if initialization_complete:
+                    # Simple frame counter for skipping
+                    if not hasattr(self, '_frame_counter'):
+                        self._frame_counter = 0
+                    self._frame_counter += 1
+
+                    if self._frame_counter % (self.process_interval + 1) != 0:
+                        continue  # Skip this frame
+
+                    # Process this frame
+                    self.process_frame(frame.data)
 
                 time.sleep(0.01)  # Prevent CPU spin
 

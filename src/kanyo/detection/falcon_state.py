@@ -48,6 +48,7 @@ class FalconStateMachine:
         """
         self.state = FalconState.ABSENT
         self.config = config
+        self.initializing = True  # Prevent false arrivals during startup
 
         # Timing thresholds (in seconds)
         self.exit_timeout = config.get("exit_timeout", 300)
@@ -96,7 +97,9 @@ class FalconStateMachine:
             self.last_detection = timestamp
             self.last_absence_start = None
 
-            events.append((FalconEvent.ARRIVED, timestamp, {"visit_start": timestamp}))
+            # Only trigger ARRIVED event if not in initialization mode
+            if not self.initializing:
+                events.append((FalconEvent.ARRIVED, timestamp, {"visit_start": timestamp}))
 
         elif self.state == FalconState.VISITING:
             # Update detection time
@@ -266,6 +269,32 @@ class FalconStateMachine:
         self.roosting_start = None
         self.activity_periods = []
         self.current_activity_start = None
+
+    def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> None:
+        """
+        Initialize state based on startup detection.
+
+        Called after processing initial frames to set correct starting state
+        without generating false arrival events.
+
+        Args:
+            falcon_detected: Whether falcon was detected in initial frames
+            timestamp: Timestamp of initialization
+        """
+        if falcon_detected:
+            # Falcon already present - initialize to ROOSTING state
+            # (assume already there if detected at startup)
+            self.state = FalconState.ROOSTING
+            self.visit_start = timestamp
+            self.last_detection = timestamp
+            self.roosting_start = timestamp
+            logger.info(f"🏠 Initialized to ROOSTING state (falcon already present)")
+        else:
+            # No falcon - stay in ABSENT
+            logger.info(f"📭 Initialized to ABSENT state (no falcon detected)")
+
+        # Exit initialization mode
+        self.initializing = False
 
     def get_state_info(self) -> dict:
         """
