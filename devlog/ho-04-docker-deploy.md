@@ -1606,6 +1606,343 @@ zfs list | grep kanyo
 
 ---
 
+## Critical Bug Fix & Lessons Learned
+
+### The std::bad_alloc Crisis (Dec 24, 2025)
+
+**The Problem:**
+
+After building the Docker image and deploying to the test VM (192.168.1.252), containers crashed immediately with:
+
+```
+terminate called after throwing an instance of 'std::bad_alloc'
+  what():  std::bad_alloc
+```
+
+**Location:** Right after `✅ Connected to tee proxy` log message - 100% reproducible.
+
+**Impact:** Complete deployment failure. Code that worked perfectly on macOS crashed on every system with limited RAM.
+
+---
+
+### Debugging Journey (6+ Hours)
+
+#### Failed Attempts
+
+All of these seemed logical but **did not fix the crash**:
+
+1. **Increased VM RAM**: 3.8GB → 7.8GB
+   - Result: Still crashed
+   - Why it failed: Not about total RAM availability
+
+2. **Added Swap**: 4GB swap file
+   - Result: Still crashed
+   - Why it failed: std::bad_alloc is heap allocation failure, not OOM
+
+3. **Docker shm_size**: Set to `2gb` in docker-compose.yml
+   ```yaml
+   shm_size: '2gb'
+   ```
+   - Result: Still crashed
+   - Why it failed: Shared memory for /dev/shm, not heap
+
+4. **MALLOC tuning**:
+   ```yaml
+   environment:
+     - MALLOC_ARENA_MAX=2
+     - MALLOC_MMAP_THRESHOLD_=131072
+     - MALLOC_TRIM_THRESHOLD_=131072
+   ```
+   - Result: Still crashed
+   - Why it failed: Arena configuration doesn't fix fragmentation
+
+5. **ulimits**: Attempted to increase memory limits
+   - Result: Docker rejected the config
+   - Why it failed: Docker doesn't support all ulimit types
+
+#### The Breakthrough
+
+**Key Insight:** If it's not Docker-specific, test natively!
+
+Deployed source code to VM and ran without Docker:
+
+```bash
+# On VM at /opt/services/kanyo-admin
+python -m kanyo.detection.realtime_monitor --config data/nsw/config.yaml
+```
+
+**Result:** SAME crash at SAME location! 🎯
+
+This proved:
+- **Not a Docker problem**
+- **Not a container configuration issue**  
+- **Code bug affecting all systems with limited RAM**
+
+---
+
+### Root Cause Analysis
+
+#### The Bug
+
+In `src/kanyo/detection/detect.py` line 107:
+
+```python
+@property
+def model(self):
+    """Lazy-load YOLO model only when needed."""
+    if self._model is None:
+        logger.info(f"Loading YOLO model from {self.model_path}")
+        self._model = YOLO(str(self.model_path))
+        logger.info("✅ Model loaded successfully")
+    return self._model
+```
+
+**Execution Order:**
+
+1. `RealtimeMonitor.run()` starts
+2. FFmpeg tee process launches via `self.capture.frames()`
+3. FFmpeg allocates memory for video buffers
+4. **Then** YOLO model tries to load (lazy loading)
+5. YOLO needs ~200MB contiguous heap space
+6. Heap is fragmented after FFmpeg allocations
+7. **std::bad_alloc** - can't allocate contiguous space
+
+#### Why It Worked on macOS
+
+- 32GB RAM → plenty of headroom
+- Better memory allocator
+- Fewer fragmentation issues
+- Problem hidden until deployed to constrained systems
+
+#### Why It Failed on VM
+
+- Limited RAM (even 7.8GB insufficient)
+- Memory fragmentation critical
+- YOLO allocation fails every time
+- Exposes the lazy-loading timing bug
+
+---
+
+### The Solution
+
+**Fix:** Pre-load YOLO model **before** starting FFmpeg stream.
+
+**Implementation** (`src/kanyo/detection/realtime_monitor.py` lines 368-373):
+
+```python
+# Pre-load YOLO model before starting stream to avoid memory fragmentation
+# Model uses lazy loading, so access it now before FFmpeg allocates memory
+logger.info("Pre-loading YOLO model...")
+_ = self.detector.model  # Force model load
+logger.info("✅ Model loaded successfully")
+
+# Now start FFmpeg - model is already in memory
+for frame_data in self.capture.frames():
+    # Detection code...
+```
+
+**Why This Works:**
+
+1. YOLO loads first → gets contiguous memory
+2. FFmpeg starts second → uses remaining memory
+3. No fragmentation issues
+4. Deterministic allocation order
+
+**Git Commit:** `0c26fe1`
+
+```bash
+git log --oneline -1 0c26fe1
+# fix: Pre-load YOLO model to prevent std::bad_alloc crash
+```
+
+---
+
+### Testing & Verification
+
+#### Native Testing on VM
+
+```bash
+# After fixing code
+cd /opt/services/kanyo-admin
+python -m kanyo.detection.realtime_monitor --config data/nsw/config.yaml
+```
+
+**Result:**
+```
+2025-12-24 05:47:23 | INFO     | Pre-loading YOLO model...
+2025-12-24 05:47:24 | INFO     | ✅ Model loaded successfully
+2025-12-24 05:47:25 | INFO     | ✅ Connected to tee proxy
+2025-12-24 05:47:25 | INFO     | Starting falcon detection...
+# System runs successfully! ✅
+```
+
+#### Detection Verification Confusion
+
+**Initial Concern:** After lowering confidence threshold (0.5 → 0.3 → 0.1), still no detection logs.
+
+**Added Debug Logging:**
+```python
+if detection.count > 0:
+    logger.info(f"🦅 DETECTED {detection.count} bird(s) - State: {self.state.current_state.name}")
+```
+
+**Result:** Flooded with logs at ~30fps!
+
+```
+2025-12-24 06:23:41 | INFO | 🦅 DETECTED 1 bird(s) - State: visiting
+2025-12-24 06:23:41 | INFO | 🦅 DETECTED 1 bird(s) - State: visiting
+2025-12-24 06:23:41 | INFO | 🦅 DETECTED 1 bird(s) - State: visiting
+# ... hundreds of lines per second
+```
+
+**Realization:** System was working perfectly all along! 
+
+**Design Intent:**
+- **Silent during continuous presence** (by design)
+- Only logs **state transitions**:
+  - `ARRIVED` - falcon enters frame
+  - `DEPARTED` - falcon exits frame  
+  - `ROOSTING` - settled for extended period
+  - `ACTIVITY_START/END` - movement during roost
+
+**Configuration Reset:** Reverted to production settings:
+```yaml
+detection_confidence: 0.5
+frame_interval: 3
+```
+
+---
+
+### Lessons Learned
+
+#### 1. Memory Allocation Order Matters
+
+**Takeaway:** Lazy loading is great for startup time, but **allocation order** is critical on constrained systems.
+
+**Pattern:**
+- Load large models **first**
+- Start memory-hungry processes **second**
+- Don't rely on allocator to handle fragmentation
+
+#### 2. Isolate Docker vs Code Issues
+
+**Debugging Strategy:**
+1. Test in Docker → crashes
+2. Test natively on same system → crashes
+3. **Conclusion:** Code bug, not Docker
+
+**Saved Hours:** Don't tune Docker configs when it's a code issue.
+
+#### 3. Silent Operation is a Feature
+
+**Design Pattern:** Event-driven logging
+
+- **Don't** log every frame/detection (noise)
+- **Do** log state changes (signal)
+- Use debug logging sparingly (verify, then remove)
+
+**Result:** Clean production logs showing meaningful events only.
+
+#### 4. Cross-Platform Considerations
+
+**macOS != Linux** when it comes to:
+- Memory allocators (macOS more forgiving)
+- Resource constraints (dev machines != production)
+- Library implementations (YOLO, OpenCV, FFmpeg)
+
+**Best Practice:** Test on target deployment platform early!
+
+#### 5. Git Commit Hygiene
+
+**Initial Mistake:** Mashed 4 unrelated changes into one commit:
+- Critical bug fix (6 lines)
+- Env file consolidation (73 lines deleted, 7 added)
+- Documentation (1,747 lines)
+- Config changes (not even committed!)
+
+**Fix:** Used `git reset --soft HEAD~1` and re-committed as:
+1. `0c26fe1` - Bug fix (isolated)
+2. `508f14a` - Env consolidation
+3. `97851ba` - Documentation
+4. `b81894d` - Config cleanup
+
+**Takeaway:** One logical change per commit. Makes history readable and debugging easier.
+
+---
+
+### Production Deployment Checklist
+
+After fixing the bug, here's the validated deployment process:
+
+#### 1. Code Preparation
+
+- [x] Fix committed to git (`0c26fe1`)
+- [x] All tests passing (84/84 ✅)
+- [x] Clean commit history
+- [x] Pushed to GitHub
+
+#### 2. Docker Image Rebuild
+
+```bash
+# GitHub Actions automatically builds on push to main
+# Image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu
+
+# Wait for build completion (~5-10 minutes)
+# Check: https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/actions
+```
+
+#### 3. VM Deployment
+
+```bash
+# On test VM (192.168.1.252)
+cd /opt/services/kanyo-admin
+
+# Pull new image with fix
+sudo docker compose pull
+
+# Restart containers
+sudo docker compose up -d
+
+# Verify both streams running
+sudo docker compose ps
+# Should show:
+#   kanyo-harvard   Up
+#   kanyo-nsw       Up
+
+# Check logs for successful startup
+sudo docker compose logs -f harvard
+# Look for: "Pre-loading YOLO model..." and "✅ Model loaded successfully"
+```
+
+#### 4. Validation
+
+```bash
+# Monitor for 1+ hour
+sudo docker compose logs -f
+
+# Verify state transitions logged
+# Check clips being created
+ls -lh /opt/services/kanyo-harvard/clips/$(date +%Y-%m-%d)/
+
+# Verify Telegram notifications
+# (falcon arrival should trigger notification)
+```
+
+---
+
+### Troubleshooting Quick Reference
+
+| Symptom | Likely Cause | Solution |
+|---------|--------------|----------|
+| std::bad_alloc crash | Memory allocation order | Ensure YOLO loads before FFmpeg |
+| Container exits immediately | Model not pre-loaded | Check logs for "Pre-loading YOLO model..." |
+| No detection logs | Working correctly! | Only state transitions logged |
+| Excessive logging | Debug logging enabled | Remove debug `logger.info()` calls |
+| Docker build fails | GitHub Actions issue | Check Actions tab on GitHub |
+| Image pull fails | Not logged into GHCR | `docker login ghcr.io` |
+
+---
+
 ## Success Criteria
 
 ### Phase 1: Containerization ✓
