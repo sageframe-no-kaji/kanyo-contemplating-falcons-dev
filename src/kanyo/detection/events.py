@@ -58,7 +58,7 @@ class FalconVisit:
     id: str = field(default="")
 
     def __post_init__(self):
-        \"\"\"Generate ID from start_time if not provided.\"\"\"
+        """Generate ID from start_time if not provided."""
         if not self.id:
             self.id = self.start_time.strftime("%Y%m%d_%H%M%S")
 
