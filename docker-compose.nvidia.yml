@@ -1,13 +1,11 @@
-# Docker Compose for local NVIDIA GPU testing
+# Docker Compose for NVIDIA GPU deployment
 # Use nvidia runtime for GPU access
 
 services:
   harvard-gpu:
-    image: kanyo-contemplating-falcons:nvidia-local
+    image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia
     container_name: kanyo-harvard-gpu
-    build:
-      context: .
-      dockerfile: Dockerfile.nvidia
+    pull_policy: always
     env_file: .env
     shm_size: '2gb'
     volumes:
@@ -36,11 +34,9 @@ services:
         max-file: "3"
 
   nsw-gpu:
-    image: kanyo-contemplating-falcons:nvidia-local
+    image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia
     container_name: kanyo-nsw-gpu
-    build:
-      context: .
-      dockerfile: Dockerfile.nvidia
+    pull_policy: always
     env_file: .env
     shm_size: '2gb'
     volumes:
