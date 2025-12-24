@@ -365,6 +365,12 @@ class RealtimeMonitor:
 
         logger.info("Press Ctrl+C to stop")
 
+        # Pre-load YOLO model before starting stream to avoid memory fragmentation
+        # Model uses lazy loading, so access it now before FFmpeg allocates memory
+        logger.info("Pre-loading YOLO model...")
+        _ = self.detector.model
+        logger.info("✅ Model loaded successfully")
+
         start_time = time.time()
 
         try:
