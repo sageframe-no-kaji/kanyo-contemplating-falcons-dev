@@ -180,6 +180,7 @@ class RealtimeMonitor:
         initialization_complete = False
         initialization_duration = 30  # Process every frame for first 30 seconds
         initial_detections = []  # Track detections during initialization
+        max_birds_in_frame = 0  # Track maximum birds seen in any single frame
 
         try:
             # Use StreamCapture's frame iterator
@@ -202,10 +203,10 @@ class RealtimeMonitor:
                         state_name = self.state_machine.state.value
                         if falcon_detected:
                             max_conf = max(d.confidence for d in initial_detections)
-                            bird_count = len(set(d.box_id for d in initial_detections))  # Unique detections
                             logger.info(
                                 f"📊 Initial state after {initialization_duration}s: {state_name.upper()} "
-                                f"({bird_count} bird{'s' if bird_count > 1 else ''} detected across {len(initial_detections)} detections, "
+                                f"({max_birds_in_frame} bird{'s' if max_birds_in_frame > 1 else ''} max per frame, "
+                                f"{len(initial_detections)} total detections, "
                                 f"max confidence: {max_conf:.2f})"
                             )
 
@@ -230,6 +231,7 @@ class RealtimeMonitor:
                         if detections:
                             logger.debug(f"🔍 Init {elapsed:.1f}s: Found {len(detections)} bird(s), max conf={max(d.confidence for d in detections):.2f}")
                             initial_detections.extend(detections)
+                            max_birds_in_frame = max(max_birds_in_frame, len(detections))
                         continue  # Skip normal processing during initialization
 
                 # After initialization: skip frames based on process_interval
