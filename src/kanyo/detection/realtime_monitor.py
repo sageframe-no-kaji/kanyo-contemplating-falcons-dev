@@ -10,7 +10,7 @@ import os
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from kanyo.detection.capture import StreamCapture  # noqa: E402
@@ -56,8 +56,18 @@ class RealtimeMonitor:
         buffer_dir: str | None = None,
         chunk_minutes: int = 10,
         output_fps: int = 30,
+        # Legacy clip timing (for backward compatibility)
         clip_before_seconds: int = 30,
         clip_after_seconds: int = 60,
+        # New event-specific clip timing
+        clip_arrival_before: int = 15,
+        clip_arrival_after: int = 30,
+        clip_departure_before: int = 30,
+        clip_departure_after: int = 15,
+        clip_state_change_before: int = 15,
+        clip_state_change_after: int = 30,
+        clip_state_change_cooldown: int = 300,
+        short_visit_threshold: int = 600,
         clip_fps: int = 30,
         clip_crf: int = 23,
         clips_dir: str = "clips",
@@ -77,6 +87,7 @@ class RealtimeMonitor:
         self.clip_crf = clip_crf
         self.clips_dir = clips_dir
         self.max_runtime_seconds = max_runtime_seconds
+        self.short_visit_threshold = short_visit_threshold
 
         # Store full config for timezone and other settings
         self.full_config = full_config or {}
@@ -115,6 +126,14 @@ class RealtimeMonitor:
             clips_dir=clips_dir,
             clip_before_seconds=clip_before_seconds,
             clip_after_seconds=clip_after_seconds,
+            clip_arrival_before=clip_arrival_before,
+            clip_arrival_after=clip_arrival_after,
+            clip_departure_before=clip_departure_before,
+            clip_departure_after=clip_departure_after,
+            clip_state_change_before=clip_state_change_before,
+            clip_state_change_after=clip_state_change_after,
+            clip_state_change_cooldown=clip_state_change_cooldown,
+            short_visit_threshold=short_visit_threshold,
             clip_fps=clip_fps,
             clip_crf=clip_crf,
         )
@@ -153,17 +172,70 @@ class RealtimeMonitor:
         for event_type, event_time, metadata in events:
             self.event_handler.handle_event(event_type, event_time, metadata)
 
-            # Trigger clip creation for departure events
-            if event_type == FalconEvent.DEPARTED:
+            # Schedule arrival clip creation (need to wait for "after" footage to exist)
+            if event_type == FalconEvent.ARRIVED:
+                # Schedule clip creation for arrival_after seconds from now
+                self.arrival_clip_scheduled = event_time + timedelta(
+                    seconds=self.clip_manager.clip_arrival_after
+                )
+                logger.info(f"📹 Arrival clip scheduled for {self.arrival_clip_scheduled.strftime('%H:%M:%S')}")
+
+            # Create departure/visit clips
+            elif event_type == FalconEvent.DEPARTED:
                 if "visit_start" in metadata and "visit_end" in metadata:
-                    logger.info(f"📹 Attempting to create visit clip: {metadata['visit_start']} to {metadata['visit_end']}")
-                    clip_path = self.clip_manager.create_visit_clip(metadata["visit_start"], metadata["visit_end"])
-                    if clip_path:
-                        logger.info(f"✅ Visit clip created: {clip_path}")
+                    visit_start = metadata["visit_start"]
+                    visit_end = metadata["visit_end"]
+                    visit_duration = (visit_end - visit_start).total_seconds()
+
+                    # Short visit? Save as one clip
+                    if visit_duration < self.short_visit_threshold:
+                        logger.info(f"📹 Short visit ({visit_duration:.0f}s) - creating full visit clip")
+                        clip_path = self.clip_manager.create_visit_clip(visit_start, visit_end)
+                        if clip_path:
+                            logger.info(f"✅ Visit clip created: {clip_path}")
+                        else:
+                            logger.warning("❌ Visit clip creation failed")
+                        # Cancel any scheduled arrival clip since visit clip covers it
+                        self.arrival_clip_scheduled = None
                     else:
-                        logger.warning("❌ Visit clip creation failed")
+                        # Long visit - create departure clip only
+                        # (arrival clip should have been created already)
+                        logger.info(f"📹 Creating departure clip for visit ({visit_duration:.0f}s)")
+                        clip_path = self.clip_manager.create_departure_clip(visit_end)
+                        if clip_path:
+                            logger.info(f"✅ Departure clip created: {clip_path}")
+                        else:
+                            logger.warning("❌ Departure clip creation failed")
                 else:
-                    logger.warning(f"⚠️  Cannot create clip - missing timestamps (visit_start: {'visit_start' in metadata}, visit_end: {'visit_end' in metadata})")
+                    logger.warning(f"⚠️  Cannot create clip - missing timestamps")
+
+            # State change clips (ROOSTING, ACTIVITY) - use debounce
+            elif event_type in (FalconEvent.ROOSTING, FalconEvent.ACTIVITY):
+                event_name = event_type.name
+                self.clip_manager.schedule_state_change_clip(event_time, event_name)
+
+            # Cancel pending state change clip on departure
+            if event_type == FalconEvent.DEPARTED:
+                self.clip_manager.cancel_pending_state_change()
+
+        # Check if scheduled arrival clip is ready to be created
+        if self.arrival_clip_scheduled and now >= self.arrival_clip_scheduled:
+            logger.info("📹 Creating scheduled arrival clip (footage now available)")
+            # Calculate the original arrival time (scheduled time minus after_seconds)
+            arrival_time = self.arrival_clip_scheduled - timedelta(
+                seconds=self.clip_manager.clip_arrival_after
+            )
+            clip_path = self.clip_manager.create_arrival_clip(arrival_time)
+            if clip_path:
+                logger.info(f"✅ Arrival clip created: {clip_path}")
+            else:
+                logger.warning("❌ Arrival clip creation failed")
+            self.arrival_clip_scheduled = None
+
+        # Check if state change debounce has expired
+        clip_path = self.clip_manager.check_state_change_debounce(now)
+        if clip_path:
+            logger.info(f"✅ State change clip created (after debounce): {clip_path}")
 
     def run(self) -> None:
         """Main monitoring loop using StreamCapture."""
@@ -363,8 +435,18 @@ Examples:
             buffer_dir=config.get("buffer_dir"),
             chunk_minutes=config.get("continuous_chunk_minutes", 10),
             output_fps=config.get("clip_fps", 30),
-            clip_before_seconds=config.get("clip_entrance_before", 30),
-            clip_after_seconds=config.get("clip_entrance_after", 60),
+            # Legacy clip timing (backward compatibility)
+            clip_before_seconds=config.get("clip_before_seconds", 30),
+            clip_after_seconds=config.get("clip_after_seconds", 60),
+            # Event-specific clip timing
+            clip_arrival_before=config.get("clip_arrival_before", 15),
+            clip_arrival_after=config.get("clip_arrival_after", 30),
+            clip_departure_before=config.get("clip_departure_before", 30),
+            clip_departure_after=config.get("clip_departure_after", 15),
+            clip_state_change_before=config.get("clip_state_change_before", 15),
+            clip_state_change_after=config.get("clip_state_change_after", 30),
+            clip_state_change_cooldown=config.get("clip_state_change_cooldown", 300),
+            short_visit_threshold=config.get("short_visit_threshold", 600),
             clip_fps=config.get("clip_fps", 30),
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
