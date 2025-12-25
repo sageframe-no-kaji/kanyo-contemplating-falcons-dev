@@ -154,8 +154,16 @@ class RealtimeMonitor:
             self.event_handler.handle_event(event_type, event_time, metadata)
 
             # Trigger clip creation for departure events
-            if event_type == FalconEvent.DEPARTED and "visit_start" in metadata and "visit_end" in metadata:
-                self.clip_manager.create_visit_clip(metadata["visit_start"], metadata["visit_end"])
+            if event_type == FalconEvent.DEPARTED:
+                if "visit_start" in metadata and "visit_end" in metadata:
+                    logger.info(f"📹 Attempting to create visit clip: {metadata['visit_start']} to {metadata['visit_end']}")
+                    clip_path = self.clip_manager.create_visit_clip(metadata["visit_start"], metadata["visit_end"])
+                    if clip_path:
+                        logger.info(f"✅ Visit clip created: {clip_path}")
+                    else:
+                        logger.warning("❌ Visit clip creation failed")
+                else:
+                    logger.warning(f"⚠️  Cannot create clip - missing timestamps (visit_start: {'visit_start' in metadata}, visit_end: {'visit_end' in metadata})")
 
     def run(self) -> None:
         """Main monitoring loop using StreamCapture."""

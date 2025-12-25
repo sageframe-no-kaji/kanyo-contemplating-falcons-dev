@@ -107,6 +107,7 @@ class ClipManager:
             Path to created clip, or None if creation failed
         """
         if not self.tee_manager:
+            logger.warning("Cannot create visit clip: tee_manager not available (not using tee mode?)")
             return None
 
         try:
