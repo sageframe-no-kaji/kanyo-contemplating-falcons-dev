@@ -3,7 +3,7 @@
 
 x-kanyo-gpu-service: &kanyo-gpu-service
   image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia
-  pull_policy: always
+  pull_policy: if_not_present
   env_file: .env
   shm_size: '2gb'
   environment:
@@ -11,6 +11,9 @@ x-kanyo-gpu-service: &kanyo-gpu-service
     - MALLOC_ARENA_MAX=2
     - MALLOC_MMAP_THRESHOLD_=131072
     - MALLOC_TRIM_THRESHOLD_=131072
+  volumes:
+    # Mount source code from host - overrides baked-in code in image
+    - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
   deploy:
     resources:
       reservations:
@@ -30,6 +33,8 @@ services:
     <<: *kanyo-gpu-service
     container_name: kanyo-harvard-gpu
     volumes:
+      # Mount source code from host - overrides baked-in code in image
+      - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
       # Config, clips, and logs all from stream directory (separate ZFS dataset)
       - ${KANYO_CAM1_ROOT:-./data/harvard}/config.yaml:/app/config.yaml:ro
       - ${KANYO_CAM1_ROOT:-./data/harvard}/clips:/app/clips
@@ -39,6 +44,8 @@ services:
     <<: *kanyo-gpu-service
     container_name: kanyo-nsw-gpu
     volumes:
+      # Mount source code from host - overrides baked-in code in image
+      - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
       # Config, clips, and logs all from stream directory (separate ZFS dataset)
       - ${KANYO_CAM2_ROOT:-./data/nsw}/config.yaml:/app/config.yaml:ro
       - ${KANYO_CAM2_ROOT:-./data/nsw}/clips:/app/clips

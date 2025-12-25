@@ -211,9 +211,9 @@ class RealtimeMonitor:
                             )
 
                             # Generate initial clip if falcon is roosting
-                            if self.clip_generator:
+                            if self.clip_manager:
                                 logger.info("📹 Generating clip for already-present falcon...")
-                                self.clip_generator.generate_clip(
+                                self.clip_manager.generate_clip(
                                     frame.data,
                                     event_type="falcon_roosting_initial",
                                     timestamp=get_now_tz(self.full_config),
