@@ -209,16 +209,6 @@ class RealtimeMonitor:
                                 f"{len(initial_detections)} total detections, "
                                 f"max confidence: {max_conf:.2f})"
                             )
-
-                            # Generate initial clip if falcon is roosting
-                            if self.clip_manager:
-                                logger.info("📹 Generating clip for already-present falcon...")
-                                self.clip_manager.generate_clip(
-                                    frame.data,
-                                    event_type="falcon_roosting_initial",
-                                    timestamp=get_now_tz(self.full_config),
-                                    description=f"Falcon already roosting at startup (confidence: {max_conf:.2f})"
-                                )
                         else:
                             logger.info(f"📊 Initial state after {initialization_duration}s: {state_name.upper()} (no birds detected in {int(elapsed * 30)} frames)")
 
