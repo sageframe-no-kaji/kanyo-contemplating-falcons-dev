@@ -14,7 +14,7 @@ BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 echo "Building CPU image..."
 docker build \
-    -f Dockerfile.cpu \
+    -f docker/Dockerfile.cpu \
     -t ${REGISTRY}/${IMAGE_NAME}:${TAG} \
     -t ${REGISTRY}/${IMAGE_NAME}:${TAG}-${GIT_COMMIT} \
     -t ${REGISTRY}/${IMAGE_NAME}:latest \

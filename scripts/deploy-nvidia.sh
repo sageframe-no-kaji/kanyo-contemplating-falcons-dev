@@ -44,7 +44,7 @@ fi"
 
 # Step 2: Copy deployment files to temp location
 echo "Copying deployment files..."
-scp docker-compose.nvidia.yml "${REMOTE_HOST}:/tmp/"
+scp docker/docker-compose.nvidia.yml "${REMOTE_HOST}:/tmp/"
 scp .env "${REMOTE_HOST}:/tmp/kanyo.env"
 scp data/harvard/config.yaml "${REMOTE_HOST}:/tmp/harvard-config.yaml"
 scp data/nsw/config.yaml "${REMOTE_HOST}:/tmp/nsw-config.yaml"

@@ -24,7 +24,7 @@ echo ""
 # Build CPU image
 echo "📦 Building CPU image..."
 docker build \
-    -f Dockerfile.cpu \
+    -f docker/Dockerfile.cpu \
     -t ${REGISTRY}/${IMAGE_NAME}:cpu \
     -t ${REGISTRY}/${IMAGE_NAME}:cpu-${GIT_COMMIT} \
     -t ${REGISTRY}/${IMAGE_NAME}:latest \
@@ -39,7 +39,7 @@ echo ""
 # Build VAAPI image
 echo "🖥️  Building VAAPI (Intel iGPU) image..."
 docker build \
-    -f Dockerfile.vaapi \
+    -f docker/Dockerfile.vaapi \
     -t ${REGISTRY}/${IMAGE_NAME}:vaapi \
     -t ${REGISTRY}/${IMAGE_NAME}:vaapi-${GIT_COMMIT} \
     --build-arg BUILD_DATE="${BUILD_DATE}" \
@@ -53,7 +53,7 @@ echo ""
 # Build NVIDIA image
 echo "🎮 Building NVIDIA CUDA image..."
 docker build \
-    -f Dockerfile.nvidia \
+    -f docker/Dockerfile.nvidia \
     -t ${REGISTRY}/${IMAGE_NAME}:nvidia \
     -t ${REGISTRY}/${IMAGE_NAME}:nvidia-${GIT_COMMIT} \
     --build-arg BUILD_DATE="${BUILD_DATE}" \

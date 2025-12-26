@@ -14,7 +14,7 @@ BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 echo "Building VAAPI (Intel iGPU) image..."
 docker build \
-    -f Dockerfile.vaapi \
+    -f docker/Dockerfile.vaapi \
     -t ${REGISTRY}/${IMAGE_NAME}:${TAG} \
     -t ${REGISTRY}/${IMAGE_NAME}:${TAG}-${GIT_COMMIT} \
     --build-arg BUILD_DATE="${BUILD_DATE}" \
