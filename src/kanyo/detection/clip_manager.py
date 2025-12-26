@@ -31,7 +31,7 @@ class ClipManager:
 
     def __init__(
         self,
-        tee_manager,
+        capture,
         clips_dir: str = "clips",
         clip_fps: int = 30,
         clip_crf: int = 23,
@@ -55,7 +55,7 @@ class ClipManager:
         Initialize clip manager.
 
         Args:
-            tee_manager: StreamCapture's TeeManager for clip extraction
+            capture: StreamCapture instance (tee_manager accessed lazily)
             clips_dir: Base directory for saving clips
             clip_fps: Output FPS for clips
             clip_crf: CRF quality setting (lower = better quality)
@@ -68,7 +68,7 @@ class ClipManager:
             clip_state_change_cooldown: Min seconds between state change clips
             short_visit_threshold: Visits shorter than this saved as one clip
         """
-        self.tee_manager = tee_manager
+        self.capture = capture
         self.clips_dir = clips_dir
         self.clip_fps = clip_fps
         self.clip_crf = clip_crf
@@ -93,6 +93,11 @@ class ClipManager:
         # Legacy (for backward compatibility)
         self.clip_before_seconds = clip_before_seconds
         self.clip_after_seconds = clip_after_seconds
+
+    @property
+    def tee_manager(self):
+        """Lazily access tee_manager from capture (available after stream connects)."""
+        return self.capture.tee_manager if self.capture else None
 
     def create_initial_clip(self, detection_time: datetime) -> str | None:
         """

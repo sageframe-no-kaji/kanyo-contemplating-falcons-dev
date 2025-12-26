@@ -122,7 +122,7 @@ class RealtimeMonitor:
 
         # Clip manager handles video extraction
         self.clip_manager = ClipManager(
-            tee_manager=self.capture.tee_manager if self.capture.tee_manager else None,
+            capture=self.capture,
             clips_dir=clips_dir,
             clip_before_seconds=clip_before_seconds,
             clip_after_seconds=clip_after_seconds,
