@@ -141,12 +141,10 @@ class RealtimeMonitor:
         # State
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
-        self.arrival_clip_scheduled: datetime | None = (
-            None  # Time when arrival clip should be created
-        )
-        self.initial_clip_scheduled: datetime | None = (
-            None  # Time when initial state clip should be created
-        )
+        self.arrival_clip_scheduled: datetime | None = None  # Time when arrival clip should be created
+        self.arrival_event_time: datetime | None = None  # Actual arrival time
+        self.initial_clip_scheduled: datetime | None = None  # Time when initial state clip should be created
+        self.initial_event_time: datetime | None = None  # Actual detection time
 
         # State machine for intelligent behavior tracking
         self.state_machine = FalconStateMachine({
@@ -177,7 +175,8 @@ class RealtimeMonitor:
 
             # Schedule arrival clip creation (need to wait for "after" footage to exist)
             if event_type == FalconEvent.ARRIVED:
-                # Schedule clip creation for arrival_after seconds from now
+                # Store actual arrival time and schedule clip creation after buffer period
+                self.arrival_event_time = event_time
                 self.arrival_clip_scheduled = event_time + timedelta(
                     seconds=self.clip_manager.clip_arrival_after
                 )
@@ -200,6 +199,7 @@ class RealtimeMonitor:
                             logger.warning("❌ Visit clip creation failed")
                         # Cancel any scheduled arrival clip since visit clip covers it
                         self.arrival_clip_scheduled = None
+                        self.arrival_event_time = None
                     else:
                         # Long visit - create departure clip only
                         # (arrival clip should have been created already)
@@ -212,8 +212,8 @@ class RealtimeMonitor:
                 else:
                     logger.warning(f"⚠️  Cannot create clip - missing timestamps")
 
-            # State change clips (ROOSTING, ACTIVITY) - use debounce
-            elif event_type in (FalconEvent.ROOSTING, FalconEvent.ACTIVITY):
+            # State change clips (ROOSTING, ACTIVITY_START, ACTIVITY_END) - use debounce
+            elif event_type in (FalconEvent.ROOSTING, FalconEvent.ACTIVITY_START, FalconEvent.ACTIVITY_END):
                 event_name = event_type.name
                 self.clip_manager.schedule_state_change_clip(event_time, event_name)
 
@@ -224,30 +224,26 @@ class RealtimeMonitor:
         # Check if scheduled arrival clip is ready to be created
         if self.arrival_clip_scheduled and now >= self.arrival_clip_scheduled:
             logger.info("📹 Creating scheduled arrival clip (footage now available)")
-            # Calculate the original arrival time (scheduled time minus after_seconds)
-            arrival_time = self.arrival_clip_scheduled - timedelta(
-                seconds=self.clip_manager.clip_arrival_after
-            )
-            scheduled = self.clip_manager.create_arrival_clip(arrival_time)
+            # Use the stored actual arrival time
+            scheduled = self.clip_manager.create_arrival_clip(self.arrival_event_time)
             if scheduled:
                 logger.info("✅ Arrival clip scheduled (async)")
             else:
                 logger.warning("❌ Arrival clip creation failed")
             self.arrival_clip_scheduled = None
+            self.arrival_event_time = None
 
         # Check if initial state clip is ready to be created (falcon present at startup)
         if self.initial_clip_scheduled and now >= self.initial_clip_scheduled:
             logger.info("📹 Creating initial state clip (footage now available)")
-            # Calculate the detection time (scheduled time minus after_seconds)
-            detection_time = self.initial_clip_scheduled - timedelta(
-                seconds=self.clip_manager.clip_arrival_after
-            )
-            scheduled = self.clip_manager.create_initial_clip(detection_time)
+            # Use the stored actual detection time
+            scheduled = self.clip_manager.create_initial_clip(self.initial_event_time)
             if scheduled:
                 logger.info("✅ Initial state clip scheduled (async)")
             else:
                 logger.warning("❌ Initial state clip creation failed")
             self.initial_clip_scheduled = None
+            self.initial_event_time = None
 
         # Check if state change debounce has expired
         clip_scheduled = self.clip_manager.check_state_change_debounce(now)
@@ -311,7 +307,8 @@ class RealtimeMonitor:
                             # Create initial state clip - captures what's happening when monitoring starts
                             # This is valuable when monitor restarts with falcon already present
                             logger.info("📹 Creating initial state clip (falcon present at startup)")
-                            # Schedule it for clip_arrival_after seconds from now (need footage to exist)
+                            # Store detection time and schedule creation for after buffer period
+                            self.initial_event_time = now
                             self.initial_clip_scheduled = now + timedelta(
                                 seconds=self.clip_manager.clip_arrival_after
                             )
