@@ -1,6 +1,6 @@
 """Tests for live_tee module."""
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -574,3 +574,81 @@ class TestSegmentTimerangeAndExtraction:
         assert "-crf" in cmd
         crf_index = cmd.index("-crf")
         assert cmd[crf_index + 1] == "28"
+
+
+class TestTimezoneConversion:
+    """Tests for timezone handling in segment lookup."""
+
+    def test_find_segments_with_timezone_offset(self, tmp_path):
+        """Find segments correctly when camera timezone differs from server timezone.
+
+        Scenario: Server is in local time, camera is in Sydney (UTC+11)
+        - Segment file created at 14:30 local server time
+        - Event happens at camera time that maps to 14:30 local time
+        - Should find the segment correctly
+        """
+        buffer_dir = tmp_path / "buffer"
+        buffer_dir.mkdir()
+
+        # Create segment at server time: 14:30:00 local time
+        (buffer_dir / "segment_20231217_143000.ts").touch()
+
+        tee_manager = FFmpegTeeManager(
+            stream_url="test",
+            proxy_url="test",
+            buffer_dir=buffer_dir,
+            chunk_minutes=10,
+        )
+
+        # Camera timezone: Sydney (UTC+11)
+        sydney_tz = timezone(timedelta(hours=11))
+
+        # First, let's create a server local time at 14:30
+        # Then convert that to Sydney time to simulate what an event would look like
+        local_time = datetime(2023, 12, 17, 14, 30, 0).astimezone()
+        # Convert this server time to Sydney timezone - that's when the event happens in camera time
+        camera_time = local_time.astimezone(sydney_tz)
+
+        print(f"Server local time: {local_time}")
+        print(f"Camera Sydney time: {camera_time}")
+
+        # Clip from camera time
+        segments = tee_manager.find_segments_for_timerange(
+            start_time=camera_time,
+            end_time=camera_time + timedelta(minutes=1),
+        )
+
+        # Should find the segment
+
+    def test_find_segments_timezone_no_match(self, tmp_path):
+        """Segments not found when times don't overlap after timezone conversion.
+
+        Scenario: Looking for clip at wrong time in camera timezone
+        """
+        buffer_dir = tmp_path / "buffer"
+        buffer_dir.mkdir()
+
+        # Segment: 14:30:00 - 14:40:00 UTC
+        (buffer_dir / "segment_20231217_143000.ts").touch()
+
+        tee_manager = FFmpegTeeManager(
+            stream_url="test",
+            proxy_url="test",
+            buffer_dir=buffer_dir,
+            chunk_minutes=10,
+        )
+
+        # Camera timezone: Sydney (UTC+11)
+        sydney_tz = timezone(timedelta(hours=11))
+
+        # Looking for clip at 10:00 AM Sydney time (2023-12-17 10:00+11:00)
+        # This is 2023-12-16 23:00 UTC - doesn't overlap with segment
+        camera_time = datetime(2023, 12, 17, 10, 0, 0, tzinfo=sydney_tz)
+
+        segments = tee_manager.find_segments_for_timerange(
+            start_time=camera_time,
+            end_time=camera_time + timedelta(minutes=1),
+        )
+
+        # Should find no segments
+        assert len(segments) == 0

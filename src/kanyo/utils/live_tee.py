@@ -11,7 +11,7 @@ import re
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from kanyo.utils.encoder import detect_hardware_encoder
@@ -70,7 +70,9 @@ class FFmpegTeeManager:
         Returns list of command arguments.
         """
         chunk_seconds = self.chunk_minutes * 60
-        segment_pattern = str(self.buffer_dir / "segment_%Y%m%d_%H%M%S.ts")  # Use .ts for live segments
+        segment_pattern = str(
+            self.buffer_dir / "segment_%Y%m%d_%H%M%S.ts"
+        )  # Use .ts for live segments
 
         # Base command - YouTube-optimized input flags
         cmd = [
@@ -319,23 +321,37 @@ class FFmpegTeeManager:
         Find all segments that overlap with the given time range.
 
         Args:
-            start_time: Start of desired clip
-            end_time: End of desired clip
+            start_time: Start of desired clip (in camera timezone)
+            end_time: End of desired clip (in camera timezone)
 
         Returns:
             List of segment paths that contain any part of the timerange, sorted chronologically
+
+        Note:
+            Segments are named using server local time (ffmpeg default), but input times
+            are in camera timezone. This method converts camera times to server local time
+            for segment matching while preserving timezone-aware comparisons.
         """
         overlapping_segments = []
-        # Use timezone from input times for segment parsing
-        tz = start_time.tzinfo
+
+        # Convert camera timezone to server local time for segment filename matching
+        # Segments use server local time because ffmpeg uses system time
+        start_local = start_time.astimezone()
+        end_local = end_time.astimezone()
+
+        # Get the local timezone for parsing segment times
+        local_tz = start_local.tzinfo
 
         for segment in self.buffer_dir.glob("segment_*.ts"):
             try:
-                seg_start, seg_end = self.get_segment_timerange(segment, self.chunk_minutes, tz)
+                # Parse segment times using server local timezone
+                seg_start, seg_end = self.get_segment_timerange(
+                    segment, self.chunk_minutes, local_tz
+                )
 
                 # Check if segment overlaps with desired time range
                 # Segments overlap if: seg_start < end_time AND seg_end > start_time
-                if seg_start < end_time and seg_end > start_time:
+                if seg_start < end_local and seg_end > start_local:
                     overlapping_segments.append(segment)
 
             except ValueError as e:
@@ -387,13 +403,16 @@ class FFmpegTeeManager:
         # CRITICAL: Wait briefly to ensure segment buffer is flushed to disk
         # Active segments may have data in ffmpeg's internal buffers
         import time
+
         time.sleep(2)
 
         try:
             if len(segments) == 1:
                 # Single segment: direct extraction
                 segment = segments[0]
-                seg_start, _ = self.get_segment_timerange(segment, self.chunk_minutes, start_time.tzinfo)
+                seg_start, _ = self.get_segment_timerange(
+                    segment, self.chunk_minutes, start_time.tzinfo
+                )
                 offset = (start_time - seg_start).total_seconds()
 
                 cmd = [
@@ -429,7 +448,9 @@ class FFmpegTeeManager:
 
             else:
                 # Multi-segment: use concat demuxer
-                first_seg_start, _ = self.get_segment_timerange(segments[0], self.chunk_minutes, start_time.tzinfo)
+                first_seg_start, _ = self.get_segment_timerange(
+                    segments[0], self.chunk_minutes, start_time.tzinfo
+                )
                 offset = (start_time - first_seg_start).total_seconds()
 
                 # Create temporary concat file

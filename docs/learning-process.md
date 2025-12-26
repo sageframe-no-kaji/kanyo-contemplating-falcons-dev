@@ -37,14 +37,27 @@ Not just to build a falcon detector, but to understand:
 
 ### What is a "Ho"?
 
-A **Ho** (short for "hour") is a 2-3 hour focused learning session with:
+In Buddhism—particularly within Nichiren Buddhism—**Ho** carries multiple, layered meanings. At its core, it refers to **law**, **principle**, or **phenomena**, and appears in *Nam-myoho-renge-kyo* as a central pillar of the teaching.
+
+On one level, **Ho** points to the **law or underlying principle** that governs reality: how things arise, change, and interrelate. On another, it refers to **phenomena**—the concrete, observable expressions of that law in lived experience.
+
+In my own practice, **Ho** is also grounded in the body. It names a **step in walking meditation**: a single, intentional movement where awareness, action, and principle align. One step, taken fully.
+
+**Significance**
+
+- **Law / Principle:** The invisible structure that gives rise to form and meaning  
+- **Phenomena:** The manifest world—experiences, sensations, actions, results  
+- **Practice:** A discrete, mindful step that embodies the law rather than merely describing it  
+
+A Ho is therefore both **abstract and immediate**: the rule and its expression, the teaching and the foot touching the ground. When applied to learning or building, a Ho becomes a bounded unit of attention in which principle is understood by being enacted.
+
+A **Ho**, therefore, is a 2-3 hour focused learning session with:
 - **Clear objective:** What you'll build
 - **Concrete deliverable:** Working code + understanding
 - **Learning checkpoints:** Concepts to grasp, not just tasks to complete
 - **Documentation requirement:** Devlog capturing insights
 
 **Key insight:** Hos are sized for cognitive load, not arbitrary feature boundaries. Each Ho should feel like "aha, I get it now" rather than "I copy-pasted a bunch of code."
-
 ### The Ho Structure
 
 **Before the Ho:**

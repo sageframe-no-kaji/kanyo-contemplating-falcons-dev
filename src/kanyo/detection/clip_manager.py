@@ -139,7 +139,9 @@ class ClipManager:
             True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
-            logger.warning("Cannot create initial clip: tee_manager not available (not using tee mode?)")
+            logger.warning(
+                "Cannot create initial clip: tee_manager not available (not using tee mode?)"
+            )
             return False
 
         clip_center = detection_time
@@ -152,7 +154,9 @@ class ClipManager:
             "initial",  # Distinct from "arrival" - this is startup state
             "mp4",
         )
-        logger.info(f"📹 Scheduling initial state clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
+        logger.info(
+            f"📹 Scheduling initial state clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)"
+        )
 
         self._submit_clip_task(
             self._extract_clip_async,
@@ -216,7 +220,9 @@ class ClipManager:
             True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
-            logger.warning("Cannot create arrival clip: tee_manager not available (not using tee mode?)")
+            logger.warning(
+                "Cannot create arrival clip: tee_manager not available (not using tee mode?)"
+            )
             return False
 
         clip_center = arrival_time
@@ -229,7 +235,9 @@ class ClipManager:
             "arrival",
             "mp4",
         )
-        logger.info(f"📹 Scheduling arrival clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
+        logger.info(
+            f"📹 Scheduling arrival clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)"
+        )
 
         self._submit_clip_task(
             self._extract_clip_async,
@@ -254,7 +262,9 @@ class ClipManager:
             True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
-            logger.warning("Cannot create visit clip: tee_manager not available (not using tee mode?)")
+            logger.warning(
+                "Cannot create visit clip: tee_manager not available (not using tee mode?)"
+            )
             return False
 
         # Add buffer before and after
@@ -293,7 +303,9 @@ class ClipManager:
             True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
-            logger.warning("Cannot create departure clip: tee_manager not available (not using tee mode?)")
+            logger.warning(
+                "Cannot create departure clip: tee_manager not available (not using tee mode?)"
+            )
             return False
 
         clip_center = departure_time
@@ -306,7 +318,9 @@ class ClipManager:
             "departure",
             "mp4",
         )
-        logger.info(f"📹 Scheduling departure clip: {clip_path.name} ({self.clip_departure_before}s before, {self.clip_departure_after}s after)")
+        logger.info(
+            f"📹 Scheduling departure clip: {clip_path.name} ({self.clip_departure_before}s before, {self.clip_departure_after}s after)"
+        )
 
         self._submit_clip_task(
             self._extract_clip_async,
@@ -336,9 +350,13 @@ class ClipManager:
 
         if self.pending_state_change:
             old_name = self.pending_state_change[1]
-            logger.info(f"🔄 State change debounce reset: {old_name} → {event_name} (will create at {debounce_until.strftime('%H:%M:%S')})")
+            logger.info(
+                f"🔄 State change debounce reset: {old_name} → {event_name} (will create at {debounce_until.strftime('%H:%M:%S')})"
+            )
         else:
-            logger.info(f"⏳ State change scheduled: {event_name} clip in {self.clip_state_change_cooldown}s (debounce until {debounce_until.strftime('%H:%M:%S')})")
+            logger.info(
+                f"⏳ State change scheduled: {event_name} clip in {self.clip_state_change_cooldown}s (debounce until {debounce_until.strftime('%H:%M:%S')})"
+            )
 
         self.pending_state_change = (event_time, event_name)
         self.state_change_debounce_until = debounce_until
@@ -385,7 +403,9 @@ class ClipManager:
             True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
-            logger.warning(f"Cannot create {event_name} clip: tee_manager not available (not using tee mode?)")
+            logger.warning(
+                f"Cannot create {event_name} clip: tee_manager not available (not using tee mode?)"
+            )
             return False
 
         clip_center = event_time
@@ -398,7 +418,9 @@ class ClipManager:
             event_name.lower(),
             "mp4",
         )
-        logger.info(f"📹 Scheduling {event_name} clip: {clip_path.name} ({self.clip_state_change_before}s before, {self.clip_state_change_after}s after)")
+        logger.info(
+            f"📹 Scheduling {event_name} clip: {clip_path.name} ({self.clip_state_change_before}s before, {self.clip_state_change_after}s after)"
+        )
 
         self._submit_clip_task(
             self._extract_clip_async,
@@ -416,7 +438,6 @@ class ClipManager:
             logger.info(f"🚫 Cancelled pending {event_name} clip (falcon departed)")
             self.pending_state_change = None
             self.state_change_debounce_until = None
-
 
     def create_final_clip(self, timestamp: datetime, last_frame=None) -> str | None:
         """

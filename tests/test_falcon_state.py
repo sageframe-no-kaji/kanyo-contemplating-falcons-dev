@@ -265,7 +265,10 @@ class TestActivityToRoosting:
         assert len(events) == 1
         assert events[0][0] == FalconEvent.ACTIVITY_END
         # Activity duration is from last_absence_start (last_detection + 1) to activity_end
-        assert events[0][2]["activity_duration"] == (activity_end - (last_detection + timedelta(seconds=1))).total_seconds()
+        assert (
+            events[0][2]["activity_duration"]
+            == (activity_end - (last_detection + timedelta(seconds=1))).total_seconds()
+        )
         assert len(fsm.activity_periods) == 1
 
 
@@ -294,7 +297,9 @@ class TestRoostingToDeparted:
         fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
 
         # Absence exceeds roosting_exit_timeout - departed
-        events = fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=151))
+        events = fsm.update(
+            falcon_detected=False, timestamp=last_detection + timedelta(seconds=151)
+        )
 
         assert fsm.state == FalconState.ABSENT
         assert len(events) == 1
@@ -327,7 +332,9 @@ class TestActivityToDeparted:
         assert fsm.state == FalconState.ACTIVITY
 
         # Continue absence past roosting_exit_timeout from current_activity_start - departed
-        events = fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=152))
+        events = fsm.update(
+            falcon_detected=False, timestamp=last_detection + timedelta(seconds=152)
+        )
 
         assert fsm.state == FalconState.ABSENT
         assert len(events) == 1
@@ -353,7 +360,9 @@ class TestMultipleActivityPeriods:
         last_detection = start_time + timedelta(seconds=120)
         fsm.update(falcon_detected=True, timestamp=last_detection)
         fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
-        fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=31))  # Trigger activity
+        fsm.update(
+            falcon_detected=False, timestamp=last_detection + timedelta(seconds=31)
+        )  # Trigger activity
         fsm.update(falcon_detected=True, timestamp=last_detection + timedelta(seconds=60))
 
         assert len(fsm.activity_periods) == 1
@@ -362,7 +371,9 @@ class TestMultipleActivityPeriods:
         last_detection2 = last_detection + timedelta(seconds=100)
         fsm.update(falcon_detected=True, timestamp=last_detection2)
         fsm.update(falcon_detected=False, timestamp=last_detection2 + timedelta(seconds=1))
-        fsm.update(falcon_detected=False, timestamp=last_detection2 + timedelta(seconds=31))  # Trigger activity
+        fsm.update(
+            falcon_detected=False, timestamp=last_detection2 + timedelta(seconds=31)
+        )  # Trigger activity
         events = fsm.update(falcon_detected=True, timestamp=last_detection2 + timedelta(seconds=50))
 
         assert len(fsm.activity_periods) == 2

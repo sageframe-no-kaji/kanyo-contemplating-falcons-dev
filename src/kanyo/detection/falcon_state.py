@@ -66,7 +66,9 @@ class FalconStateMachine:
         self.activity_periods: list[tuple[datetime, datetime]] = []
         self.current_activity_start: datetime | None = None
 
-    def update(self, falcon_detected: bool, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
+    def update(
+        self, falcon_detected: bool, timestamp: datetime
+    ) -> list[tuple[FalconEvent, datetime, dict]]:
         """
         Update state based on detection status.
 
@@ -170,7 +172,11 @@ class FalconStateMachine:
                 absence_duration = (timestamp - self.last_absence_start).total_seconds()
                 if absence_duration >= self.exit_timeout:
                     # VISITING → ABSENT: Falcon departed
-                    visit_duration = (self.last_detection - self.visit_start).total_seconds() if self.visit_start else 0
+                    visit_duration = (
+                        (self.last_detection - self.visit_start).total_seconds()
+                        if self.visit_start
+                        else 0
+                    )
 
                     events.append(
                         (
@@ -196,9 +202,15 @@ class FalconStateMachine:
 
                 if absence_duration >= self.roosting_exit_timeout:
                     # ROOSTING → ABSENT: Falcon departed after long roosting
-                    total_duration = (self.last_detection - self.visit_start).total_seconds() if self.visit_start else 0
+                    total_duration = (
+                        (self.last_detection - self.visit_start).total_seconds()
+                        if self.visit_start
+                        else 0
+                    )
                     roosting_duration = (
-                        (self.last_detection - self.roosting_start).total_seconds() if self.roosting_start else 0
+                        (self.last_detection - self.roosting_start).total_seconds()
+                        if self.roosting_start
+                        else 0
                     )
 
                     events.append(
@@ -239,7 +251,11 @@ class FalconStateMachine:
 
                 if absence_duration >= self.roosting_exit_timeout:
                     # ACTIVITY → ABSENT: Activity period exceeded departure threshold
-                    total_duration = (self.last_detection - self.visit_start).total_seconds() if self.visit_start else 0
+                    total_duration = (
+                        (self.last_detection - self.visit_start).total_seconds()
+                        if self.visit_start
+                        else 0
+                    )
 
                     events.append(
                         (
@@ -310,14 +326,18 @@ class FalconStateMachine:
             "state": self.state.value,
             "visit_start": self.visit_start.isoformat() if self.visit_start else None,
             "last_detection": self.last_detection.isoformat() if self.last_detection else None,
-            "last_absence_start": self.last_absence_start.isoformat() if self.last_absence_start else None,
+            "last_absence_start": (
+                self.last_absence_start.isoformat() if self.last_absence_start else None
+            ),
             "roosting_start": self.roosting_start.isoformat() if self.roosting_start else None,
             "activity_periods": len(self.activity_periods),
         }
 
         # Calculate durations
         if self.visit_start and self.last_detection:
-            info["current_visit_duration"] = (self.last_detection - self.visit_start).total_seconds()
+            info["current_visit_duration"] = (
+                self.last_detection - self.visit_start
+            ).total_seconds()
 
         if self.roosting_start and self.last_detection:
             info["roosting_duration"] = (self.last_detection - self.roosting_start).total_seconds()
@@ -326,6 +346,8 @@ class FalconStateMachine:
             # Use provided current_time or last_detection
             ref_time = current_time or self.last_detection
             if ref_time:
-                info["current_absence_duration"] = (ref_time - self.last_absence_start).total_seconds()
+                info["current_absence_duration"] = (
+                    ref_time - self.last_absence_start
+                ).total_seconds()
 
         return info

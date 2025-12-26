@@ -224,7 +224,7 @@ class NotificationManager:
             url = f"https://ntfy.sh/{self.ntfy_admin_topic}"
             headers = {
                 "Title": "Kanyo Error",  # Removed emoji to avoid encoding issues
-                "Content-Type": "text/plain; charset=utf-8"
+                "Content-Type": "text/plain; charset=utf-8",
             }
             data = message.encode("utf-8")
             resp = requests.post(url, data=data, headers=headers, timeout=5)
@@ -236,4 +236,3 @@ class NotificationManager:
 
         except Exception as e:
             logger.warning(f"⚠️  Could not send admin error to ntfy: {e}")
-

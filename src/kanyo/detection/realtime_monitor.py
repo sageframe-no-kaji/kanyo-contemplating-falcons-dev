@@ -141,18 +141,24 @@ class RealtimeMonitor:
         # State
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
-        self.arrival_clip_scheduled: datetime | None = None  # Time when arrival clip should be created
+        self.arrival_clip_scheduled: datetime | None = (
+            None  # Time when arrival clip should be created
+        )
         self.arrival_event_time: datetime | None = None  # Actual arrival time
-        self.initial_clip_scheduled: datetime | None = None  # Time when initial state clip should be created
+        self.initial_clip_scheduled: datetime | None = (
+            None  # Time when initial state clip should be created
+        )
         self.initial_event_time: datetime | None = None  # Actual detection time
 
         # State machine for intelligent behavior tracking
-        self.state_machine = FalconStateMachine({
-            "exit_timeout": exit_timeout_seconds,
-            "roosting_threshold": roosting_threshold,
-            "roosting_exit_timeout": roosting_exit_timeout,
-            "activity_timeout": activity_timeout,
-        })
+        self.state_machine = FalconStateMachine(
+            {
+                "exit_timeout": exit_timeout_seconds,
+                "roosting_threshold": roosting_threshold,
+                "roosting_exit_timeout": roosting_exit_timeout,
+                "activity_timeout": activity_timeout,
+            }
+        )
 
     def process_frame(self, frame) -> None:
         """Process a single frame for falcon detection."""
@@ -180,7 +186,9 @@ class RealtimeMonitor:
                 self.arrival_clip_scheduled = event_time + timedelta(
                     seconds=self.clip_manager.clip_arrival_after
                 )
-                logger.info(f"📹 Arrival clip scheduled for {self.arrival_clip_scheduled.strftime('%H:%M:%S')}")
+                logger.info(
+                    f"📹 Arrival clip scheduled for {self.arrival_clip_scheduled.strftime('%H:%M:%S')}"
+                )
 
             # Create departure/visit clips
             elif event_type == FalconEvent.DEPARTED:
@@ -191,7 +199,9 @@ class RealtimeMonitor:
 
                     # Short visit? Save as one clip
                     if visit_duration < self.short_visit_threshold:
-                        logger.info(f"📹 Short visit ({visit_duration:.0f}s) - creating full visit clip")
+                        logger.info(
+                            f"📹 Short visit ({visit_duration:.0f}s) - creating full visit clip"
+                        )
                         scheduled = self.clip_manager.create_visit_clip(visit_start, visit_end)
                         if scheduled:
                             logger.info("✅ Visit clip scheduled (async)")
@@ -213,7 +223,11 @@ class RealtimeMonitor:
                     logger.warning(f"⚠️  Cannot create clip - missing timestamps")
 
             # State change clips (ROOSTING, ACTIVITY_START, ACTIVITY_END) - use debounce
-            elif event_type in (FalconEvent.ROOSTING, FalconEvent.ACTIVITY_START, FalconEvent.ACTIVITY_END):
+            elif event_type in (
+                FalconEvent.ROOSTING,
+                FalconEvent.ACTIVITY_START,
+                FalconEvent.ACTIVITY_END,
+            ):
                 event_name = event_type.name
                 self.clip_manager.schedule_state_change_clip(event_time, event_name)
 
@@ -306,24 +320,36 @@ class RealtimeMonitor:
 
                             # Create initial state clip - captures what's happening when monitoring starts
                             # This is valuable when monitor restarts with falcon already present
-                            logger.info("📹 Creating initial state clip (falcon present at startup)")
+                            logger.info(
+                                "📹 Creating initial state clip (falcon present at startup)"
+                            )
                             # Store detection time and schedule creation for after buffer period
                             self.initial_event_time = now
                             self.initial_clip_scheduled = now + timedelta(
                                 seconds=self.clip_manager.clip_arrival_after
                             )
-                            logger.info(f"📹 Initial clip scheduled for {self.initial_clip_scheduled.strftime('%H:%M:%S')}")
+                            logger.info(
+                                f"📹 Initial clip scheduled for {self.initial_clip_scheduled.strftime('%H:%M:%S')}"
+                            )
                         else:
-                            logger.info(f"📊 Initial state after {initialization_duration}s: {state_name.upper()} (no birds detected in {int(elapsed * 30)} frames)")
+                            logger.info(
+                                f"📊 Initial state after {initialization_duration}s: {state_name.upper()} (no birds detected in {int(elapsed * 30)} frames)"
+                            )
 
-                        logger.info(f"🎯 Switching to normal operation (processing every {self.process_interval} frames)")
+                        logger.info(
+                            f"🎯 Switching to normal operation (processing every {self.process_interval} frames)"
+                        )
                         # Now switch to skipping frames - need to restart the iterator
                         # We'll use a flag to control frame skipping manually
                     else:
                         # Still initializing - process every frame
-                        detections = self.detector.detect_birds(frame.data, timestamp=get_now_tz(self.full_config))
+                        detections = self.detector.detect_birds(
+                            frame.data, timestamp=get_now_tz(self.full_config)
+                        )
                         if detections:
-                            logger.debug(f"🔍 Init {elapsed:.1f}s: Found {len(detections)} bird(s), max conf={max(d.confidence for d in detections):.2f}")
+                            logger.debug(
+                                f"🔍 Init {elapsed:.1f}s: Found {len(detections)} bird(s), max conf={max(d.confidence for d in detections):.2f}"
+                            )
                             initial_detections.extend(detections)
                             max_birds_in_frame = max(max_birds_in_frame, len(detections))
                         continue  # Skip normal processing during initialization
@@ -332,7 +358,7 @@ class RealtimeMonitor:
                 # We need to manually implement frame skipping since we can't change the iterator
                 if initialization_complete:
                     # Simple frame counter for skipping
-                    if not hasattr(self, '_frame_counter'):
+                    if not hasattr(self, "_frame_counter"):
                         self._frame_counter = 0
                     self._frame_counter += 1
 

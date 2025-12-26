@@ -231,6 +231,9 @@ models/*.pt
 # mypy
 .mypy_cache/
 
+# obsidian-vault
+.obsidian
+
 # coverage
 .coverage
 

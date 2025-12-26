@@ -172,13 +172,17 @@ class FalconDetector:
 
         # Debug logging
         if all_detections_debug:
-            logger.debug(f"YOLO found {total_checked} objects: {', '.join(all_detections_debug[:5])}")
+            logger.debug(
+                f"YOLO found {total_checked} objects: {', '.join(all_detections_debug[:5])}"
+            )
 
         if detections:
             max_confidence = max(d.confidence for d in detections)
             logger.debug(f"Falcon detected: confidence={max_confidence:.3f}")
         else:
-            logger.debug(f"No falcon detected (checked {total_checked} detections, targets={self.target_classes})")
+            logger.debug(
+                f"No falcon detected (checked {total_checked} detections, targets={self.target_classes})"
+            )
 
         return detections
 
