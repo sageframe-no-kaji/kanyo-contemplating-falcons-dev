@@ -1,46 +1,65 @@
-
 # Kanyo (観鷹)
 **Contemplating Falcons**
 
-Automated detection and timeline generation for the Memorial Hall Peregrine Falcon cam at Harvard.
+Real-time falcon detection and event tracking for live camera streams. Automatically captures video clips when falcons arrive or depart, tracks roosting behavior, and sends notifications via Telegram.
+
+## What It Does
+
+- 🦅 **Detects falcons** in live YouTube streams using YOLOv8
+- 📹 **Captures video clips** of arrivals, departures, and activity
+- 🔔 **Sends notifications** via Telegram when falcons are spotted
+- 📊 **Tracks behavior** with state machine (absent → visiting → roosting → departed)
+- 🕐 **Generates timelines** with thumbnails and event logs
 
 ## Origin Story
 
 Born from a conversation with Claudia Goldin (Nobel laureate in Economics) on a flight to New York, where she expressed interest in having the live feed automatically mark timestamps when the peregrines are actually in frame.
 
-## Project Status
-
-🚧 **In Development** - Ho 1 complete (project structure established)
-
-**Current Phase:** Foundation
-**Next:** Falcon detection implementation (Ho 2)
+---
 
 ## Quick Start
 
-### Using Pre-built Docker Image (Recommended)
+### Docker (Recommended)
 
 ```bash
-# Pull the CPU-only image from GitHub Container Registry
-docker pull ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:cpu
+# 1. Create project directory
+mkdir kanyo && cd kanyo
 
-# Copy example docker-compose file
-cp docker-compose.example.yml docker-compose.yml
+# 2. Download docker-compose file (choose one):
+#    CPU:    https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.example.yml
+#    Intel:  https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.vaapi.yml
+#    NVIDIA: https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.nvidia.yml
 
-# Edit docker-compose.yml with your settings
-# Then start:
+curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.nvidia.yml
+mv docker-compose.nvidia.yml docker-compose.yml
+
+# 3. Download config template
+curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/configs/config.template.yaml
+mv config.template.yaml config.yaml
+# Edit config.yaml with your stream URL and settings
+
+# 4. Create directories for persistent data
+mkdir -p clips logs
+
+# 5. Create .env file (if using Telegram)
+echo "TELEGRAM_BOT_TOKEN=your_token_here" > .env
+
+# 6. Start
 docker compose up -d
 ```
 
-### Local Development
+See **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** for multi-stream and ZFS deployment.
+
+### Local Development (Clone Required)
 
 ```bash
-# Clone and setup
+# Clone repository
 git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
 cd kanyo-contemplating-falcons-dev
 
 # Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # Mac/Linux
+python3.11 -m venv venv
+source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements-dev.txt
@@ -48,83 +67,130 @@ pip install -r requirements-dev.txt
 # Run tests
 pytest
 
-# Test configuration
-python scripts/test_config.py
+# Run detection on a stream
+python -m kanyo.detection.realtime_monitor config.yaml
 ```
+
+---
 
 ## Project Structure
 
 ```
-kanyo/
-├── src/kanyo/           # Main package
-│   ├── detection/       # Video capture and falcon detection
-│   ├── generation/      # Static site generation
-│   └── utils/           # Configuration and logging
-├── tests/               # Test suite
-├── scripts/             # Utility scripts
-├── docs/                # Architecture and design docs
-├── devlog/              # Development journal (hos)
-└── site/                # Generated static site
+kanyo-contemplating-falcons-dev/
+├── src/kanyo/               # Main package
+│   ├── detection/           # Video capture, detection, state machine
+│   ├── generation/          # Clip extraction, site generation
+│   └── utils/               # Config, logging, notifications, encoding
+├── tests/                   # Test suite (115 tests)
+├── configs/                 # Configuration templates and examples
+│   ├── config.template.yaml # Documented config template
+│   └── kanyo-stream-config.example.yaml
+├── docker/                  # Docker deployment files
+│   ├── Dockerfile.cpu       # Pure CPU variant
+│   ├── Dockerfile.vaapi     # Intel iGPU + OpenVINO
+│   ├── Dockerfile.nvidia    # NVIDIA CUDA 12.1
+│   ├── docker-compose.*.yml # Deployment configs
+│   └── requirements-ml-*.txt # ML dependencies per variant
+├── scripts/                 # Build, deploy, and utility scripts
+│   └── INDEX.md             # Script documentation
+├── docs/                    # Architecture and design documentation
+└── devlog/                  # Development journal (hos)
 ```
 
-## Documentation
-
-- [Architecture](docs/architecture.md) - System design and data flow
-- [Data Model](docs/data-model.md) - Event structure and schemas
-- [Development Log](devlog/) - Ho-by-ho progress
-
-## Technology Stack
-
-- **Python 3.10+** - Core language
-- **YOLOv8** - Object detection
-- **OpenCV** - Video processing
-- **yt-dlp** - Stream capture
-- **GitHub Actions** - Automation
-- **Cloudflare Pages** - Hosting
-
-## Development
-
-### Activate environment
-source venv/bin/activate
-
-### Format code
-black src/ tests/
-isort src/ tests/
-
-### Check code quality
-flake8 src/ tests/
-mypy src/kanyo/
-
-### Run tests with coverage
-pytest --cov
+---
 
 ## Configuration
 
-See `config.yaml` for all settings. Key parameters:
+See **[configs/config.template.yaml](configs/config.template.yaml)** for all options.
 
-- **video.source** - YouTube stream URL
-- **detection.confidence** - Detection threshold (0.0-1.0)
-- **detection.model** - YOLOv8 model (n/s/m)
-- **events.enter_threshold** - Frames to confirm entrance
+Minimal config:
+```yaml
+video_source: "https://www.youtube.com/watch?v=..."
+detection_confidence: 0.35
+frame_interval: 2
+telegram_enabled: false
+```
+
+Key parameters:
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `video_source` | YouTube stream URL | (required) |
+| `detection_confidence` | Detection threshold (0.0-1.0) | 0.35 |
+| `frame_interval` | Seconds between detection frames | 2 |
+| `telegram_enabled` | Send notifications | false |
+| `telegram_channel` | Telegram channel ID | - |
+
+---
+
+## Deployment Options
+
+| Method | Best For | Hardware |
+|--------|----------|----------|
+| **[Docker](docker/DOCKER-DEPLOYMENT.md)** | Production, multi-stream | CPU, Intel iGPU, NVIDIA GPU |
+| **[Bare Metal](DEPLOYMENT.md)** | Development, single stream | Any |
+
+Three Docker image variants:
+- **`:cpu`** - Pure CPU (PyTorch CPU, no GPU)
+- **`:vaapi`** - Intel iGPU (PyTorch + OpenVINO)
+- **`:nvidia`** - NVIDIA GPU (PyTorch + CUDA 12.1)
+
+---
+
+## Documentation
+
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Bare metal and Docker deployment
+- **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** - Complete Docker guide with ZFS
+- **[docs/architecture.md](docs/architecture.md)** - System design and data flow
+- **[docs/state-detection.md](docs/state-detection.md)** - Falcon state machine
+- **[scripts/INDEX.md](scripts/INDEX.md)** - Build and deploy script reference
+- **[devlog/](devlog/)** - Development journal (ho-by-ho progress)
+
+---
+
+## Technology Stack
+
+- **Python 3.11+** - Core language
+- **YOLOv8** - Object detection (ultralytics)
+- **OpenCV** - Video/frame processing
+- **yt-dlp** - YouTube stream capture
+- **FFmpeg** - Video encoding with hardware acceleration
+- **Docker** - Containerized deployment
+- **Telegram Bot API** - Notifications
+
+---
+
+## Development
+
+```bash
+# Activate environment
+source venv/bin/activate
+
+# Run tests with coverage
+pytest --cov
+
+# Format code
+black src/ tests/
+isort src/ tests/
+
+# Check code quality
+flake8 src/ tests/
+mypy src/kanyo/
+```
+
+---
 
 ## Roadmap
 
-- [x] Ho 0: Project planning
-- [x] Ho 0.5: Tool mastery
-- [x] Ho 1: Project structure ← **You are here**
-- [ ] Ho 2: Falcon detection
-- [ ] Ho 3: Event detection
-- [ ] Ho 4: Stream capture
-- [ ] Ho 5: Pipeline assembly
-- [ ] Ho 6: GitHub Actions automation
-- [ ] Ho 7: Static site generation
-- [ ] Ho 8: Cloudflare deployment
-- [ ] Ho 9: User tagging system
-- [ ] Ho 10-11: Polish and launch
+- [x] Ho 0-1: Project foundation
+- [x] Ho 2: Falcon detection (YOLOv8)
+- [x] Ho 3: Live detection & notifications
+- [x] Ho 4: Docker deployment
+- [x] Ho 5: Production verification
+- [ ] Ho 6: Static site generation
+- [ ] Ho 7: User tagging system
+- [ ] Ho 8: Multi-camera dashboard
 
-## Contributing
-
-This is a personal learning project, but feedback and suggestions are welcome!
+---
 
 ## License
 

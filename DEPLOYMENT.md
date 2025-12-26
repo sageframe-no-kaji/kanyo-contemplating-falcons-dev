@@ -40,7 +40,7 @@ pip install -r requirements-base.txt
 pip install -r docker/requirements-ml-cpu.txt      # Pure CPU (slowest, most portable)
 # OR
 pip install -r docker/requirements-ml-vaapi.txt    # Intel iGPU + OpenVINO (medium speed)
-# OR  
+# OR
 pip install -r docker/requirements-ml-cuda.txt     # NVIDIA GPU (fastest, requires CUDA 12.1)
 
 # 4. Create configuration
@@ -80,7 +80,7 @@ For multiple camera streams on bare metal, run separate processes with different
 # Terminal 1
 python -m kanyo.detection.realtime_monitor config-harvard.yaml
 
-# Terminal 2  
+# Terminal 2
 python -m kanyo.detection.realtime_monitor config-nsw.yaml
 ```
 

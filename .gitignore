@@ -272,3 +272,5 @@ thumbnails/
 *.aac
 *.ogg
 *.m4a
+# Local development docker-compose files
+docker-compose.local.yml
