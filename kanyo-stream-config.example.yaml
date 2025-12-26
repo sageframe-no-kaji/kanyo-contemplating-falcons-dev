@@ -37,7 +37,6 @@ detect_any_animal: true
 
 # Timeouts are in seconds
 exit_timeout: 300             # Mark departed if absent this long during a visit
-visit_merge_timeout: 60       # Merge visits if re-enter within this window
 
 # Roosting behavior
 roosting_threshold: 1800      # 30 min continuous presence → roosting
