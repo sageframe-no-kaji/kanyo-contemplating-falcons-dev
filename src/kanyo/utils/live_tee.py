@@ -272,7 +272,7 @@ class FFmpegTeeManager:
 
     @staticmethod
     def get_segment_timerange(
-        segment_path: Path, chunk_minutes: int = 10
+        segment_path: Path, chunk_minutes: int = 10, tz: timezone | None = None
     ) -> tuple[datetime, datetime]:
         """
         Parse segment filename to get time range.
@@ -280,6 +280,7 @@ class FFmpegTeeManager:
         Args:
             segment_path: Path to segment file (e.g., segment_20231217_143000.ts)
             chunk_minutes: Duration of each segment in minutes
+            tz: Timezone to apply to parsed times (None for naive datetime)
 
         Returns:
             Tuple of (start_time, end_time) for the segment
@@ -300,6 +301,11 @@ class FFmpegTeeManager:
 
         # Parse datetime from filename
         start_time = datetime.strptime(f"{date_str}_{time_str}", "%Y%m%d_%H%M%S")
+
+        # Apply timezone if provided
+        if tz is not None:
+            start_time = start_time.replace(tzinfo=tz)
+
         end_time = start_time + timedelta(minutes=chunk_minutes)
 
         return start_time, end_time
@@ -320,10 +326,12 @@ class FFmpegTeeManager:
             List of segment paths that contain any part of the timerange, sorted chronologically
         """
         overlapping_segments = []
+        # Use timezone from input times for segment parsing
+        tz = start_time.tzinfo
 
         for segment in self.buffer_dir.glob("segment_*.ts"):
             try:
-                seg_start, seg_end = self.get_segment_timerange(segment, self.chunk_minutes)
+                seg_start, seg_end = self.get_segment_timerange(segment, self.chunk_minutes, tz)
 
                 # Check if segment overlaps with desired time range
                 # Segments overlap if: seg_start < end_time AND seg_end > start_time
@@ -385,7 +393,7 @@ class FFmpegTeeManager:
             if len(segments) == 1:
                 # Single segment: direct extraction
                 segment = segments[0]
-                seg_start, _ = self.get_segment_timerange(segment, self.chunk_minutes)
+                seg_start, _ = self.get_segment_timerange(segment, self.chunk_minutes, start_time.tzinfo)
                 offset = (start_time - seg_start).total_seconds()
 
                 cmd = [
@@ -421,7 +429,7 @@ class FFmpegTeeManager:
 
             else:
                 # Multi-segment: use concat demuxer
-                first_seg_start, _ = self.get_segment_timerange(segments[0], self.chunk_minutes)
+                first_seg_start, _ = self.get_segment_timerange(segments[0], self.chunk_minutes, start_time.tzinfo)
                 offset = (start_time - first_seg_start).total_seconds()
 
                 # Create temporary concat file
