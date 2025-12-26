@@ -60,7 +60,7 @@ The system tracks four distinct behavioral states:
 #### 2. **VISITING**
 - Falcon present for < 30 minutes
 - Typical short visit behavior
-- Exit timeout: 5 minutes (normal detection gaps)
+- Exit timeout: 1 minute (normal detection gaps)
 
 #### 3. **ROOSTING**
 - Falcon present for > 30 minutes
@@ -92,7 +92,7 @@ The system tracks four distinct behavioral states:
 - Continue monitoring with extended timeout
 
 #### VISITING → ABSENT
-**Trigger:** No detection for 5 minutes during visit
+**Trigger:** No detection for 1 minute during visit
 **Event:** `DEPARTED`
 **Actions:**
 - Log departure with visit duration
@@ -137,14 +137,14 @@ All timing parameters are configured in `config.yaml`:
 
 ```yaml
 # State machine configuration for roosting detection
-exit_timeout: 300              # 5 min - mark departed if absent this long during visit
+exit_timeout: 60               # 1 min - mark departed if absent this long during visit
 roosting_threshold: 1800       # 30 min - transition to roosting state
 roosting_exit_timeout: 600     # 10 min - must be absent this long when roosting
 activity_timeout: 180          # 3 min - brief absence during roost is activity
 activity_notification: false   # Send notifications for activity events?
 ```
 
-#### `exit_timeout` (default: 300 seconds / 5 minutes)
+#### `exit_timeout` (default: 60 seconds / 1 minute)
 **Purpose:** Departure threshold during VISITING state
 
 **Tuning Guidelines:**
@@ -304,10 +304,10 @@ exit_timeout < roosting_exit_timeout
 
 **Recommended ratios:**
 ```yaml
-exit_timeout: 300              # 5 min (base unit)
-activity_timeout: 180          # 3 min (60% of exit_timeout)
-roosting_exit_timeout: 600     # 10 min (2x exit_timeout)
-roosting_threshold: 1800       # 30 min (6x exit_timeout)
+exit_timeout: 60               # 1 min (base unit)
+activity_timeout: 180          # 3 min (3x exit_timeout)
+roosting_exit_timeout: 600     # 10 min (10x exit_timeout)
+roosting_threshold: 1800       # 30 min (30x exit_timeout)
 ```
 
 These ratios ensure:
