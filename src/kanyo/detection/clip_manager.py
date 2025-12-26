@@ -4,6 +4,7 @@ Clip manager for creating video clips from falcon events.
 Handles extraction of arrival, departure, visit, state change, and final clips.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -90,16 +91,38 @@ class ClipManager:
         self.pending_state_change: tuple[datetime, str] | None = None  # (event_time, event_name)
         self.state_change_debounce_until: datetime | None = None  # When to create the clip
 
+        # Async clip creation - prevents blocking detection loop during ffmpeg encoding
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="clip_")
+        self._pending_futures: list = []
+        self._shutdown = False
+
         # Legacy (for backward compatibility)
         self.clip_before_seconds = clip_before_seconds
         self.clip_after_seconds = clip_after_seconds
+
+    def shutdown(self):
+        """Shutdown the clip executor, waiting for pending clips to complete."""
+        if self._shutdown:
+            return  # Already shutdown
+        self._shutdown = True
+        logger.info("Shutting down clip manager, waiting for pending clips...")
+        self._executor.shutdown(wait=True)
+        logger.info("Clip manager shutdown complete")
 
     @property
     def tee_manager(self):
         """Lazily access tee_manager from capture (available after stream connects)."""
         return self.capture.tee_manager if self.capture else None
 
-    def create_initial_clip(self, detection_time: datetime) -> str | None:
+    def _submit_clip_task(self, func, *args, **kwargs):
+        """Submit a clip creation task to run in background."""
+        future = self._executor.submit(func, *args, **kwargs)
+        self._pending_futures.append(future)
+        # Clean up completed futures
+        self._pending_futures = [f for f in self._pending_futures if not f.done()]
+        return future
+
+    def create_initial_clip(self, detection_time: datetime) -> bool:
         """
         Create initial state clip when monitoring starts with falcon present.
 
@@ -107,29 +130,59 @@ class ClipManager:
         when the monitor restarts and a falcon is already roosting.
         Uses arrival timing (15s before, 30s after detection_time).
 
+        Runs asynchronously - returns immediately after scheduling.
+
         Args:
             detection_time: When the initial detection was confirmed
 
         Returns:
-            Path to created clip, or None if creation failed
+            True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
             logger.warning("Cannot create initial clip: tee_manager not available (not using tee mode?)")
-            return None
+            return False
 
+        clip_center = detection_time
+        clip_start = clip_center - timedelta(seconds=self.clip_arrival_before)
+        clip_duration = self.clip_arrival_before + self.clip_arrival_after
+
+        clip_path = get_output_path(
+            self.clips_dir,
+            clip_center,
+            "initial",  # Distinct from "arrival" - this is startup state
+            "mp4",
+        )
+        logger.info(f"📹 Scheduling initial state clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
+
+        self._submit_clip_task(
+            self._extract_clip_async,
+            clip_start,
+            clip_duration,
+            clip_path,
+            "initial state",
+        )
+        return True
+
+    def _extract_clip_async(
+        self,
+        clip_start: datetime,
+        clip_duration: float,
+        clip_path: Path,
+        clip_type: str,
+    ) -> str | None:
+        """
+        Internal method to extract clip - runs in background thread.
+
+        Args:
+            clip_start: When the clip should start
+            clip_duration: Duration in seconds
+            clip_path: Where to save the clip
+            clip_type: Description for logging (e.g., "initial state", "arrival")
+
+        Returns:
+            Path to created clip, or None if creation failed
+        """
         try:
-            clip_center = detection_time
-            clip_start = clip_center - timedelta(seconds=self.clip_arrival_before)
-            clip_duration = self.clip_arrival_before + self.clip_arrival_after
-
-            clip_path = get_output_path(
-                self.clips_dir,
-                clip_center,
-                "initial",  # Distinct from "arrival" - this is startup state
-                "mp4",
-            )
-            logger.info(f"📹 Creating initial state clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
-
             success = self.tee_manager.extract_clip(
                 start_time=clip_start,
                 duration_seconds=clip_duration,
@@ -139,157 +192,130 @@ class ClipManager:
             )
 
             if success:
-                logger.info(f"✅ Initial state clip saved: {clip_path}")
+                logger.info(f"✅ {clip_type.capitalize()} clip saved: {clip_path}")
                 return str(clip_path)
             else:
-                logger.warning("Failed to create initial state clip")
+                logger.warning(f"Failed to create {clip_type} clip")
                 return None
 
         except Exception as e:
-            logger.error(f"Error creating initial state clip: {e}")
+            logger.error(f"Error creating {clip_type} clip: {e}")
             return None
 
-    def create_arrival_clip(self, arrival_time: datetime) -> str | None:
+    def create_arrival_clip(self, arrival_time: datetime) -> bool:
         """
         Create arrival clip for a falcon visit.
         Uses configured timing: clip_arrival_before, clip_arrival_after
+
+        Runs asynchronously - returns immediately after scheduling.
 
         Args:
             arrival_time: When the falcon arrived
 
         Returns:
-            Path to created clip, or None if creation failed
+            True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
             logger.warning("Cannot create arrival clip: tee_manager not available (not using tee mode?)")
-            return None
+            return False
 
-        try:
-            clip_center = arrival_time
-            clip_start = clip_center - timedelta(seconds=self.clip_arrival_before)
-            clip_duration = self.clip_arrival_before + self.clip_arrival_after
+        clip_center = arrival_time
+        clip_start = clip_center - timedelta(seconds=self.clip_arrival_before)
+        clip_duration = self.clip_arrival_before + self.clip_arrival_after
 
-            clip_path = get_output_path(
-                self.clips_dir,
-                clip_center,
-                "arrival",
-                "mp4",
-            )
-            logger.info(f"📹 Creating arrival clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
+        clip_path = get_output_path(
+            self.clips_dir,
+            clip_center,
+            "arrival",
+            "mp4",
+        )
+        logger.info(f"📹 Scheduling arrival clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
 
-            success = self.tee_manager.extract_clip(
-                start_time=clip_start,
-                duration_seconds=clip_duration,
-                output_path=clip_path,
-                fps=self.clip_fps,
-                crf=self.clip_crf,
-            )
+        self._submit_clip_task(
+            self._extract_clip_async,
+            clip_start,
+            clip_duration,
+            clip_path,
+            "arrival",
+        )
+        return True
 
-            if success:
-                logger.info(f"✅ Arrival clip saved: {clip_path}")
-                return str(clip_path)
-            else:
-                logger.warning("Failed to create arrival clip")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error creating arrival clip: {e}")
-            return None
-
-    def create_visit_clip(self, start_time: datetime, end_time: datetime) -> str | None:
+    def create_visit_clip(self, start_time: datetime, end_time: datetime) -> bool:
         """
         Create a clip for the entire visit (for short visits < 10 minutes).
+
+        Runs asynchronously - returns immediately after scheduling.
 
         Args:
             start_time: Visit start timestamp
             end_time: Visit end timestamp
 
         Returns:
-            Path to created clip, or None if creation failed
+            True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
             logger.warning("Cannot create visit clip: tee_manager not available (not using tee mode?)")
-            return None
+            return False
 
-        try:
-            # Add buffer before and after
-            clip_start = start_time - timedelta(seconds=self.clip_before_seconds)
-            clip_end = end_time + timedelta(seconds=self.clip_after_seconds)
-            clip_duration = (clip_end - clip_start).total_seconds()
+        # Add buffer before and after
+        clip_start = start_time - timedelta(seconds=self.clip_before_seconds)
+        clip_end = end_time + timedelta(seconds=self.clip_after_seconds)
+        clip_duration = (clip_end - clip_start).total_seconds()
 
-            clip_path = get_output_path(
-                self.clips_dir,
-                start_time,
-                "visit",
-                "mp4",
-            )
-            logger.info(f"📹 Creating full visit clip: {clip_path.name} ({clip_duration:.0f}s total)")
+        clip_path = get_output_path(
+            self.clips_dir,
+            start_time,
+            "visit",
+            "mp4",
+        )
+        logger.info(f"📹 Scheduling full visit clip: {clip_path.name} ({clip_duration:.0f}s total)")
 
-            success = self.tee_manager.extract_clip(
-                start_time=clip_start,
-                duration_seconds=clip_duration,
-                output_path=clip_path,
-                fps=self.clip_fps,
-                crf=self.clip_crf,
-            )
+        self._submit_clip_task(
+            self._extract_clip_async,
+            clip_start,
+            clip_duration,
+            clip_path,
+            "visit",
+        )
+        return True
 
-            if success:
-                logger.info(f"✅ Visit clip saved: {clip_path}")
-                return str(clip_path)
-            else:
-                logger.warning("Failed to create visit clip")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error creating visit clip: {e}")
-            return None
-
-    def create_departure_clip(self, departure_time: datetime) -> str | None:
+    def create_departure_clip(self, departure_time: datetime) -> bool:
         """
         Create departure clip for a falcon visit.
         Uses configured timing: clip_departure_before, clip_departure_after
+
+        Runs asynchronously - returns immediately after scheduling.
 
         Args:
             departure_time: When the falcon departed
 
         Returns:
-            Path to created clip, or None if creation failed
+            True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
             logger.warning("Cannot create departure clip: tee_manager not available (not using tee mode?)")
-            return None
+            return False
 
-        try:
-            clip_center = departure_time
-            clip_start = clip_center - timedelta(seconds=self.clip_departure_before)
-            clip_duration = self.clip_departure_before + self.clip_departure_after
+        clip_center = departure_time
+        clip_start = clip_center - timedelta(seconds=self.clip_departure_before)
+        clip_duration = self.clip_departure_before + self.clip_departure_after
 
-            clip_path = get_output_path(
-                self.clips_dir,
-                clip_center,
-                "departure",
-                "mp4",
-            )
-            logger.info(f"📹 Creating departure clip: {clip_path.name} ({self.clip_departure_before}s before, {self.clip_departure_after}s after)")
+        clip_path = get_output_path(
+            self.clips_dir,
+            clip_center,
+            "departure",
+            "mp4",
+        )
+        logger.info(f"📹 Scheduling departure clip: {clip_path.name} ({self.clip_departure_before}s before, {self.clip_departure_after}s after)")
 
-            success = self.tee_manager.extract_clip(
-                start_time=clip_start,
-                duration_seconds=clip_duration,
-                output_path=clip_path,
-                fps=self.clip_fps,
-                crf=self.clip_crf,
-            )
-
-            if success:
-                logger.info(f"✅ Departure clip saved: {clip_path}")
-                return str(clip_path)
-            else:
-                logger.warning("Failed to create departure clip")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error creating departure clip: {e}")
-            return None
+        self._submit_clip_task(
+            self._extract_clip_async,
+            clip_start,
+            clip_duration,
+            clip_path,
+            "departure",
+        )
+        return True
 
     def schedule_state_change_clip(self, event_time: datetime, event_name: str) -> None:
         """
@@ -317,9 +343,9 @@ class ClipManager:
         self.pending_state_change = (event_time, event_name)
         self.state_change_debounce_until = debounce_until
 
-    def check_state_change_debounce(self, current_time: datetime) -> str | None:
+    def check_state_change_debounce(self, current_time: datetime) -> bool:
         """
-        Check if debounce period has expired and create the pending clip.
+        Check if debounce period has expired and schedule the pending clip.
 
         Should be called periodically by the monitor (e.g., in process_frame).
 
@@ -327,27 +353,28 @@ class ClipManager:
             current_time: Current timestamp
 
         Returns:
-            Path to created clip if debounce expired and clip created, None otherwise
+            True if clip was scheduled, False otherwise
         """
         if not self.pending_state_change or not self.state_change_debounce_until:
-            return None
+            return False
 
         if current_time < self.state_change_debounce_until:
-            return None  # Still debouncing
+            return False  # Still debouncing
 
         # Debounce expired - create the clip
         event_time, event_name = self.pending_state_change
-        logger.info(f"✅ State change debounce complete - creating {event_name} clip")
+        logger.info(f"✅ State change debounce complete - scheduling {event_name} clip")
 
         # Clear pending state before creating (in case of error)
         self.pending_state_change = None
         self.state_change_debounce_until = None
 
-        return self._create_state_change_clip_internal(event_time, event_name)
+        self._create_state_change_clip_internal(event_time, event_name)
+        return True  # Clip was scheduled
 
-    def _create_state_change_clip_internal(self, event_time: datetime, event_name: str) -> str | None:
+    def _create_state_change_clip_internal(self, event_time: datetime, event_name: str) -> bool:
         """
-        Internal method to actually create the state change clip.
+        Internal method to schedule the state change clip (async).
         Uses configured timing: clip_state_change_before, clip_state_change_after
 
         Args:
@@ -355,43 +382,32 @@ class ClipManager:
             event_name: Name of the event (for filename)
 
         Returns:
-            Path to created clip, or None if creation failed
+            True if clip creation was scheduled, False if it couldn't be started
         """
         if not self.tee_manager:
             logger.warning(f"Cannot create {event_name} clip: tee_manager not available (not using tee mode?)")
-            return None
+            return False
 
-        try:
-            clip_center = event_time
-            clip_start = clip_center - timedelta(seconds=self.clip_state_change_before)
-            clip_duration = self.clip_state_change_before + self.clip_state_change_after
+        clip_center = event_time
+        clip_start = clip_center - timedelta(seconds=self.clip_state_change_before)
+        clip_duration = self.clip_state_change_before + self.clip_state_change_after
 
-            clip_path = get_output_path(
-                self.clips_dir,
-                clip_center,
-                event_name.lower(),
-                "mp4",
-            )
-            logger.info(f"📹 Creating {event_name} clip: {clip_path.name} ({self.clip_state_change_before}s before, {self.clip_state_change_after}s after)")
+        clip_path = get_output_path(
+            self.clips_dir,
+            clip_center,
+            event_name.lower(),
+            "mp4",
+        )
+        logger.info(f"📹 Scheduling {event_name} clip: {clip_path.name} ({self.clip_state_change_before}s before, {self.clip_state_change_after}s after)")
 
-            success = self.tee_manager.extract_clip(
-                start_time=clip_start,
-                duration_seconds=clip_duration,
-                output_path=clip_path,
-                fps=self.clip_fps,
-                crf=self.clip_crf,
-            )
-
-            if success:
-                logger.info(f"✅ {event_name} clip saved: {clip_path}")
-                return str(clip_path)
-            else:
-                logger.warning(f"Failed to create {event_name} clip")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error creating {event_name} clip: {e}")
-            return None
+        self._submit_clip_task(
+            self._extract_clip_async,
+            clip_start,
+            clip_duration,
+            clip_path,
+            event_name,
+        )
+        return True
 
     def cancel_pending_state_change(self) -> None:
         """Cancel any pending state change clip (e.g., on departure)."""
@@ -405,6 +421,9 @@ class ClipManager:
     def create_final_clip(self, timestamp: datetime, last_frame=None) -> str | None:
         """
         Create clip when monitor stops with falcon still present.
+
+        NOTE: This runs synchronously (blocking) because at shutdown we want
+        to ensure the clip is created before the process exits.
 
         Args:
             timestamp: Time when monitoring stopped

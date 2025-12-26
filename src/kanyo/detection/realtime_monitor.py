@@ -193,9 +193,9 @@ class RealtimeMonitor:
                     # Short visit? Save as one clip
                     if visit_duration < self.short_visit_threshold:
                         logger.info(f"📹 Short visit ({visit_duration:.0f}s) - creating full visit clip")
-                        clip_path = self.clip_manager.create_visit_clip(visit_start, visit_end)
-                        if clip_path:
-                            logger.info(f"✅ Visit clip created: {clip_path}")
+                        scheduled = self.clip_manager.create_visit_clip(visit_start, visit_end)
+                        if scheduled:
+                            logger.info("✅ Visit clip scheduled (async)")
                         else:
                             logger.warning("❌ Visit clip creation failed")
                         # Cancel any scheduled arrival clip since visit clip covers it
@@ -204,9 +204,9 @@ class RealtimeMonitor:
                         # Long visit - create departure clip only
                         # (arrival clip should have been created already)
                         logger.info(f"📹 Creating departure clip for visit ({visit_duration:.0f}s)")
-                        clip_path = self.clip_manager.create_departure_clip(visit_end)
-                        if clip_path:
-                            logger.info(f"✅ Departure clip created: {clip_path}")
+                        scheduled = self.clip_manager.create_departure_clip(visit_end)
+                        if scheduled:
+                            logger.info("✅ Departure clip scheduled (async)")
                         else:
                             logger.warning("❌ Departure clip creation failed")
                 else:
@@ -228,9 +228,9 @@ class RealtimeMonitor:
             arrival_time = self.arrival_clip_scheduled - timedelta(
                 seconds=self.clip_manager.clip_arrival_after
             )
-            clip_path = self.clip_manager.create_arrival_clip(arrival_time)
-            if clip_path:
-                logger.info(f"✅ Arrival clip created: {clip_path}")
+            scheduled = self.clip_manager.create_arrival_clip(arrival_time)
+            if scheduled:
+                logger.info("✅ Arrival clip scheduled (async)")
             else:
                 logger.warning("❌ Arrival clip creation failed")
             self.arrival_clip_scheduled = None
@@ -242,17 +242,17 @@ class RealtimeMonitor:
             detection_time = self.initial_clip_scheduled - timedelta(
                 seconds=self.clip_manager.clip_arrival_after
             )
-            clip_path = self.clip_manager.create_initial_clip(detection_time)
-            if clip_path:
-                logger.info(f"✅ Initial state clip created: {clip_path}")
+            scheduled = self.clip_manager.create_initial_clip(detection_time)
+            if scheduled:
+                logger.info("✅ Initial state clip scheduled (async)")
             else:
                 logger.warning("❌ Initial state clip creation failed")
             self.initial_clip_scheduled = None
 
         # Check if state change debounce has expired
-        clip_path = self.clip_manager.check_state_change_debounce(now)
-        if clip_path:
-            logger.info(f"✅ State change clip created (after debounce): {clip_path}")
+        clip_scheduled = self.clip_manager.check_state_change_debounce(now)
+        if clip_scheduled:
+            logger.info("✅ State change clip scheduled (after debounce)")  # async
 
     def run(self) -> None:
         """Main monitoring loop using StreamCapture."""
@@ -360,12 +360,15 @@ class RealtimeMonitor:
             logger.info("\nStopping monitoring...")
 
         finally:
-            # Create final clip if falcon still present
+            # Create final clip if falcon still present (synchronous - we wait)
             if self.current_visit:
                 self.clip_manager.create_final_clip(
                     get_now_tz(self.full_config),
                     self.event_handler.last_frame,
                 )
+
+            # Shutdown clip manager - waits for any pending async clips
+            self.clip_manager.shutdown()
 
             self.capture.disconnect()
             # Save any ongoing visit
@@ -498,6 +501,9 @@ Examples:
                 get_now_tz(monitor.full_config),
                 monitor.event_handler.last_frame,
             )
+        # Ensure clip manager is shutdown (may already be done in run())
+        if monitor:
+            monitor.clip_manager.shutdown()
         logger.info("Monitor stopped")
 
 
