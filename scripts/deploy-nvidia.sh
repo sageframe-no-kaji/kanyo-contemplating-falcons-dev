@@ -46,8 +46,8 @@ fi"
 echo "Copying deployment files..."
 scp docker/docker-compose.nvidia.yml "${REMOTE_HOST}:/tmp/"
 scp .env "${REMOTE_HOST}:/tmp/kanyo.env"
-scp data/harvard/config.yaml "${REMOTE_HOST}:/tmp/harvard-config.yaml"
-scp data/nsw/config.yaml "${REMOTE_HOST}:/tmp/nsw-config.yaml"
+scp configs/harvard/config.yaml "${REMOTE_HOST}:/tmp/harvard-config.yaml"
+scp configs/nsw/config.yaml "${REMOTE_HOST}:/tmp/nsw-config.yaml"
 
 # Step 3: Move files to final locations with sudo
 echo "Installing files..."
