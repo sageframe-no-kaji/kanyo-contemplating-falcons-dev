@@ -21,8 +21,8 @@ EventType = Literal["falcon_enter", "falcon_exit", "falcon_visit"]
 
 
 @dataclass
-class FalconEvent:
-    """Base event with timestamp."""
+class EventRecord:
+    """Base event record for persistence."""
 
     event_type: EventType
     timestamp: datetime
@@ -134,7 +134,7 @@ class EventStore:
         with open(self.events_path, "w") as f:
             json.dump(events, f, indent=2)
 
-    def append(self, event: FalconEvent | FalconVisit) -> None:
+    def append(self, event: EventRecord | FalconVisit) -> None:
         """Append a single event."""
         events = self.load()
         events.append(event.to_dict())

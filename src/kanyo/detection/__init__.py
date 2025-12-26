@@ -10,14 +10,14 @@ Modules:
 
 from kanyo.detection.capture import Frame, StreamCapture
 from kanyo.detection.detect import Detection, FalconDetector
-from kanyo.detection.events import EventStore, FalconEvent, FalconVisit
+from kanyo.detection.events import EventStore, EventRecord, FalconVisit
 
 __all__ = [
     "StreamCapture",
     "Frame",
     "FalconDetector",
     "Detection",
-    "FalconEvent",
+    "EventRecord",
     "FalconVisit",
     "EventStore",
 ]

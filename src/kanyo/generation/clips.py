@@ -92,10 +92,10 @@ class ClipExtractor:
 
         # Config values
         self.clips_dir = Path(config.get("clips_dir", "clips"))
-        self.entrance_before = config.get("clip_entrance_before", 30)
-        self.entrance_after = config.get("clip_entrance_after", 60)
-        self.exit_before = config.get("clip_exit_before", 60)
-        self.exit_after = config.get("clip_exit_after", 30)
+        self.arrival_before = config.get("clip_arrival_before", 15)
+        self.arrival_after = config.get("clip_arrival_after", 30)
+        self.departure_before = config.get("clip_departure_before", 30)
+        self.departure_after = config.get("clip_departure_after", 15)
         self.merge_threshold = config.get("clip_merge_threshold", 180)
 
         # Thumbnail offsets
@@ -129,11 +129,11 @@ class ClipExtractor:
     def _calculate_clip_bounds(self, event: ClipEvent) -> tuple[float, float]:
         """Calculate start/end times for a single event clip."""
         if event.event_type == "enter":
-            start = event.video_time_secs - self.entrance_before
-            end = event.video_time_secs + self.entrance_after
+            start = event.video_time_secs - self.arrival_before
+            end = event.video_time_secs + self.arrival_after
         else:  # exit
-            start = event.video_time_secs - self.exit_before
-            end = event.video_time_secs + self.exit_after
+            start = event.video_time_secs - self.departure_before
+            end = event.video_time_secs + self.departure_after
 
         # Clamp to video bounds
         start = max(0, start)

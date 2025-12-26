@@ -26,8 +26,7 @@ DEFAULTS: dict[str, Any] = {
     "frame_interval": 30,  # process every Nth frame (30 = 2fps at 60fps)
     "model_path": "models/yolov8n.pt",  # YOLOv8 weights
     "detect_any_animal": True,  # treat any animal as falcon
-    "exit_timeout": 60,  # seconds before falcon "left" (with debouce)
-    "visit_merge_timeout": 60,  # merge visits if re-enter within N seconds
+    "exit_timeout": 300,  # 5 min - seconds before falcon "left" during visit
     "animal_classes": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],  # COCO animal IDs
     "timezone": "+00:00",  # GMT offset (e.g., -05:00 for NY, +10:00 for Sydney)
     # Output & Storage
@@ -36,10 +35,10 @@ DEFAULTS: dict[str, Any] = {
     "events_file": "data/events.json",
     # Clip Extraction
     "clips_dir": "clips",
-    "clip_entrance_before": 30,
-    "clip_entrance_after": 60,
-    "clip_exit_before": 60,
-    "clip_exit_after": 30,
+    "clip_arrival_before": 15,
+    "clip_arrival_after": 30,
+    "clip_departure_before": 30,
+    "clip_departure_after": 15,
     "clip_merge_threshold": 180,
     "continuous_recording": False,
     "continuous_chunk_hours": 6,

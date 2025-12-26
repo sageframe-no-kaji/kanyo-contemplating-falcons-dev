@@ -11,14 +11,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
-class TestFalconEvent:
-    """Tests for FalconEvent dataclass."""
+class TestEventRecord:
+    """Tests for EventRecord dataclass."""
 
     def test_creation(self):
-        """FalconEvent can be created with required fields."""
-        from kanyo.detection.events import FalconEvent
+        """EventRecord can be created with required fields."""
+        from kanyo.detection.events import EventRecord
 
-        event = FalconEvent(
+        event = EventRecord(
             event_type="falcon_enter",
             timestamp=datetime.now(),
             confidence=0.85,
@@ -29,11 +29,11 @@ class TestFalconEvent:
         assert event.frame_number == 1234
 
     def test_to_dict(self):
-        """FalconEvent serializes to dict with ISO timestamp."""
-        from kanyo.detection.events import FalconEvent
+        """EventRecord serializes to dict with ISO timestamp."""
+        from kanyo.detection.events import EventRecord
 
         ts = datetime(2025, 12, 17, 10, 30, 0)
-        event = FalconEvent(
+        event = EventRecord(
             event_type="falcon_exit",
             timestamp=ts,
             confidence=0.92,
@@ -46,10 +46,10 @@ class TestFalconEvent:
 
     def test_event_types(self):
         """Valid event types are accepted."""
-        from kanyo.detection.events import FalconEvent
+        from kanyo.detection.events import EventRecord
 
         for event_type in ["falcon_enter", "falcon_exit", "falcon_visit"]:
-            event = FalconEvent(event_type=event_type, timestamp=datetime.now())
+            event = EventRecord(event_type=event_type, timestamp=datetime.now())
             assert event.event_type == event_type
 
 
