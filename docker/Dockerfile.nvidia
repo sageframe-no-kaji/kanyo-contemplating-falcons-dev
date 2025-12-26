@@ -49,7 +49,7 @@ COPY --chown=app:app requirements-base.txt .
 RUN pip install --no-cache-dir -r requirements-base.txt
 
 # Stage 2: Install ML backend (CUDA-enabled PyTorch)
-COPY --chown=app:app requirements-ml-cuda.txt .
+COPY --chown=app:app docker/requirements-ml-cuda.txt .
 RUN pip install --no-cache-dir -r requirements-ml-cuda.txt
 
 # Set YOLO cache directory BEFORE downloading model

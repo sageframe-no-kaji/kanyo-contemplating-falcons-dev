@@ -45,7 +45,7 @@ COPY --chown=app:app requirements-base.txt .
 RUN pip install --no-cache-dir -r requirements-base.txt
 
 # Stage 2: Install ML backend (CPU + Intel iGPU via OpenVINO + VAAPI)
-COPY --chown=app:app requirements-ml-vaapi.txt .
+COPY --chown=app:app docker/requirements-ml-vaapi.txt .
 RUN pip install --no-cache-dir -r requirements-ml-vaapi.txt
 
 # Set YOLO cache directory BEFORE downloading model
