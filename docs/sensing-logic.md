@@ -1,6 +1,6 @@
 # Kanyo Sensing Logic
 
-> **This is the single source of truth for Kanyo's detection system.**  
+> **This is the single source of truth for Kanyo's detection system.**
 > Replaces the former `state-detection.md`.
 
 ## Overview
@@ -79,17 +79,17 @@ StreamCapture handles the connection to the video source and delivers individual
 ### How It Works
 
 1. **URL Resolution**: For YouTube URLs, uses `yt-dlp` to resolve the live stream to a direct HLS/DASH URL that OpenCV can read.
-    
+
 2. **Frame Reading**: Opens a video capture with OpenCV and reads frames continuously.
-    
+
 3. **Frame Skipping**: The `frame_interval` setting controls how many frames to skip between detections. With a 30fps stream:
-    
+
     - `frame_interval: 3` → Process every 3rd frame (~10 detections/sec)
     - `frame_interval: 30` → Process every 30th frame (~1 detection/sec)
 4. **Reconnection**: If the stream drops, waits `reconnect_delay` seconds (default 5) then attempts to reconnect automatically.
-    
+
 5. **Tee Mode** (Optional): For continuous recording, can use ffmpeg to simultaneously proxy the stream for detection AND record rolling segment files for clip extraction.
-    
+
 
 ### Configuration
 
@@ -112,17 +112,17 @@ FalconDetector runs YOLOv8 inference on each frame to detect birds/animals.
 ### How It Works
 
 1. **Model Loading**: Loads a YOLO model (default: `yolov8n.pt`, the "nano" model—fast but less accurate). Model is lazy-loaded on first detection to save memory.
-    
+
 2. **Inference**: Runs the YOLO model on each frame with the configured confidence threshold.
-    
+
 3. **Class Filtering**: YOLO detects 80 COCO classes. The system filters for relevant animals:
-    
+
     - `detect_any_animal: true` (default) → Accepts any animal class (bird, cat, dog, etc.)
     - `detect_any_animal: false` → Only accepts class 14 (bird)
 4. **Why "any animal"?**: The YOLO model often misclassifies falcons as cats, dogs, or other animals. On a dedicated falcon cam, any animal detection = falcon present.
-    
+
 5. **Detection Output**: Returns a list of `Detection` objects with class ID, confidence, bounding box, and timestamp.
-    
+
 
 ### Configuration
 
@@ -138,12 +138,12 @@ FalconDetector runs YOLOv8 inference on each frame to detect birds/animals.
 ```python
 def detect(frame, confidence_threshold):
     results = yolo_model(frame, conf=confidence_threshold)
-    
+
     detections = []
     for box in results.boxes:
         if box.class_id in target_classes:
             detections.append(Detection(box.class_id, box.confidence, box.bbox))
-    
+
     return detections
 ```
 
@@ -191,8 +191,8 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 
 #### ABSENT → VISITING
 
-**Trigger**: Falcon detected after absence  
-**Event**: `ARRIVED`  
+**Trigger**: Falcon detected after absence
+**Event**: `ARRIVED`
 **Actions**:
 
 - Log arrival time
@@ -202,8 +202,8 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 
 #### VISITING → ROOSTING
 
-**Trigger**: Continuous presence for 30 minutes (`roosting_threshold`)  
-**Event**: `ROOSTING`  
+**Trigger**: Continuous presence for 30 minutes (`roosting_threshold`)
+**Event**: `ROOSTING`
 **Actions**:
 
 - Log transition to roosting state
@@ -212,8 +212,8 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 
 #### VISITING → ABSENT
 
-**Trigger**: No detection for 5 minutes (`exit_timeout`)  
-**Event**: `DEPARTED`  
+**Trigger**: No detection for 5 minutes (`exit_timeout`)
+**Event**: `DEPARTED`
 **Actions**:
 
 - Log departure with visit duration
@@ -223,8 +223,8 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 
 #### ROOSTING → ACTIVITY
 
-**Trigger**: No detection for 3 minutes (`activity_timeout`)  
-**Event**: `ACTIVITY_START`  
+**Trigger**: No detection for 3 minutes (`activity_timeout`)
+**Event**: `ACTIVITY_START`
 **Actions**:
 
 - Log activity period start
@@ -233,8 +233,8 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 
 #### ACTIVITY → ROOSTING
 
-**Trigger**: Detection resumes  
-**Event**: `ACTIVITY_END`  
+**Trigger**: Detection resumes
+**Event**: `ACTIVITY_END`
 **Actions**:
 
 - Log activity period end
@@ -243,8 +243,8 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 
 #### ROOSTING → ABSENT
 
-**Trigger**: No detection for 10 minutes (`roosting_exit_timeout`)  
-**Event**: `DEPARTED`  
+**Trigger**: No detection for 10 minutes (`roosting_exit_timeout`)
+**Event**: `DEPARTED`
 **Actions**:
 
 - Log departure with total duration and activity count
@@ -369,18 +369,18 @@ def process_frame(frame):
     # 1. Run YOLO detection
     detections = detector.detect_birds(frame, timestamp=now)
     falcon_detected = len(detections) > 0
-    
+
     # 2. Store frame for thumbnails
     if falcon_detected:
         event_handler.update_frame(frame)
-    
+
     # 3. Update state machine → may generate events
     events = state_machine.update(falcon_detected, now)
-    
+
     # 4. Handle each event
     for event_type, event_time, metadata in events:
         event_handler.handle_event(event_type, event_time, metadata)
-        
+
         # Schedule clip creation
         if event_type == ARRIVED:
             clip_manager.schedule_arrival_clip(event_time)
@@ -393,6 +393,30 @@ def process_frame(frame):
 ## Configuration Reference
 
 All settings in one place:
+
+### Timing Constraints
+
+The following relationships **must** hold for the state machine to work correctly:
+
+```
+activity_timeout < roosting_exit_timeout
+exit_timeout < roosting_exit_timeout
+roosting_threshold > exit_timeout
+```
+
+**Why these matter**:
+
+| Constraint | If Violated |
+|------------|-------------|
+| `activity_timeout < roosting_exit_timeout` | Activity periods can never be detected; absence immediately becomes departure |
+| `exit_timeout < roosting_exit_timeout` | Roosting offers no benefit over visiting; defeats purpose of extended timeout |
+| `roosting_threshold > exit_timeout` | Falcon always departs before reaching roosting state; roosting never triggers |
+
+These are now **enforced at config load time** and will raise `ValueError` if violated.
+
+---
+
+### Full Configuration
 
 ```yaml
 # ─────────────────────────────────────────────────────────────────────────────

@@ -15,6 +15,10 @@ from typing import Any
 
 import yaml
 
+from kanyo.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Defaults
 # ──────────────────────────────────────────────────────────────────────────────
@@ -124,14 +128,104 @@ def get_now_tz(config: dict[str, Any]) -> datetime:
 
 
 def _validate(cfg: dict[str, Any]) -> None:
-    """Raise ValueError if required fields are missing or invalid."""
+    """
+    Validate configuration values.
+
+    Raises ValueError if required fields are missing or timing constraints are violated.
+    """
+    # Required fields
     for field in REQUIRED_FIELDS:
         if not cfg.get(field):
             raise ValueError(f"Missing required config field: {field}")
 
+    # Detection confidence range
     conf = cfg.get("detection_confidence", 0.5)
     if not 0.0 <= conf <= 1.0:
         raise ValueError("detection_confidence must be between 0.0 and 1.0")
+
+    # Timing constraint validations
+    exit_timeout = cfg.get("exit_timeout", 300)
+    roosting_threshold = cfg.get("roosting_threshold", 1800)
+    roosting_exit_timeout = cfg.get("roosting_exit_timeout", 600)
+    activity_timeout = cfg.get("activity_timeout", 180)
+
+    # activity_timeout must be less than roosting_exit_timeout
+    # (otherwise activity state would immediately become departure)
+    if activity_timeout >= roosting_exit_timeout:
+        raise ValueError(
+            f"activity_timeout ({activity_timeout}s) must be less than "
+            f"roosting_exit_timeout ({roosting_exit_timeout}s). "
+            f"Otherwise, activity periods can never be detected before departure."
+        )
+
+    # exit_timeout should be less than roosting_exit_timeout
+    # (roosting should be more tolerant of absences than visiting)
+    if exit_timeout >= roosting_exit_timeout:
+        raise ValueError(
+            f"exit_timeout ({exit_timeout}s) must be less than "
+            f"roosting_exit_timeout ({roosting_exit_timeout}s). "
+            f"Roosting state should tolerate longer absences than visiting state."
+        )
+
+    # roosting_threshold should be greater than exit_timeout
+    # (otherwise falcon could depart before ever reaching roosting state)
+    if roosting_threshold <= exit_timeout:
+        raise ValueError(
+            f"roosting_threshold ({roosting_threshold}s) must be greater than "
+            f"exit_timeout ({exit_timeout}s). "
+            f"Otherwise, falcon would always depart before reaching roosting state."
+        )
+
+    # Clip timing sanity checks
+    clip_arrival_before = cfg.get("clip_arrival_before", 15)
+    clip_arrival_after = cfg.get("clip_arrival_after", 30)
+    clip_departure_before = cfg.get("clip_departure_before", 30)
+    clip_departure_after = cfg.get("clip_departure_after", 15)
+
+    if clip_arrival_before < 0 or clip_arrival_after < 0:
+        raise ValueError(
+            "clip_arrival_before and clip_arrival_after must be non-negative"
+        )
+
+    if clip_departure_before < 0 or clip_departure_after < 0:
+        raise ValueError(
+            "clip_departure_before and clip_departure_after must be non-negative"
+        )
+
+    # Warn if clip windows are very short
+    min_clip_duration = 10  # seconds
+    arrival_duration = clip_arrival_before + clip_arrival_after
+    departure_duration = clip_departure_before + clip_departure_after
+
+    if arrival_duration < min_clip_duration:
+        logger.warning(
+            f"Arrival clip duration ({arrival_duration}s) is very short. "
+            f"Consider increasing clip_arrival_before or clip_arrival_after."
+        )
+
+    if departure_duration < min_clip_duration:
+        logger.warning(
+            f"Departure clip duration ({departure_duration}s) is very short. "
+            f"Consider increasing clip_departure_before or clip_departure_after."
+        )
+
+    # short_visit_threshold should be reasonable
+    short_visit_threshold = cfg.get("short_visit_threshold", 600)
+    if short_visit_threshold < 60:
+        raise ValueError(
+            f"short_visit_threshold ({short_visit_threshold}s) is too short. "
+            f"Minimum recommended value is 60 seconds."
+        )
+
+    # frame_interval sanity
+    frame_interval = cfg.get("frame_interval", 3)
+    if frame_interval < 1:
+        raise ValueError("frame_interval must be at least 1")
+    if frame_interval > 60:
+        logger.warning(
+            f"frame_interval ({frame_interval}) is very high. "
+            f"Detection will be coarse (< 1 detection per second at 30fps)."
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

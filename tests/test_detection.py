@@ -26,9 +26,9 @@ class TestImports:
         """Verify public API exports are available."""
         from kanyo.detection import (
             Detection,
+            EventRecord,
             EventStore,
             FalconDetector,
-            FalconEvent,
             FalconVisit,
             Frame,
             StreamCapture,
@@ -38,7 +38,7 @@ class TestImports:
         assert Frame is not None
         assert FalconDetector is not None
         assert Detection is not None
-        assert FalconEvent is not None
+        assert EventRecord is not None
         assert FalconVisit is not None
         assert EventStore is not None
 

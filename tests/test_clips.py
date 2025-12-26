@@ -166,10 +166,10 @@ class TestClipExtractor:
 
     def test_config_values_loaded(self, extractor):
         """Config values are loaded correctly."""
-        assert extractor.entrance_before == 30
-        assert extractor.entrance_after == 60
-        assert extractor.exit_before == 60
-        assert extractor.exit_after == 30
+        assert extractor.arrival_before == 15
+        assert extractor.arrival_after == 30
+        assert extractor.departure_before == 30
+        assert extractor.departure_after == 15
         assert extractor.merge_threshold == 180
 
     def test_add_event(self, extractor):
@@ -202,10 +202,10 @@ class TestClipExtractor:
 
         assert len(clips) == 1
         assert clips[0].event_type == "enter"
-        # 130s event - 30s before = 100s start
-        assert clips[0].start_secs == 100.0
-        # 130s event + 60s after = 190s end
-        assert clips[0].end_secs == 190.0
+        # 130s event - 15s before = 115s start
+        assert clips[0].start_secs == 115.0
+        # 130s event + 30s after = 160s end
+        assert clips[0].end_secs == 160.0
 
     def test_plan_clips_single_exit(self, extractor):
         """Single exit event produces one clip."""
@@ -215,10 +215,10 @@ class TestClipExtractor:
 
         assert len(clips) == 1
         assert clips[0].event_type == "exit"
-        # 542s event - 60s before = 482s start
-        assert clips[0].start_secs == 482.0
-        # 542s event + 30s after = 572s end
-        assert clips[0].end_secs == 572.0
+        # 542s event - 30s before = 512s start
+        assert clips[0].start_secs == 512.0
+        # 542s event + 15s after = 557s end
+        assert clips[0].end_secs == 557.0
 
     def test_plan_clips_merge_close_events(self, extractor):
         """Close events are merged into single clip."""
@@ -262,8 +262,8 @@ class TestClipExtractor:
 
         clips = extractor.plan_clips()
 
-        # 880s + 30s = 910s, clamped to 900s
-        assert clips[0].end_secs == 900.0
+        # 880s + 15s = 895s (departure_after default)
+        assert clips[0].end_secs == 895.0
 
     def test_dry_run_returns_empty(self, extractor):
         """Dry run doesn't extract clips."""
