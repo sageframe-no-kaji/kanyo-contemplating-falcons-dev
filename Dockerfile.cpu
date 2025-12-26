@@ -41,9 +41,9 @@ ENV PATH="/home/app/.local/bin:${PATH}"
 COPY --chown=app:app requirements-base.txt .
 RUN pip install --no-cache-dir -r requirements-base.txt
 
-# Stage 2: Install ML backend (CPU + OpenVINO only, with explicit PyTorch CPU wheels)
-COPY --chown=app:app requirements-ml.txt .
-RUN pip install --no-cache-dir -r requirements-ml.txt
+# Stage 2: Install ML backend (Pure CPU - no GPU acceleration)
+COPY --chown=app:app requirements-ml-cpu.txt .
+RUN pip install --no-cache-dir -r requirements-ml-cpu.txt
 
 # Set YOLO cache directory BEFORE downloading model
 ENV YOLO_CONFIG_DIR=/app/.config
