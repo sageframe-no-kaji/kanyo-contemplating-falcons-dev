@@ -94,6 +94,56 @@ class ClipManager:
         self.clip_before_seconds = clip_before_seconds
         self.clip_after_seconds = clip_after_seconds
 
+    def create_initial_clip(self, detection_time: datetime) -> str | None:
+        """
+        Create initial state clip when monitoring starts with falcon present.
+
+        This captures what's happening when the monitor starts, which is valuable
+        when the monitor restarts and a falcon is already roosting.
+        Uses arrival timing (15s before, 30s after detection_time).
+
+        Args:
+            detection_time: When the initial detection was confirmed
+
+        Returns:
+            Path to created clip, or None if creation failed
+        """
+        if not self.tee_manager:
+            logger.warning("Cannot create initial clip: tee_manager not available (not using tee mode?)")
+            return None
+
+        try:
+            clip_center = detection_time
+            clip_start = clip_center - timedelta(seconds=self.clip_arrival_before)
+            clip_duration = self.clip_arrival_before + self.clip_arrival_after
+
+            clip_path = get_output_path(
+                self.clips_dir,
+                clip_center,
+                "initial",  # Distinct from "arrival" - this is startup state
+                "mp4",
+            )
+            logger.info(f"📹 Creating initial state clip: {clip_path.name} ({self.clip_arrival_before}s before, {self.clip_arrival_after}s after)")
+
+            success = self.tee_manager.extract_clip(
+                start_time=clip_start,
+                duration_seconds=clip_duration,
+                output_path=clip_path,
+                fps=self.clip_fps,
+                crf=self.clip_crf,
+            )
+
+            if success:
+                logger.info(f"✅ Initial state clip saved: {clip_path}")
+                return str(clip_path)
+            else:
+                logger.warning("Failed to create initial state clip")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error creating initial state clip: {e}")
+            return None
+
     def create_arrival_clip(self, arrival_time: datetime) -> str | None:
         """
         Create arrival clip for a falcon visit.

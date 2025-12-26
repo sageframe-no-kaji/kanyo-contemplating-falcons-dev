@@ -144,6 +144,9 @@ class RealtimeMonitor:
         self.arrival_clip_scheduled: datetime | None = (
             None  # Time when arrival clip should be created
         )
+        self.initial_clip_scheduled: datetime | None = (
+            None  # Time when initial state clip should be created
+        )
 
         # State machine for intelligent behavior tracking
         self.state_machine = FalconStateMachine({
@@ -232,6 +235,20 @@ class RealtimeMonitor:
                 logger.warning("❌ Arrival clip creation failed")
             self.arrival_clip_scheduled = None
 
+        # Check if initial state clip is ready to be created (falcon present at startup)
+        if self.initial_clip_scheduled and now >= self.initial_clip_scheduled:
+            logger.info("📹 Creating initial state clip (footage now available)")
+            # Calculate the detection time (scheduled time minus after_seconds)
+            detection_time = self.initial_clip_scheduled - timedelta(
+                seconds=self.clip_manager.clip_arrival_after
+            )
+            clip_path = self.clip_manager.create_initial_clip(detection_time)
+            if clip_path:
+                logger.info(f"✅ Initial state clip created: {clip_path}")
+            else:
+                logger.warning("❌ Initial state clip creation failed")
+            self.initial_clip_scheduled = None
+
         # Check if state change debounce has expired
         clip_path = self.clip_manager.check_state_change_debounce(now)
         if clip_path:
@@ -277,7 +294,8 @@ class RealtimeMonitor:
                         falcon_detected = len(initial_detections) > 0
 
                         # Initialize state machine based on what we found
-                        self.state_machine.initialize_state(falcon_detected, get_now_tz(self.full_config))
+                        now = get_now_tz(self.full_config)
+                        self.state_machine.initialize_state(falcon_detected, now)
 
                         # Report initial state with details
                         state_name = self.state_machine.state.value
@@ -289,6 +307,15 @@ class RealtimeMonitor:
                                 f"{len(initial_detections)} total detections, "
                                 f"max confidence: {max_conf:.2f})"
                             )
+
+                            # Create initial state clip - captures what's happening when monitoring starts
+                            # This is valuable when monitor restarts with falcon already present
+                            logger.info("📹 Creating initial state clip (falcon present at startup)")
+                            # Schedule it for clip_arrival_after seconds from now (need footage to exist)
+                            self.initial_clip_scheduled = now + timedelta(
+                                seconds=self.clip_manager.clip_arrival_after
+                            )
+                            logger.info(f"📹 Initial clip scheduled for {self.initial_clip_scheduled.strftime('%H:%M:%S')}")
                         else:
                             logger.info(f"📊 Initial state after {initialization_duration}s: {state_name.upper()} (no birds detected in {int(elapsed * 30)} frames)")
 
