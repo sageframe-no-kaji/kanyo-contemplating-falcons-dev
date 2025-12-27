@@ -324,7 +324,6 @@ class BufferMonitor:
                             )
 
                             # Send startup notification
-                            from kanyo.detection.events import FalconEvent
                             self.event_handler.handle_event(
                                 FalconEvent.ARRIVED,
                                 now,
