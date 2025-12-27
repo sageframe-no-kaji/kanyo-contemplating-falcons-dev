@@ -168,7 +168,7 @@ ls -lth /tmp/kanyo-buffer/
 live_use_ffmpeg_tee: true
 
 # Run realtime monitor
-PYTHONPATH=src python -m kanyo.detection.realtime_monitor
+PYTHONPATH=src python -m kanyo.detection.buffer_monitor
 ```
 
 ## Troubleshooting
@@ -248,7 +248,7 @@ Type=simple
 User=kanyo
 WorkingDirectory=/opt/kanyo
 Environment="PYTHONPATH=/opt/kanyo/src"
-ExecStart=/opt/kanyo/venv/bin/python -m kanyo.detection.realtime_monitor
+ExecStart=/opt/kanyo/venv/bin/python -m kanyo.detection.buffer_monitor
 Restart=always
 RestartSec=10
 

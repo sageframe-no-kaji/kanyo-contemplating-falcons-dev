@@ -68,4 +68,4 @@ ENV UMASK=027
 USER app
 
 # Run the detection monitor with umask applied
-CMD ["/bin/sh", "-c", "umask ${UMASK} && exec python -m kanyo.detection.realtime_monitor"]
+CMD ["/bin/sh", "-c", "umask ${UMASK} && exec python -m kanyo.detection.buffer_monitor"]

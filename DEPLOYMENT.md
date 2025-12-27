@@ -54,7 +54,7 @@ mkdir -p clips logs
 export TELEGRAM_BOT_TOKEN="your_token_here"  # If using Telegram notifications
 
 # 7. Run Kanyo
-python -m kanyo.detection.realtime_monitor config.yaml
+python -m kanyo.detection.buffer_monitor config.yaml
 ```
 
 #### Directory Structure
@@ -78,10 +78,10 @@ For multiple camera streams on bare metal, run separate processes with different
 
 ```bash
 # Terminal 1
-python -m kanyo.detection.realtime_monitor config-harvard.yaml
+python -m kanyo.detection.buffer_monitor config-harvard.yaml
 
 # Terminal 2
-python -m kanyo.detection.realtime_monitor config-nsw.yaml
+python -m kanyo.detection.buffer_monitor config-nsw.yaml
 ```
 
 Or use a process manager like `systemd`, `supervisord`, or `tmux`.
@@ -99,7 +99,7 @@ Type=simple
 User=youruser
 WorkingDirectory=/home/youruser/kanyo-contemplating-falcons-dev
 Environment="TELEGRAM_BOT_TOKEN=your_token"
-ExecStart=/home/youruser/kanyo-contemplating-falcons-dev/venv/bin/python -m kanyo.detection.realtime_monitor config-harvard.yaml
+ExecStart=/home/youruser/kanyo-contemplating-falcons-dev/venv/bin/python -m kanyo.detection.buffer_monitor config-harvard.yaml
 Restart=always
 RestartSec=10
 

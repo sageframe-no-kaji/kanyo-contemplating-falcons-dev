@@ -68,7 +68,7 @@ pip install -r requirements-dev.txt
 pytest
 
 # Run detection on a stream
-python -m kanyo.detection.realtime_monitor config.yaml
+python -m kanyo.detection.buffer_monitor config.yaml
 ```
 
 ---

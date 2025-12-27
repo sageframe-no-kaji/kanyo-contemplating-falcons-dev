@@ -5,7 +5,7 @@ Modules:
     detect: FalconDetector class for YOLOv8 inference
     events: Event models and persistence (FalconVisit, EventStore)
     capture: Video capture utilities
-    realtime_monitor: Live stream monitoring
+    buffer_monitor: Live stream monitoring with buffer-based clip extraction
 """
 
 from kanyo.detection.capture import Frame, StreamCapture

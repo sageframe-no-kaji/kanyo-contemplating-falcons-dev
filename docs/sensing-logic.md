@@ -410,7 +410,7 @@ Here's what happens every processed frame (in `BufferMonitor`):
 def process_frame(frame, timestamp):
     # 1. Push frame into ring buffer (keeps 60s of history)
     frame_buffer.push(frame, timestamp)
-    
+
     # 2. Run YOLO detection
     detections = detector.detect_birds(frame, timestamp=now)
     falcon_detected = len(detections) > 0
@@ -424,10 +424,10 @@ def process_frame(frame, timestamp):
             # Get pre-arrival frames from buffer and start recording
             pre_frames = frame_buffer.get_frames(event_time - 15s, event_time)
             visit_recorder.start_recording(pre_frames)
-        
+
         if visit_recorder.is_recording:
             visit_recorder.write_frame(frame, timestamp)
-        
+
         if event_type == DEPARTED:
             # Finalize visit and extract clips
             metadata = visit_recorder.stop_recording()
