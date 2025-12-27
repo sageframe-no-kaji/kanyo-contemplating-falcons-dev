@@ -157,19 +157,18 @@ class NotificationManager:
 
     def _send_telegram_photo(self, caption: str, photo_path: Path | str | None) -> bool:
         """
-        Send photo message to Telegram channel.
+        Send photo message to Telegram channel (or text-only if no photo).
 
         Args:
             caption: Photo caption text
-            photo_path: Path to image file
+            photo_path: Path to image file (optional - sends text-only if None)
 
         Returns:
             True if sent successfully, False otherwise
         """
         if not photo_path:
-            logger.error("❌ Telegram requires image - no photo_path provided")
-            self._send_admin_error("Telegram alert failed: missing image")
-            return False
+            logger.warning("⚠️  No photo available - sending text-only notification")
+            return self._send_telegram_text(caption)
 
         photo = Path(photo_path)
         if not photo.exists():
