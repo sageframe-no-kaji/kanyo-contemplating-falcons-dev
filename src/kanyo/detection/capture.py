@@ -2,8 +2,7 @@
 Video capture utilities for kanyo detection pipeline.
 
 Handles YouTube stream resolution via yt-dlp and OpenCV video capture
-with automatic reconnection support. Supports optional ffmpeg tee mode
-for live YouTube streams.
+with automatic reconnection support.
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from typing import Iterator
 import cv2
 import numpy as np
 
-from kanyo.utils.live_tee import FFmpegTeeManager
 from kanyo.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,8 +40,7 @@ class StreamCapture:
     Captures frames from a video stream with reconnection support.
 
     Handles YouTube URL resolution via yt-dlp and manages OpenCV
-    VideoCapture lifecycle. Optionally uses ffmpeg tee mode for
-    live YouTube streams to enable simultaneous proxy + recording.
+    VideoCapture lifecycle.
     """
 
     def __init__(
@@ -51,11 +48,7 @@ class StreamCapture:
         stream_url: str,
         max_height: int = 720,
         reconnect_delay: float = 5.0,
-        use_tee: bool = False,
-        proxy_url: str | None = None,
-        buffer_dir: str | None = None,
-        chunk_minutes: int = 10,
-        output_fps: int = 30,
+        use_tee: bool = False,  # Deprecated, kept for compatibility
     ):
         """
         Initialize stream capture.
@@ -64,23 +57,16 @@ class StreamCapture:
             stream_url: Video source URL or file path
             max_height: Max resolution for YouTube streams
             reconnect_delay: Seconds to wait before reconnecting
-            use_tee: Enable ffmpeg tee mode for YouTube URLs
-            proxy_url: Local proxy URL when using tee mode
-            buffer_dir: Directory for segment files in tee mode
-            chunk_minutes: Segment duration in tee mode
-            output_fps: Output framerate for segments in tee mode
+            use_tee: DEPRECATED - ignored, kept for API compatibility
         """
         self.stream_url = stream_url
         self.max_height = max_height
         self.reconnect_delay = reconnect_delay
-        self.use_tee = use_tee
-        self.proxy_url = proxy_url or "udp://127.0.0.1:12345"
-        self.buffer_dir = buffer_dir or "/tmp/kanyo-buffer"
-        self.chunk_minutes = chunk_minutes
-        self.output_fps = output_fps
         self._cap: cv2.VideoCapture | None = None
         self._frame_count = 0
-        self._tee_manager: FFmpegTeeManager | None = None
+
+        if use_tee:
+            logger.warning("use_tee is deprecated - buffer mode is now default")
 
     def resolve_youtube_url(self) -> str:
         """
@@ -112,51 +98,11 @@ class StreamCapture:
         """
         Connect to the video stream.
 
-        If tee mode is enabled for YouTube URLs, starts ffmpeg tee manager
-        and connects to the local proxy. Otherwise uses direct connection.
-
         Returns True if connection successful.
         """
         try:
             is_youtube = "youtube.com" in self.stream_url or "youtu.be" in self.stream_url
 
-            # Use tee mode for YouTube if enabled
-            if is_youtube and self.use_tee:
-                logger.info("Using ffmpeg tee mode for YouTube stream")
-
-                # Resolve YouTube URL first
-                direct_url = self.resolve_youtube_url()
-
-                # Start tee manager (proxy + recorder)
-                self._tee_manager = FFmpegTeeManager(
-                    stream_url=direct_url,
-                    proxy_url=self.proxy_url,
-                    buffer_dir=self.buffer_dir,
-                    chunk_minutes=self.chunk_minutes,
-                    fps=self.output_fps,
-                )
-
-                if not self._tee_manager.start():
-                    logger.error("Failed to start tee manager")
-                    self._tee_manager = None
-                    return False
-
-                # Wait a moment for proxy to be ready
-                time.sleep(3)
-
-                # Connect to the local proxy
-                self._cap = cv2.VideoCapture(self.proxy_url)
-
-                if not self._cap.isOpened():
-                    logger.error("Failed to connect to proxy")
-                    self._tee_manager.stop()
-                    self._tee_manager = None
-                    return False
-
-                logger.info("✅ Connected to tee proxy")
-                return True
-
-            # Regular mode: direct connection
             if is_youtube:
                 direct_url = self.resolve_youtube_url()
             else:
@@ -176,15 +122,11 @@ class StreamCapture:
             return False
 
     def disconnect(self) -> None:
-        """Release the video capture and stop tee manager if running."""
+        """Release the video capture."""
         if self._cap is not None:
             self._cap.release()
             self._cap = None
             logger.debug("Disconnected from stream")
-
-        if self._tee_manager is not None:
-            self._tee_manager.stop()
-            self._tee_manager = None
 
     def reconnect(self) -> bool:
         """Disconnect and reconnect to the stream."""
@@ -264,11 +206,6 @@ class StreamCapture:
     def is_connected(self) -> bool:
         """True if currently connected."""
         return self._cap is not None and self._cap.isOpened()
-
-    @property
-    def tee_manager(self) -> FFmpegTeeManager | None:
-        """Access to tee manager for segment files (clip extraction)."""
-        return self._tee_manager
 
     def __enter__(self) -> "StreamCapture":
         self.connect()
