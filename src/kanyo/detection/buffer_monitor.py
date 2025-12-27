@@ -163,7 +163,8 @@ class BufferMonitor:
 
     def process_frame(self, frame_data, frame_number: int) -> None:
         """Process a single frame for falcon detection."""
-        now = get_now_tz(self.full_config)
+        try:
+            now = get_now_tz(self.full_config)
 
         # Always add frame to buffer
         self.frame_buffer.add_frame(frame_data, now, frame_number)
@@ -195,6 +196,9 @@ class BufferMonitor:
 
         # Check state change debounce
         self.clip_manager.check_state_change_debounce(now)
+
+        except Exception as e:
+            logger.error(f"❌ Error processing frame {frame_number}: {e}", exc_info=True)
 
     def _handle_event(
         self,
@@ -283,9 +287,13 @@ class BufferMonitor:
         initialization_duration = 30
         initial_detections = []
         max_birds_in_frame = 0
+        last_heartbeat = time.time()
+        heartbeat_interval = 300  # Log heartbeat every 5 minutes
+        frames_processed = 0
 
         try:
             for frame in self.capture.frames(skip=0):
+                frames_processed += 1
                 elapsed = time.time() - start_time
 
                 # Initialization phase - process every frame
@@ -353,6 +361,17 @@ class BufferMonitor:
                         continue
 
                     self.process_frame(frame.data, frame.frame_number)
+
+                # Heartbeat logging
+                now_time = time.time()
+                if now_time - last_heartbeat >= heartbeat_interval:
+                    state = self.state_machine.state.value
+                    recording = "recording" if self.visit_recorder.is_recording else "monitoring"
+                    logger.info(
+                        f"💓 Heartbeat: {frames_processed} frames processed, "
+                        f"state={state}, {recording}"
+                    )
+                    last_heartbeat = now_time
 
                 time.sleep(0.01)
 
