@@ -290,10 +290,13 @@ class BufferMonitor:
         last_heartbeat = time.time()
         heartbeat_interval = 300  # Log heartbeat every 5 minutes
         frames_processed = 0
+        last_frame_time = time.time()
+        frame_timeout = 60  # Warn if no frames for 60 seconds
 
         try:
             for frame in self.capture.frames(skip=0):
                 frames_processed += 1
+                last_frame_time = time.time()
                 elapsed = time.time() - start_time
 
                 # Initialization phase - process every frame
@@ -379,6 +382,14 @@ class BufferMonitor:
                         f"state={state}, {recording}"
                     )
                     last_heartbeat = now_time
+
+                # Watchdog: warn if no frames received recently
+                time_since_frame = now_time - last_frame_time
+                if time_since_frame > frame_timeout:
+                    logger.warning(
+                        f"⚠️  No frames received for {int(time_since_frame)}s - stream may be stalled"
+                    )
+                    last_frame_time = now_time  # Reset to avoid spam
 
                 time.sleep(0.01)
 
