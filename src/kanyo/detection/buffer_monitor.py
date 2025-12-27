@@ -166,36 +166,36 @@ class BufferMonitor:
         try:
             now = get_now_tz(self.full_config)
 
-        # Always add frame to buffer
-        self.frame_buffer.add_frame(frame_data, now, frame_number)
+            # Always add frame to buffer
+            self.frame_buffer.add_frame(frame_data, now, frame_number)
 
-        # Store frame size for recorder initialization
-        if self._frame_size is None:
-            h, w = frame_data.shape[:2]
-            self._frame_size = (w, h)
+            # Store frame size for recorder initialization
+            if self._frame_size is None:
+                h, w = frame_data.shape[:2]
+                self._frame_size = (w, h)
 
-        # If visit recording is active, write frame
-        if self.visit_recorder.is_recording:
-            self.visit_recorder.write_frame(frame_data)
+            # If visit recording is active, write frame
+            if self.visit_recorder.is_recording:
+                self.visit_recorder.write_frame(frame_data)
 
-        # Run detection
-        detections = self.detector.detect_birds(frame_data, timestamp=now)
-        falcon_detected = len(detections) > 0
+            # Run detection
+            detections = self.detector.detect_birds(frame_data, timestamp=now)
+            falcon_detected = len(detections) > 0
 
-        # Store frame for thumbnails
-        if falcon_detected:
-            self.event_handler.update_frame(frame_data)
+            # Store frame for thumbnails
+            if falcon_detected:
+                self.event_handler.update_frame(frame_data)
 
-        # Update state machine
-        events = self.state_machine.update(falcon_detected, now)
+            # Update state machine
+            events = self.state_machine.update(falcon_detected, now)
 
-        # Handle events
-        for event_type, event_time, metadata in events:
-            self.event_handler.handle_event(event_type, event_time, metadata)
-            self._handle_event(event_type, event_time, metadata)
+            # Handle events
+            for event_type, event_time, metadata in events:
+                self.event_handler.handle_event(event_type, event_time, metadata)
+                self._handle_event(event_type, event_time, metadata)
 
-        # Check state change debounce
-        self.clip_manager.check_state_change_debounce(now)
+            # Check state change debounce
+            self.clip_manager.check_state_change_debounce(now)
 
         except Exception as e:
             logger.error(f"❌ Error processing frame {frame_number}: {e}", exc_info=True)
