@@ -52,15 +52,15 @@ A **state machine** that understands falcon behavior:
 │   │  • yt-dlp URL    │    │  • YOLO model    │    │  • 4 states     │  │
 │   │  • OpenCV read   │    │  • Confidence    │    │  • Transitions  │  │
 │   │  • Frame skip    │    │  • Class filter  │    │  • Timeouts     │  │
-│   └──────────────────┘    └──────────────────┘    └────────┬────────┘  │
-│                                                             │          │
-│                                                             ▼          │
+│   └────────┬─────────┘    └──────────────────┘    └────────┬────────┘  │
+│            │                                                │          │
+│            ▼                                                ▼          │
 │   ┌──────────────────┐    ┌──────────────────┐    ┌─────────────────┐  │
-│   │   ClipManager    │ ←  │  EventHandler    │ ←  │    Events       │  │
+│   │   FrameBuffer    │    │  VisitRecorder   │ ←  │    Events       │  │
 │   │                  │    │                  │    │                 │  │
-│   │  • Arrival clip  │    │  • Notifications │    │  • ARRIVED      │  │
-│   │  • Departure     │    │  • Thumbnails    │    │  • DEPARTED     │  │
-│   │  • Short visit   │    │  • Logging       │    │  • ROOSTING     │  │
+│   │  • Ring buffer   │ →  │  • Full visit    │    │  • ARRIVED      │  │
+│   │  • 60s frames    │    │  • Arrival clip  │    │  • DEPARTED     │  │
+│   │  • Pre-event     │    │  • Departure     │    │  • ROOSTING     │  │
 │   └──────────────────┘    └──────────────────┘    │  • ACTIVITY     │  │
 │                                                    └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -87,9 +87,6 @@ StreamCapture handles the connection to the video source and delivers individual
     - `frame_interval: 3` → Process every 3rd frame (~10 detections/sec)
     - `frame_interval: 30` → Process every 30th frame (~1 detection/sec)
 4. **Reconnection**: If the stream drops, waits `reconnect_delay` seconds (default 5) then attempts to reconnect automatically.
-
-5. **Tee Mode** (Optional): For continuous recording, can use ffmpeg to simultaneously proxy the stream for detection AND record rolling segment files for clip extraction.
-
 
 ### Configuration
 
@@ -334,9 +331,56 @@ Each `FalconVisit` record includes:
 
 ---
 
-## Component 5: Clip Extraction
+## Component 5: Buffer-Based Clip Extraction
 
-**Files**: `clip_manager.py`, `clips.py`
+**Files**: `frame_buffer.py`, `visit_recorder.py`, `buffer_clip_manager.py`, `buffer_monitor.py`
+
+### Architecture Overview
+
+Kanyo uses a **buffer-based architecture** for clip extraction:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    BUFFER ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   ┌─────────────┐      ┌──────────────────┐      ┌───────────────┐ │
+│   │ FrameBuffer │  →   │  VisitRecorder   │  →   │ BufferClip    │ │
+│   │             │      │                  │      │ Manager       │ │
+│   │ Ring buffer │      │ • Writes visit   │      │               │ │
+│   │ of frames   │      │   video file     │      │ • Extracts    │ │
+│   │ (30-60s)    │      │ • Logs events    │      │   arrival/    │ │
+│   │             │      │ • Creates JSON   │      │   departure   │ │
+│   └─────────────┘      └──────────────────┘      │   clips       │ │
+│         ▲                                         └───────────────┘ │
+│         │                                                           │
+│   Every frame pushed                                                │
+│   into buffer                                                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Components
+
+**FrameBuffer** (`frame_buffer.py`)
+- Thread-safe ring buffer storing recent frames
+- Configurable duration (default 60s) and max size
+- Frames retrieved by time range for pre-event footage
+
+**VisitRecorder** (`visit_recorder.py`)
+- Records complete falcon visits to video files
+- Logs detection events with timestamps relative to video start
+- Creates JSON metadata with visit summary
+- Integrates pre-arrival frames from buffer
+
+**BufferClipManager** (`buffer_clip_manager.py`)
+- Orchestrates recording lifecycle
+- Calls VisitRecorder on ARRIVED, writes frames during visit, finalizes on DEPARTED
+- Extracts arrival/departure clips from complete visit file using ffmpeg
+
+**BufferMonitor** (`buffer_monitor.py`)
+- Main entry point combining all components
+- Captures frames → buffers → detects → manages clips
 
 ### Clip Strategy
 
@@ -344,48 +388,51 @@ Each `FalconVisit` record includes:
 |---|---|---|---|
 |**Arrival**|15s|30s|Capture landing and settling|
 |**Departure**|30s|15s|Capture what triggered exit|
-|**Short Visit**|Full duration|Full duration|Single clip for visits < 10 min|
-|**State Change**|15s|30s|Capture roosting↔activity transitions|
+|**Full Visit**|All frames|All frames|Complete visit video (always saved)|
 
 ### Configuration
 
 |Setting|Default|Purpose|
 |---|---|---|
-|`clip_arrival_before`|15|Seconds before arrival|
-|`clip_arrival_after`|30|Seconds after arrival|
-|`clip_departure_before`|30|Seconds before departure|
-|`clip_departure_after`|15|Seconds after departure|
-|`short_visit_threshold`|600 (10 min)|Max duration for single-clip visits|
-|`clip_state_change_cooldown`|300 (5 min)|Prevent spam during fidgety periods|
+|`buffer_duration`|60|Seconds of frames to keep in ring buffer|
+|`clip_arrival_before`|15|Seconds before arrival for clip|
+|`clip_arrival_after`|30|Seconds after arrival for clip|
+|`clip_departure_before`|30|Seconds before departure for clip|
+|`clip_departure_after`|15|Seconds after departure for clip|
 
 ---
 
 ## The Full Detection Loop
 
-Here's what happens every processed frame:
+Here's what happens every processed frame (in `BufferMonitor`):
 
 ```python
-def process_frame(frame):
-    # 1. Run YOLO detection
+def process_frame(frame, timestamp):
+    # 1. Push frame into ring buffer (keeps 60s of history)
+    frame_buffer.push(frame, timestamp)
+    
+    # 2. Run YOLO detection
     detections = detector.detect_birds(frame, timestamp=now)
     falcon_detected = len(detections) > 0
-
-    # 2. Store frame for thumbnails
-    if falcon_detected:
-        event_handler.update_frame(frame)
 
     # 3. Update state machine → may generate events
     events = state_machine.update(falcon_detected, now)
 
-    # 4. Handle each event
+    # 4. Handle events and manage recording
     for event_type, event_time, metadata in events:
-        event_handler.handle_event(event_type, event_time, metadata)
-
-        # Schedule clip creation
         if event_type == ARRIVED:
-            clip_manager.schedule_arrival_clip(event_time)
-        elif event_type == DEPARTED:
-            clip_manager.create_departure_clip(metadata)
+            # Get pre-arrival frames from buffer and start recording
+            pre_frames = frame_buffer.get_frames(event_time - 15s, event_time)
+            visit_recorder.start_recording(pre_frames)
+        
+        if visit_recorder.is_recording:
+            visit_recorder.write_frame(frame, timestamp)
+        
+        if event_type == DEPARTED:
+            # Finalize visit and extract clips
+            metadata = visit_recorder.stop_recording()
+            clip_manager.extract_clips(metadata)  # arrival + departure clips
+```
 ```
 
 ---
@@ -423,7 +470,7 @@ These are now **enforced at config load time** and will raise `ValueError` if vi
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
 video_source: "https://youtube.com/..."  # YouTube live stream URL
-detection_confidence: 0.3                # 0.0–1.0, higher = fewer false positives
+detection_confidence: 0.5                # 0.0–1.0, higher = fewer false positives
 frame_interval: 3                        # Process every Nth frame
 model_path: "models/yolov8n.pt"          # YOLO model
 detect_any_animal: true                  # Treat any animal as falcon
@@ -442,29 +489,18 @@ activity_timeout: 180          # 3 min - activity vs departure
 activity_notification: false   # Notify on activity events?
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Clip Extraction
+# Buffer & Clip Extraction
 # ─────────────────────────────────────────────────────────────────────────────
 clips_dir: "clips"
-clip_arrival_before: 15
-clip_arrival_after: 30
-clip_departure_before: 30
-clip_departure_after: 15
-short_visit_threshold: 600     # 10 min - one clip for short visits
-clip_state_change_cooldown: 300
+buffer_duration: 60            # Seconds of frames to keep in ring buffer
+clip_arrival_before: 15        # Seconds before arrival in clip
+clip_arrival_after: 30         # Seconds after arrival in clip
+clip_departure_before: 30      # Seconds before departure in clip
+clip_departure_after: 15       # Seconds after departure in clip
 
-# Compression
-clip_compress: true
+# Compression (applied when extracting clips from visit file)
 clip_crf: 23                   # 18=high quality, 23=balanced, 28=small
 clip_fps: 30
-clip_hardware_encoding: true   # Auto-detect GPU encoder
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Live Stream Ingestion
-# ─────────────────────────────────────────────────────────────────────────────
-live_use_ffmpeg_tee: true
-live_proxy_url: "udp://127.0.0.1:12345"
-buffer_dir: "/tmp/kanyo-buffer"
-continuous_chunk_minutes: 10
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging & Notifications
