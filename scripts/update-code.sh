@@ -23,13 +23,13 @@ ssh "${REMOTE_HOST}" "cd ${CODE_DIR} && git pull"
 
 # Sync config files to service directories (where containers mount them)
 echo "📋 Syncing config files..."
-declare -A SERVICE_DIRS=(
-    ["harvard"]="/opt/services/kanyo-harvard"
-    ["nsw"]="/opt/services/kanyo-nsw"
-)
 for config_dir in harvard nsw; do
     local_config="${PROJECT_DIR}/configs/${config_dir}/config.yaml"
-    service_dir="${SERVICE_DIRS[$config_dir]}"
+    if [ "$config_dir" = "harvard" ]; then
+        service_dir="/opt/services/kanyo-harvard"
+    else
+        service_dir="/opt/services/kanyo-nsw"
+    fi
     if [ -f "$local_config" ]; then
         echo "  → ${service_dir}/config.yaml"
         scp -q "$local_config" "${REMOTE_HOST}:${service_dir}/config.yaml"
