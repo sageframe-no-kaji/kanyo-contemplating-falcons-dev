@@ -325,6 +325,13 @@ class BufferMonitor:
                                 lead_in_frames=lead_in_frames,
                                 frame_size=self._frame_size or (1280, 720),
                             )
+
+                            # Send startup arrival notification WITH photo
+                            self.event_handler.handle_event(
+                                FalconEvent.ARRIVED,
+                                now,
+                                {"state": state_name}
+                            )
                         else:
                             logger.info(f"📊 Initial state: {state_name.upper()} (no birds)")
 
@@ -345,6 +352,8 @@ class BufferMonitor:
                         if detections:
                             initial_detections.extend(detections)
                             max_birds_in_frame = max(max_birds_in_frame, len(detections))
+                            # Store frame for startup notification photo
+                            self.event_handler.update_frame(frame.data)
                         continue
 
                 # Normal operation - skip frames
