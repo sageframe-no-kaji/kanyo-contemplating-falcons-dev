@@ -72,12 +72,19 @@ animal_classes:
 clips_dir: "/app/clips"
 log_file: "/app/logs/kanyo.log"
 
+# Frame buffer for pre-event footage (seconds)
+# Keeps recent frames in memory for perfect clip timing
+# Memory usage: ~100KB per frame (e.g., 60s @ 30fps = ~180MB)
+buffer_seconds: 60
+
 # Clip timing (seconds)
-clip_entrance_before: 5
-clip_entrance_after: 15
-clip_exit_before: 15
-clip_exit_after: 5
-clip_merge_threshold: 180     # Merge clips if events occur within this window
+clip_arrival_before: 15       # Seconds before arrival to include
+clip_arrival_after: 30        # Seconds after arrival to include
+clip_departure_before: 30     # Seconds before departure to include
+clip_departure_after: 15      # Seconds after departure to include
+clip_state_change_before: 15  # Seconds before state change
+clip_state_change_after: 30   # Seconds after state change
+clip_state_change_cooldown: 300  # Debounce for state change clips (5 min)
 
 # Thumbnail capture
 thumbnail_entrance_offset: 5
@@ -99,15 +106,22 @@ clip_hardware_encoding: true
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Live Stream Ingestion (YouTube Proxy Mode)
+# Live Stream Ingestion
 # ─────────────────────────────────────────────────────────────────────────────
 
-live_use_ffmpeg_tee: true
-live_proxy_url: "udp://127.0.0.1:12345"
+# Buffer mode (recommended): Uses in-memory frame buffer
+# - Perfect timing for clips
+# - Records entire visits to video files
+# - No tee or segment files needed
+# - Memory usage: buffer_seconds × fps × ~100KB
 
-# Temporary rolling buffer (inside container)
-buffer_dir: "/tmp/kanyo-buffer"
-continuous_chunk_minutes: 10
+# Tee mode (legacy/advanced): Uses ffmpeg tee with segment files
+# - Required for 24-hour continuous recording of empty nest
+# - More complex, may have timing issues
+# live_use_ffmpeg_tee: true
+# live_proxy_url: "udp://127.0.0.1:12345"
+# buffer_dir: "/tmp/kanyo-buffer"
+# continuous_chunk_minutes: 10
 
 # max_runtime_seconds: 300    # Uncomment for test runs only
 
