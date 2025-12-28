@@ -227,9 +227,10 @@ class BufferMonitor:
 
             # Schedule arrival clip creation after clip duration has been recorded
             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s")
+            wait_time = clip_duration + 45  # Extra time for file stability
+            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s")
             timer = threading.Timer(
-                clip_duration + 5,  # Wait for clip duration + 5s buffer
+                wait_time,
                 self._create_arrival_clip_early,
                 args=(event_time,)  # Must be tuple
             )
@@ -369,9 +370,10 @@ class BufferMonitor:
 
                             # Schedule arrival clip creation for initialization state
                             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-                            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s (initialization)")
+                            wait_time = clip_duration + 45  # Extra time for file stability
+                            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s (initialization)")
                             timer = threading.Timer(
-                                clip_duration + 5,
+                                wait_time,
                                 self._create_arrival_clip_early,
                                 args=(now,)
                             )
