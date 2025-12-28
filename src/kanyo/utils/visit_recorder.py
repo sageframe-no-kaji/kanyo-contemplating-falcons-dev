@@ -307,7 +307,7 @@ class VisitRecorder:
                 self._process.stdin.close()
             if self._process:
                 self._process.wait(timeout=30)
-            
+
             # Close stderr file
             if self._stderr_file:
                 self._stderr_file.close()
