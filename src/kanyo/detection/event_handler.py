@@ -26,7 +26,6 @@ class FalconEventHandler:
         self,
         notifications: NotificationManager | None = None,
         clips_dir: str = "clips",
-        activity_notification: bool = False,
     ):
         """
         Initialize event handler.
@@ -34,11 +33,9 @@ class FalconEventHandler:
         Args:
             notifications: Optional notification manager for alerts
             clips_dir: Base directory for saving thumbnails
-            activity_notification: Whether to send notifications for activity events
         """
         self.notifications = notifications
         self.clips_dir = clips_dir
-        self.activity_notification = activity_notification
         self.last_frame = None  # Store last frame for thumbnails
 
     def update_frame(self, frame):
@@ -80,12 +77,10 @@ class FalconEventHandler:
         elif event_type == FalconEvent.DEPARTED:
             duration = metadata.get("visit_duration") or metadata.get("total_visit_duration", 0)
             duration_str = format_duration(duration)
-            activity_count = metadata.get("activity_periods", 0)
-            activity_str = f", {activity_count} activity periods" if activity_count > 0 else ""
 
             logger.info(
                 f"🦅 FALCON DEPARTED at {timestamp.strftime('%I:%M:%S %p')} "
-                f"({duration_str} visit{activity_str})"
+                f"({duration_str} visit)"
             )
 
             # Send departure notification
@@ -103,14 +98,3 @@ class FalconEventHandler:
         elif event_type == FalconEvent.ROOSTING:
             duration_str = format_duration(metadata.get("visit_duration", 0))
             logger.info(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")
-
-        elif event_type == FalconEvent.ACTIVITY_START:
-            logger.info("🔄 FALCON ACTIVITY - movement during roost")
-
-            # Optional activity notifications (usually disabled)
-            if self.notifications and self.activity_notification:
-                self.notifications.send_arrival(timestamp, None)
-
-        elif event_type == FalconEvent.ACTIVITY_END:
-            duration_str = format_duration(metadata.get("activity_duration", 0))
-            logger.info(f"🏠 FALCON SETTLED - returned to roosting after {duration_str} activity")

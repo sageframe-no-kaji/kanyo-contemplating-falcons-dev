@@ -144,28 +144,8 @@ def _validate(cfg: dict[str, Any]) -> None:
         raise ValueError("detection_confidence must be between 0.0 and 1.0")
 
     # Timing constraint validations
-    exit_timeout = cfg.get("exit_timeout", 300)
+    exit_timeout = cfg.get("exit_timeout", 90)
     roosting_threshold = cfg.get("roosting_threshold", 1800)
-    roosting_exit_timeout = cfg.get("roosting_exit_timeout", 600)
-    activity_timeout = cfg.get("activity_timeout", 180)
-
-    # activity_timeout must be less than roosting_exit_timeout
-    # (otherwise activity state would immediately become departure)
-    if activity_timeout >= roosting_exit_timeout:
-        raise ValueError(
-            f"activity_timeout ({activity_timeout}s) must be less than "
-            f"roosting_exit_timeout ({roosting_exit_timeout}s). "
-            f"Otherwise, activity periods can never be detected before departure."
-        )
-
-    # exit_timeout should be less than roosting_exit_timeout
-    # (roosting should be more tolerant of absences than visiting)
-    if exit_timeout >= roosting_exit_timeout:
-        raise ValueError(
-            f"exit_timeout ({exit_timeout}s) must be less than "
-            f"roosting_exit_timeout ({roosting_exit_timeout}s). "
-            f"Roosting state should tolerate longer absences than visiting state."
-        )
 
     # roosting_threshold should be greater than exit_timeout
     # (otherwise falcon could depart before ever reaching roosting state)

@@ -280,7 +280,7 @@ class VisitRecorder:
         Log an event with its offset in the recording.
 
         Args:
-            event_type: Type of event (roosting, activity, etc.)
+            event_type: Type of event (roosting, etc.)
             timestamp: When the event occurred
             metadata: Additional event data
         """

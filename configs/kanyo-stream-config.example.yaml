@@ -32,17 +32,12 @@ detect_any_animal: true
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Visit / Roosting State Machine
+# State Machine
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Timeouts are in seconds
-exit_timeout: 300             # Mark departed if absent this long during a visit
-
-# Roosting behavior
-roosting_threshold: 1800      # 30 min continuous presence → roosting
-roosting_exit_timeout: 600    # Must be absent this long to exit roosting
-activity_timeout: 180         # Brief absence during roost counts as activity
-activity_notification: false # Send notifications for roost activity events
+exit_timeout: 90               # Seconds absent before departure (same for all states)
+roosting_threshold: 1800       # 30 min - transition to roosting (notification only)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

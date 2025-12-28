@@ -12,9 +12,7 @@ class FalconEvent(Enum):
 
     ARRIVED = "arrived"  # Falcon entered after absence
     DEPARTED = "departed"  # Falcon left (exceeded timeout)
-    ROOSTING = "roosting"  # Transitioned to long-term presence
-    ACTIVITY_START = "activity_start"  # Movement during roost
-    ACTIVITY_END = "activity_end"  # Settled during roost
+    ROOSTING = "roosting"  # Transitioned to long-term presence (notification only)
 
 
 class FalconState(Enum):
@@ -22,5 +20,4 @@ class FalconState(Enum):
 
     ABSENT = "absent"
     VISITING = "visiting"
-    ROOSTING = "roosting"
-    ACTIVITY = "activity"
+    ROOSTING = "roosting"  # Same timeout as VISITING, just for notification

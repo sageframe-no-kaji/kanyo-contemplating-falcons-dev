@@ -35,7 +35,7 @@ class BufferClipManager:
     Clip Strategy:
     - ARRIVAL: 15s before + 30s after (from visit recording)
     - DEPARTURE: 30s before + 15s after (from visit recording)
-    - ACTIVITY: 15s before + 30s after (from visit recording, with debounce)
+    - ROOSTING: 15s before + 30s after (from visit recording, with debounce)
     - FULL VISIT: entire visit recording
     """
 
@@ -221,7 +221,7 @@ class BufferClipManager:
 
         Args:
             event_time: When the state change occurred
-            event_name: Type of state change (ROOSTING, ACTIVITY, etc.)
+            event_name: Type of state change (ROOSTING, etc.)
             offset_seconds: Offset into the visit recording
         """
         self.pending_state_change = (event_time, event_name, offset_seconds)

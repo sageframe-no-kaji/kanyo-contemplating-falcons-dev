@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,28 @@ _initialized = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Timezone-aware formatter
+# ──────────────────────────────────────────────────────────────────────────────
+class TimezoneFormatter(logging.Formatter):
+    """Formatter that uses a configurable timezone offset."""
+
+    def __init__(self, fmt=None, datefmt=None, tz_offset_hours: float = 0):
+        super().__init__(fmt, datefmt)
+        self.tz = timezone(timedelta(hours=tz_offset_hours))
+
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=self.tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
-def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) -> None:
+def setup_logging(
+    level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE, tz_offset_hours: float = 0
+) -> None:
     """Initialize root logger with console + file handlers. Safe to call multiple times."""
     global _initialized
     if _initialized:
@@ -39,7 +59,7 @@ def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) 
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
+    formatter = TimezoneFormatter(LOG_FORMAT, DATE_FORMAT, tz_offset_hours=tz_offset_hours)
 
     console = logging.StreamHandler(sys.stderr)
     console.setFormatter(formatter)
@@ -57,9 +77,16 @@ def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) 
 
 def setup_logging_from_config(config: dict[str, Any]) -> None:
     """Initialize logging using values from a loaded config dict."""
+    tz_str = config.get("timezone", "+00:00")
+    # Parse timezone string like "-05:00" or "+10:00" to hours
+    sign = -1 if tz_str.startswith("-") else 1
+    parts = tz_str.replace("-", "").replace("+", "").split(":")
+    tz_hours = sign * (int(parts[0]) + int(parts[1]) / 60)
+
     setup_logging(
         level=config.get("log_level", DEFAULT_LEVEL),
         log_file=config.get("log_file", DEFAULT_LOG_FILE),
+        tz_offset_hours=tz_hours,
     )
 
 

@@ -18,7 +18,7 @@ from kanyo.detection.clip_manager import ClipManager  # noqa: E402
 from kanyo.detection.detect import FalconDetector  # noqa: E402
 from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
-from kanyo.detection.event_types import FalconEvent, FalconState  # noqa: E402
+from kanyo.detection.event_types import FalconEvent  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
 from kanyo.utils.config import load_config, get_now_tz  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
@@ -73,9 +73,6 @@ class RealtimeMonitor:
         clips_dir: str = "clips",
         max_runtime_seconds: int | None = None,
         roosting_threshold: int = 1800,
-        roosting_exit_timeout: int = 600,
-        activity_timeout: int = 180,
-        activity_notification: bool = False,
         full_config: dict | None = None,  # Full config with timezone_obj
     ):
         self.stream_url = stream_url
@@ -117,7 +114,6 @@ class RealtimeMonitor:
         # Event handler manages notifications and event routing
         self.event_handler = FalconEventHandler(
             clips_dir=clips_dir,
-            activity_notification=activity_notification,
         )
 
         # Clip manager handles video extraction
@@ -155,8 +151,6 @@ class RealtimeMonitor:
             {
                 "exit_timeout": exit_timeout_seconds,
                 "roosting_threshold": roosting_threshold,
-                "roosting_exit_timeout": roosting_exit_timeout,
-                "activity_timeout": activity_timeout,
             }
         )
 
@@ -220,14 +214,10 @@ class RealtimeMonitor:
                         else:
                             logger.warning("❌ Departure clip creation failed")
                 else:
-                    logger.warning(f"⚠️  Cannot create clip - missing timestamps")
+                    logger.warning("⚠️  Cannot create clip - missing timestamps")
 
-            # State change clips (ROOSTING, ACTIVITY_START, ACTIVITY_END) - use debounce
-            elif event_type in (
-                FalconEvent.ROOSTING,
-                FalconEvent.ACTIVITY_START,
-                FalconEvent.ACTIVITY_END,
-            ):
+            # State change clips (ROOSTING) - use debounce
+            elif event_type == FalconEvent.ROOSTING:
                 event_name = event_type.name
                 self.clip_manager.schedule_state_change_clip(event_time, event_name)
 
@@ -505,9 +495,6 @@ Examples:
             clips_dir=config.get("clips_dir", "clips"),
             max_runtime_seconds=config.get("max_runtime_seconds"),
             roosting_threshold=config.get("roosting_threshold", 1800),
-            roosting_exit_timeout=config.get("roosting_exit_timeout", 600),
-            activity_timeout=config.get("activity_timeout", 180),
-            activity_notification=config.get("activity_notification", False),
             full_config=config,  # Pass full config with timezone_obj
         )
         # Configure notifications from config

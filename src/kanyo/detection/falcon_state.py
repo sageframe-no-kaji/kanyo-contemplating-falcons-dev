@@ -1,13 +1,13 @@
 """
 Falcon state machine for intelligent behavior tracking.
 
-Distinguishes between visits, roosting, and activity periods.
-Eliminates false enter/exit cycles during long roosting sessions.
+Distinguishes between visits and roosting periods.
+Roosting is mainly for notifications - both states use the same exit timeout.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from kanyo.utils.logger import get_logger
 
@@ -23,16 +23,13 @@ class FalconStateMachine:
     States:
     - ABSENT: No falcon detected
     - VISITING: Falcon present (< roosting threshold)
-    - ROOSTING: Long-term presence (> roosting threshold)
-    - ACTIVITY: Brief absence during roosting
+    - ROOSTING: Long-term presence (> roosting threshold, notification only)
 
     State Transitions:
     - ABSENT → VISITING: Detection after absence (Event: ARRIVED)
     - VISITING → ROOSTING: Continuous presence > threshold (Event: ROOSTING)
     - VISITING → ABSENT: No detection > exit_timeout (Event: DEPARTED)
-    - ROOSTING → ACTIVITY: Brief absence during roost (Event: ACTIVITY_START)
-    - ACTIVITY → ROOSTING: Detection resumes (Event: ACTIVITY_END)
-    - ROOSTING → ABSENT: No detection > roosting_exit_timeout (Event: DEPARTED)
+    - ROOSTING → ABSENT: No detection > exit_timeout (Event: DEPARTED)
     """
 
     def __init__(self, config: dict):
@@ -41,30 +38,22 @@ class FalconStateMachine:
 
         Args:
             config: Dictionary containing:
-                - exit_timeout: Seconds to wait before departed during visit (default: 300)
+                - exit_timeout: Seconds to wait before departed (default: 90)
                 - roosting_threshold: Seconds before transitioning to roosting (default: 1800)
-                - roosting_exit_timeout: Seconds to wait before departed during roost (default: 600)
-                - activity_timeout: Max seconds for brief absence to count as activity (default: 180)
         """
         self.state = FalconState.ABSENT
         self.config = config
         self.initializing = True  # Prevent false arrivals during startup
 
         # Timing thresholds (in seconds)
-        self.exit_timeout = config.get("exit_timeout", 300)
+        self.exit_timeout = config.get("exit_timeout", 90)
         self.roosting_threshold = config.get("roosting_threshold", 1800)
-        self.roosting_exit_timeout = config.get("roosting_exit_timeout", 600)
-        self.activity_timeout = config.get("activity_timeout", 180)
 
         # State tracking timestamps
         self.visit_start: datetime | None = None
         self.last_detection: datetime | None = None
         self.last_absence_start: datetime | None = None
         self.roosting_start: datetime | None = None
-
-        # Activity tracking
-        self.activity_periods: list[tuple[datetime, datetime]] = []
-        self.current_activity_start: datetime | None = None
 
     def update(
         self, falcon_detected: bool, timestamp: datetime
@@ -128,29 +117,6 @@ class FalconStateMachine:
                         )
                     )
 
-        elif self.state == FalconState.ACTIVITY:
-            # ACTIVITY → ROOSTING: Detection resumed after activity
-            self.state = FalconState.ROOSTING
-            self.last_detection = timestamp
-            self.last_absence_start = None
-
-            # Record activity period
-            if self.current_activity_start:
-                activity_duration = (timestamp - self.current_activity_start).total_seconds()
-                self.activity_periods.append((self.current_activity_start, timestamp))
-                self.current_activity_start = None
-
-                events.append(
-                    (
-                        FalconEvent.ACTIVITY_END,
-                        timestamp,
-                        {
-                            "activity_duration": activity_duration,
-                            "total_activity_periods": len(self.activity_periods),
-                        },
-                    )
-                )
-
         elif self.state == FalconState.ROOSTING:
             # Already roosting, update detection time
             self.last_detection = timestamp
@@ -186,7 +152,6 @@ class FalconStateMachine:
                                 "visit_start": self.visit_start,
                                 "visit_end": self.last_detection,
                                 "visit_duration": visit_duration,
-                                "activity_periods": 0,
                                 "total_visit_duration": visit_duration,
                             },
                         )
@@ -196,12 +161,12 @@ class FalconStateMachine:
                     self._reset_state()
 
         elif self.state == FalconState.ROOSTING:
-            # Check if absence indicates activity or departure
+            # Check if absence exceeds exit timeout (same as VISITING)
             if self.last_detection and self.last_absence_start:
                 absence_duration = (timestamp - self.last_absence_start).total_seconds()
 
-                if absence_duration >= self.roosting_exit_timeout:
-                    # ROOSTING → ABSENT: Falcon departed after long roosting
+                if absence_duration >= self.exit_timeout:
+                    # ROOSTING → ABSENT: Falcon departed
                     total_duration = (
                         (self.last_detection - self.visit_start).total_seconds()
                         if self.visit_start
@@ -222,56 +187,10 @@ class FalconStateMachine:
                                 "visit_end": self.last_detection,
                                 "visit_duration": total_duration,
                                 "roosting_duration": roosting_duration,
-                                "activity_periods": len(self.activity_periods),
-                                "total_visit_duration": total_duration,
                             },
                         )
                     )
 
-                    # Reset state
-                    self._reset_state()
-
-                elif absence_duration >= self.activity_timeout:
-                    # ROOSTING → ACTIVITY: Brief absence during roost
-                    self.state = FalconState.ACTIVITY
-                    self.current_activity_start = self.last_absence_start
-
-                    events.append(
-                        (
-                            FalconEvent.ACTIVITY_START,
-                            self.last_absence_start,
-                            {"activity_start": self.last_absence_start},
-                        )
-                    )
-
-        elif self.state == FalconState.ACTIVITY:
-            # Check if activity period should end (became full departure)
-            if self.current_activity_start:
-                absence_duration = (timestamp - self.current_activity_start).total_seconds()
-
-                if absence_duration >= self.roosting_exit_timeout:
-                    # ACTIVITY → ABSENT: Activity period exceeded departure threshold
-                    total_duration = (
-                        (self.last_detection - self.visit_start).total_seconds()
-                        if self.visit_start
-                        else 0
-                    )
-
-                    events.append(
-                        (
-                            FalconEvent.DEPARTED,
-                            self.last_detection,
-                            {
-                                "visit_start": self.visit_start,
-                                "visit_end": self.last_detection,
-                                "visit_duration": total_duration,
-                                "activity_periods": len(self.activity_periods),
-                                "total_visit_duration": total_duration,
-                            },
-                        )
-                    )
-
-                    # Reset state
                     self._reset_state()
 
         return events
@@ -283,8 +202,6 @@ class FalconStateMachine:
         self.last_detection = None
         self.last_absence_start = None
         self.roosting_start = None
-        self.activity_periods = []
-        self.current_activity_start = None
 
     def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> None:
         """
@@ -304,10 +221,10 @@ class FalconStateMachine:
             self.visit_start = timestamp
             self.last_detection = timestamp
             self.roosting_start = timestamp
-            logger.info(f"🏠 Initialized to ROOSTING state (falcon already present)")
+            logger.info("🏠 Initialized to ROOSTING state (falcon already present)")
         else:
             # No falcon - stay in ABSENT
-            logger.info(f"📭 Initialized to ABSENT state (no falcon detected)")
+            logger.info("📭 Initialized to ABSENT state (no falcon detected)")
 
         # Exit initialization mode
         self.initializing = False
@@ -330,7 +247,6 @@ class FalconStateMachine:
                 self.last_absence_start.isoformat() if self.last_absence_start else None
             ),
             "roosting_start": self.roosting_start.isoformat() if self.roosting_start else None,
-            "activity_periods": len(self.activity_periods),
         }
 
         # Calculate durations

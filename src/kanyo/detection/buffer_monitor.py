@@ -73,9 +73,6 @@ class BufferMonitor:
         clips_dir: str = "clips",
         # State machine settings
         roosting_threshold: int = 1800,
-        roosting_exit_timeout: int = 600,
-        activity_timeout: int = 180,
-        activity_notification: bool = False,
         # Runtime settings
         max_runtime_seconds: int | None = None,
         full_config: dict | None = None,
@@ -144,7 +141,6 @@ class BufferMonitor:
         # Event handler for notifications
         self.event_handler = FalconEventHandler(
             clips_dir=clips_dir,
-            activity_notification=activity_notification,
         )
 
         # State machine
@@ -152,8 +148,6 @@ class BufferMonitor:
             {
                 "exit_timeout": exit_timeout_seconds,
                 "roosting_threshold": roosting_threshold,
-                "roosting_exit_timeout": roosting_exit_timeout,
-                "activity_timeout": activity_timeout,
             }
         )
 
@@ -294,11 +288,7 @@ class BufferMonitor:
             # Cancel any pending state change clips
             self.clip_manager.cancel_pending_state_change()
 
-        elif event_type in (
-            FalconEvent.ROOSTING,
-            FalconEvent.ACTIVITY_START,
-            FalconEvent.ACTIVITY_END,
-        ):
+        elif event_type == FalconEvent.ROOSTING:
             # Log event in visit recording and schedule state change clip
             if self.visit_recorder.is_recording:
                 self.visit_recorder.log_event(
@@ -552,9 +542,6 @@ def main():
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
             roosting_threshold=config.get("roosting_threshold", 1800),
-            roosting_exit_timeout=config.get("roosting_exit_timeout", 600),
-            activity_timeout=config.get("activity_timeout", 180),
-            activity_notification=config.get("activity_notification", False),
             max_runtime_seconds=config.get("max_runtime_seconds"),
             full_config=config,
         )

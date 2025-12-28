@@ -6,8 +6,6 @@ Tests state transitions, event generation, and timing logic.
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from kanyo.detection.event_types import FalconEvent, FalconState
 from kanyo.detection.falcon_state import FalconStateMachine
 
@@ -26,33 +24,25 @@ class TestFalconStateMachineInitialization:
         assert fsm.last_detection is None
         assert fsm.last_absence_start is None
         assert fsm.roosting_start is None
-        assert fsm.activity_periods == []
-        assert fsm.current_activity_start is None
 
     def test_custom_config(self):
         """Test configuration values are loaded correctly."""
         config = {
             "exit_timeout": 100,
             "roosting_threshold": 500,
-            "roosting_exit_timeout": 200,
-            "activity_timeout": 50,
         }
         fsm = FalconStateMachine(config)
 
         assert fsm.exit_timeout == 100
         assert fsm.roosting_threshold == 500
-        assert fsm.roosting_exit_timeout == 200
-        assert fsm.activity_timeout == 50
 
     def test_default_timeouts(self):
         """Test default timeout values when not configured."""
         config = {}
         fsm = FalconStateMachine(config)
 
-        assert fsm.exit_timeout == 300
+        assert fsm.exit_timeout == 90
         assert fsm.roosting_threshold == 1800
-        assert fsm.roosting_exit_timeout == 600
-        assert fsm.activity_timeout == 180
 
 
 class TestInitializeState:
@@ -193,91 +183,12 @@ class TestVisitingToDeparted:
         assert fsm.visit_start is None
 
 
-class TestRoostingToActivity:
-    """Test transition from ROOSTING to ACTIVITY state."""
-
-    def test_brief_absence_triggers_activity(self):
-        """Test brief absence during roosting triggers ACTIVITY state."""
-        config = {"roosting_threshold": 100, "activity_timeout": 50, "roosting_exit_timeout": 200}
-        fsm = FalconStateMachine(config)
-        start_time = datetime.now()
-
-        # Initialize and transition to roosting
-        fsm.initialize_state(falcon_detected=False, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time + timedelta(seconds=100))
-
-        assert fsm.state == FalconState.ROOSTING
-
-        # Last detection
-        last_detection = start_time + timedelta(seconds=120)
-        fsm.update(falcon_detected=True, timestamp=last_detection)
-
-        # First absence call sets last_absence_start
-        events = fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
-        assert fsm.state == FalconState.ROOSTING
-        assert len(events) == 0
-
-        # Brief absence for 40 seconds - not yet activity
-        events = fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=40))
-        assert fsm.state == FalconState.ROOSTING
-        assert len(events) == 0
-
-        # Absence exceeds activity_timeout - transition to ACTIVITY
-        activity_start = last_detection + timedelta(seconds=51)
-        events = fsm.update(falcon_detected=False, timestamp=activity_start)
-
-        assert fsm.state == FalconState.ACTIVITY
-        assert len(events) == 1
-        assert events[0][0] == FalconEvent.ACTIVITY_START
-        assert fsm.current_activity_start is not None
-
-
-class TestActivityToRoosting:
-    """Test transition from ACTIVITY back to ROOSTING."""
-
-    def test_activity_ends_with_detection(self):
-        """Test detection during ACTIVITY transitions back to ROOSTING."""
-        config = {"roosting_threshold": 100, "activity_timeout": 50}
-        fsm = FalconStateMachine(config)
-        start_time = datetime.now()
-
-        # Set up roosting state
-        fsm.initialize_state(falcon_detected=False, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time + timedelta(seconds=100))
-
-        # Trigger activity - first absence sets last_absence_start
-        last_detection = start_time + timedelta(seconds=120)
-        fsm.update(falcon_detected=True, timestamp=last_detection)
-        fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
-        activity_start = last_detection + timedelta(seconds=51)
-        fsm.update(falcon_detected=False, timestamp=activity_start)
-
-        assert fsm.state == FalconState.ACTIVITY
-        assert len(fsm.activity_periods) == 0
-
-        # Detection resumes - end activity (duration from last_detection + 1 to activity_end)
-        activity_end = activity_start + timedelta(seconds=30)
-        events = fsm.update(falcon_detected=True, timestamp=activity_end)
-
-        assert fsm.state == FalconState.ROOSTING
-        assert len(events) == 1
-        assert events[0][0] == FalconEvent.ACTIVITY_END
-        # Activity duration is from last_absence_start (last_detection + 1) to activity_end
-        assert (
-            events[0][2]["activity_duration"]
-            == (activity_end - (last_detection + timedelta(seconds=1))).total_seconds()
-        )
-        assert len(fsm.activity_periods) == 1
-
-
 class TestRoostingToDeparted:
     """Test transition from ROOSTING to ABSENT (departed)."""
 
     def test_long_absence_during_roosting(self):
         """Test long absence during roosting triggers departure."""
-        config = {"roosting_threshold": 100, "activity_timeout": 50, "roosting_exit_timeout": 150}
+        config = {"roosting_threshold": 100, "exit_timeout": 50}
         fsm = FalconStateMachine(config)
         start_time = datetime.now()
 
@@ -296,10 +207,8 @@ class TestRoostingToDeparted:
         # First absence sets last_absence_start
         fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
 
-        # Absence exceeds roosting_exit_timeout - departed
-        events = fsm.update(
-            falcon_detected=False, timestamp=last_detection + timedelta(seconds=151)
-        )
+        # Absence exceeds exit_timeout - departed (same for ROOSTING now)
+        events = fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=51))
 
         assert fsm.state == FalconState.ABSENT
         assert len(events) == 1
@@ -307,78 +216,6 @@ class TestRoostingToDeparted:
         assert events[0][1] == last_detection
         assert events[0][2]["roosting_duration"] == 50
         assert fsm.visit_start is None
-
-
-class TestActivityToDeparted:
-    """Test transition from ACTIVITY to ABSENT (departed)."""
-
-    def test_activity_becomes_full_departure(self):
-        """Test activity period that exceeds roosting_exit_timeout becomes departure."""
-        config = {"roosting_threshold": 100, "activity_timeout": 50, "roosting_exit_timeout": 150}
-        fsm = FalconStateMachine(config)
-        start_time = datetime.now()
-
-        # Set up roosting then activity
-        fsm.initialize_state(falcon_detected=False, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time + timedelta(seconds=100))
-        last_detection = start_time + timedelta(seconds=120)
-        fsm.update(falcon_detected=True, timestamp=last_detection)
-        # First absence sets last_absence_start
-        fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
-        activity_start = last_detection + timedelta(seconds=51)
-        fsm.update(falcon_detected=False, timestamp=activity_start)
-
-        assert fsm.state == FalconState.ACTIVITY
-
-        # Continue absence past roosting_exit_timeout from current_activity_start - departed
-        events = fsm.update(
-            falcon_detected=False, timestamp=last_detection + timedelta(seconds=152)
-        )
-
-        assert fsm.state == FalconState.ABSENT
-        assert len(events) == 1
-        assert events[0][0] == FalconEvent.DEPARTED
-        assert fsm.visit_start is None
-
-
-class TestMultipleActivityPeriods:
-    """Test tracking multiple activity periods during roosting."""
-
-    def test_multiple_activity_periods(self):
-        """Test multiple activity periods are recorded."""
-        config = {"roosting_threshold": 100, "activity_timeout": 30}
-        fsm = FalconStateMachine(config)
-        start_time = datetime.now()
-
-        # Set up roosting
-        fsm.initialize_state(falcon_detected=False, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time)
-        fsm.update(falcon_detected=True, timestamp=start_time + timedelta(seconds=100))
-
-        # First activity period - need to exceed activity_timeout
-        last_detection = start_time + timedelta(seconds=120)
-        fsm.update(falcon_detected=True, timestamp=last_detection)
-        fsm.update(falcon_detected=False, timestamp=last_detection + timedelta(seconds=1))
-        fsm.update(
-            falcon_detected=False, timestamp=last_detection + timedelta(seconds=31)
-        )  # Trigger activity
-        fsm.update(falcon_detected=True, timestamp=last_detection + timedelta(seconds=60))
-
-        assert len(fsm.activity_periods) == 1
-
-        # Second activity period
-        last_detection2 = last_detection + timedelta(seconds=100)
-        fsm.update(falcon_detected=True, timestamp=last_detection2)
-        fsm.update(falcon_detected=False, timestamp=last_detection2 + timedelta(seconds=1))
-        fsm.update(
-            falcon_detected=False, timestamp=last_detection2 + timedelta(seconds=31)
-        )  # Trigger activity
-        events = fsm.update(falcon_detected=True, timestamp=last_detection2 + timedelta(seconds=50))
-
-        assert len(fsm.activity_periods) == 2
-        assert events[-1][0] == FalconEvent.ACTIVITY_END
-        assert events[-1][2]["total_activity_periods"] == 2
 
 
 class TestGetStateInfo:
@@ -396,7 +233,6 @@ class TestGetStateInfo:
         assert info["state"] == "absent"
         assert info["visit_start"] is None
         assert info["last_detection"] is None
-        assert info["activity_periods"] == 0
 
     def test_state_info_visiting(self):
         """Test state info during VISITING."""
@@ -456,12 +292,10 @@ class TestComplexScenario:
     """Test complex scenarios with multiple state transitions."""
 
     def test_full_visit_cycle(self):
-        """Test a complete visit cycle: ABSENT → VISITING → ROOSTING → ACTIVITY → ROOSTING → ABSENT."""
+        """Test a complete visit cycle: ABSENT → VISITING → ROOSTING → ABSENT."""
         config = {
             "exit_timeout": 50,
             "roosting_threshold": 100,
-            "roosting_exit_timeout": 150,
-            "activity_timeout": 30,
         }
         fsm = FalconStateMachine(config)
         t0 = datetime.now()
@@ -491,24 +325,10 @@ class TestComplexScenario:
         t4 = t3 + timedelta(seconds=50)
         fsm.update(falcon_detected=True, timestamp=t4)
 
-        # ROOSTING → ACTIVITY
-        # First absence sets last_absence_start
-        fsm.update(falcon_detected=False, timestamp=t4 + timedelta(seconds=1))
-        t5 = t4 + timedelta(seconds=31)
-        events = fsm.update(falcon_detected=False, timestamp=t5)
-        assert fsm.state == FalconState.ACTIVITY
-        assert events[0][0] == FalconEvent.ACTIVITY_START
-
-        # ACTIVITY → ROOSTING
-        t6 = t5 + timedelta(seconds=20)
-        events = fsm.update(falcon_detected=True, timestamp=t6)
-        assert fsm.state == FalconState.ROOSTING
-        assert events[0][0] == FalconEvent.ACTIVITY_END
-
         # ROOSTING → ABSENT - first absence sets last_absence_start
-        fsm.update(falcon_detected=False, timestamp=t6 + timedelta(seconds=1))
-        t7 = t6 + timedelta(seconds=151)
-        events = fsm.update(falcon_detected=False, timestamp=t7)
+        fsm.update(falcon_detected=False, timestamp=t4 + timedelta(seconds=1))
+        t5 = t4 + timedelta(seconds=51)
+        events = fsm.update(falcon_detected=False, timestamp=t5)
         assert fsm.state == FalconState.ABSENT
         assert events[0][0] == FalconEvent.DEPARTED
 
