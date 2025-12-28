@@ -7,7 +7,9 @@ Starts recording when falcon arrives, stops when falcon departs.
 
 from __future__ import annotations
 
+import select
 import subprocess
+import typing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -85,6 +87,7 @@ class VisitRecorder:
         self._frame_count: int = 0
         self._events: list[dict] = []
         self._frame_size: tuple[int, int] | None = None
+        self._stderr_file: typing.IO | None = None
 
         # Get encoder
         self._encoder = detect_hardware_encoder()
@@ -175,14 +178,24 @@ class VisitRecorder:
         logger.info(f"📹 Starting visit recording: {self._visit_path}")
 
         try:
+            # Write ffmpeg stderr to log file instead of pipe to prevent deadlock.
+            # Pipe buffers are finite (~64KB); if ffmpeg writes more than that
+            # and we don't read it, ffmpeg blocks, which backs up stdin, which
+            # blocks our write_frame() calls forever.
+            stderr_log = self._visit_path.with_suffix('.ffmpeg.log')
+            self._stderr_file = open(stderr_log, 'w')
+
             self._process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=self._stderr_file,
             )
         except Exception as e:
             logger.error(f"Failed to start ffmpeg: {e}")
+            if self._stderr_file:
+                self._stderr_file.close()
+                self._stderr_file = None
             self._process = None
             raise
 
@@ -223,16 +236,29 @@ class VisitRecorder:
         return self._write_raw_frame(frame)
 
     def _write_raw_frame(self, frame: np.ndarray) -> bool:
-        """Write raw frame bytes to ffmpeg stdin."""
+        """Write raw frame bytes to ffmpeg stdin with timeout protection."""
         if self._process is None or self._process.stdin is None:
             return False
 
         try:
+            # Check if stdin is ready for writing (timeout 0.5s)
+            # This prevents blocking forever if ffmpeg stalls
+            stdin_fd = self._process.stdin.fileno()
+            _, ready, _ = select.select([], [stdin_fd], [], 0.5)
+
+            if not ready:
+                logger.warning("⚠️ FFmpeg stdin not ready - frame dropped (possible encoder stall)")
+                return False
+
             self._process.stdin.write(frame.tobytes())
             self._frame_count += 1
             return True
         except (BrokenPipeError, OSError) as e:
             logger.error(f"Failed to write frame: {e}")
+            return False
+        except (ValueError, select.error) as e:
+            # stdin closed or invalid
+            logger.error(f"FFmpeg stdin error: {e}")
             return False
 
     def log_event(self, event_type: str, timestamp: datetime, metadata: dict = None) -> None:
@@ -281,13 +307,26 @@ class VisitRecorder:
                 self._process.stdin.close()
             if self._process:
                 self._process.wait(timeout=30)
+            
+            # Close stderr file
+            if self._stderr_file:
+                self._stderr_file.close()
+                self._stderr_file = None
         except subprocess.TimeoutExpired:
             logger.warning("ffmpeg didn't finish in time, killing")
             if self._process:
                 self._process.kill()
                 self._process.wait()
+            # Close stderr file
+            if self._stderr_file:
+                self._stderr_file.close()
+                self._stderr_file = None
         except Exception as e:
             logger.error(f"Error closing ffmpeg: {e}")
+            # Close stderr file
+            if self._stderr_file:
+                self._stderr_file.close()
+                self._stderr_file = None
 
         # Build metadata
         visit_duration = (departure_time - self._visit_start).total_seconds() if self._visit_start else 0
