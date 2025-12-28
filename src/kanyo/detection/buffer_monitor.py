@@ -286,13 +286,15 @@ class BufferMonitor:
         Args:
             arrival_time: When the falcon arrived
         """
+        logger.info(f"⏰ Timer fired! Attempting to create early arrival clip for {arrival_time}")
+        
         if not self.visit_recorder.is_recording:
-            logger.debug("Visit recording stopped before arrival clip could be created")
+            logger.warning("Visit recording stopped before arrival clip could be created")
             return
 
         visit_path = self.visit_recorder._visit_path
         if not visit_path or not visit_path.exists():
-            logger.warning("Cannot create early arrival clip: visit file not found")
+            logger.warning(f"Cannot create early arrival clip: visit file not found (path={visit_path})")
             return
 
         visit_metadata = {
@@ -300,7 +302,7 @@ class BufferMonitor:
             "visit_start": arrival_time,
         }
 
-        logger.info("📹 Creating arrival clip from ongoing recording")
+        logger.info(f"📹 Creating arrival clip from ongoing recording: {visit_path}")
         self.clip_manager.create_arrival_clip(visit_metadata)
 
     def run(self) -> None:
