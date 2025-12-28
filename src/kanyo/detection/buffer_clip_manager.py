@@ -394,3 +394,55 @@ class BufferClipManager:
         except Exception as e:
             logger.error(f"Error creating {clip_type} clip: {e}")
             return None
+
+    def create_standalone_arrival_clip(
+        self,
+        arrival_time: datetime,
+        lead_in_frames: list,
+        frame_size: tuple[int, int],
+    ) -> tuple[Path, object] | tuple[None, None]:
+        """
+        Create arrival clip as standalone recording (not extracted from visit file).
+
+        This records frames directly: buffer lead-in + next N seconds after arrival.
+        Returns immediately with a recorder that needs frames written to it.
+
+        Args:
+            arrival_time: When falcon arrived
+            lead_in_frames: Buffer frames before arrival
+            frame_size: (width, height) of frames
+
+        Returns:
+            Tuple of (clip_path, recorder) or (None, None) if failed
+        """
+        from kanyo.utils.visit_recorder import VisitRecorder
+
+        clip_path = get_output_path(
+            str(self.clips_dir),
+            arrival_time,
+            "arrival",
+            "mp4",
+        )
+
+        logger.info(f"📹 Creating standalone arrival clip: {clip_path.name}")
+
+        # Create temporary recorder for the arrival clip
+        temp_recorder = VisitRecorder(
+            clips_dir=str(self.clips_dir.parent),  # Parent since we have full path
+            fps=self.clip_fps,
+            crf=self.clip_crf,
+        )
+
+        # Override the visit path to our clip path
+        temp_recorder._visit_path = clip_path
+        temp_recorder._visit_start = arrival_time
+        temp_recorder._frame_size = frame_size
+
+        # Start recording with lead-in frames
+        temp_recorder.start_recording(
+            arrival_time=arrival_time,
+            lead_in_frames=lead_in_frames,
+            frame_size=frame_size,
+        )
+
+        return clip_path, temp_recorder

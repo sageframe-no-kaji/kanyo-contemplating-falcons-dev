@@ -8,7 +8,6 @@ No tee or segment files - simpler and more reliable.
 import os
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
-import threading  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -160,6 +159,11 @@ class BufferMonitor:
         self.last_detection_time: datetime | None = None
         self._frame_size: tuple[int, int] | None = None
 
+        # Arrival clip recorder (short-duration, parallel to visit recorder)
+        self._arrival_recorder: object | None = None
+        self._arrival_clip_frames: int = 0
+        self._arrival_clip_max_frames: int = 0
+
         logger.info("BufferMonitor initialized (no tee mode)")
 
     def process_frame(self, frame_data, frame_number: int) -> None:
@@ -178,6 +182,19 @@ class BufferMonitor:
             # If visit recording is active, write frame
             if self.visit_recorder.is_recording:
                 self.visit_recorder.write_frame(frame_data)
+
+            # If arrival clip recording is active, write frame
+            if self._arrival_recorder is not None:
+                self._arrival_recorder.write_frame(frame_data)
+                self._arrival_clip_frames += 1
+
+                # Stop arrival clip after max frames reached
+                if self._arrival_clip_frames >= self._arrival_clip_max_frames:
+                    logger.info(f"✅ Arrival clip complete ({self._arrival_clip_frames} frames)")
+                    self._arrival_recorder.stop_recording(get_now_tz(self.full_config))
+                    self._arrival_recorder = None
+                    self._arrival_clip_frames = 0
+
 
             # Run detection
             detections = self.detector.detect_birds(frame_data, timestamp=now)
@@ -211,7 +228,7 @@ class BufferMonitor:
 
         if event_type == FalconEvent.ARRIVED:
             # Start recording the visit
-            logger.info("🦅 ARRIVAL - Starting visit recording")
+            logger.info("🦅 ARRIVAL - Starting arrival clip + visit recording")
 
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
@@ -219,24 +236,25 @@ class BufferMonitor:
                 self.visit_recorder.lead_in_seconds
             )
 
+            # Start arrival clip recorder (short duration, completes automatically)
+            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+                arrival_time=event_time,
+                lead_in_frames=lead_in_frames,
+                frame_size=self._frame_size or (1280, 720),
+            )
+            if arrival_recorder:
+                self._arrival_recorder = arrival_recorder
+                self._arrival_clip_frames = 0
+                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
+                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s)")
+
+            # Start long-term visit recording (with same lead-in frames)
             self.visit_recorder.start_recording(
                 arrival_time=event_time,
                 lead_in_frames=lead_in_frames,
                 frame_size=self._frame_size or (1280, 720),
             )
-
-            # Schedule arrival clip creation after clip duration has been recorded
-            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-            wait_time = clip_duration + 45  # Extra time for file stability
-            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s")
-            timer = threading.Timer(
-                wait_time,
-                self._create_arrival_clip_early,
-                args=(event_time,)  # Must be tuple
-            )
-            timer.daemon = True  # Don't block shutdown
-            timer.start()
-            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
 
         elif event_type == FalconEvent.DEPARTED:
             # Stop recording and create clips
@@ -245,7 +263,7 @@ class BufferMonitor:
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
             if visit_path and visit_metadata:
-                # Create departure clip (arrival clip already created immediately after arrival)
+                # Create departure clip
                 self.clip_manager.create_departure_clip(visit_metadata)
 
                 # Save visit metadata to event store
@@ -276,35 +294,6 @@ class BufferMonitor:
                     event_name=event_type.name,
                     offset_seconds=self.visit_recorder.current_offset_seconds,
                 )
-
-    def _create_arrival_clip_early(self, arrival_time: datetime) -> None:
-        """
-        Create arrival clip immediately after enough footage has been recorded.
-
-        This extracts the arrival clip from the ongoing visit recording,
-        so users get the clip right away instead of waiting until departure.
-
-        Args:
-            arrival_time: When the falcon arrived
-        """
-        logger.info(f"⏰ Timer fired! Attempting to create early arrival clip for {arrival_time}")
-
-        if not self.visit_recorder.is_recording:
-            logger.warning("Visit recording stopped before arrival clip could be created")
-            return
-
-        visit_path = self.visit_recorder._visit_path
-        if not visit_path or not visit_path.exists():
-            logger.warning(f"Cannot create early arrival clip: visit file not found (path={visit_path})")
-            return
-
-        visit_metadata = {
-            "visit_file": str(visit_path),
-            "visit_start": arrival_time,
-        }
-
-        logger.info(f"📹 Creating arrival clip from ongoing recording: {visit_path}")
-        self.clip_manager.create_arrival_clip(visit_metadata)
 
     def run(self) -> None:
         """Main monitoring loop."""
@@ -362,24 +351,26 @@ class BufferMonitor:
                             lead_in_frames = self.frame_buffer.get_frames_before(
                                 now, self.visit_recorder.lead_in_seconds
                             )
+
+                            # Create standalone arrival clip that will record in parallel with visit
+                            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+                                arrival_time=now,
+                                lead_in_frames=lead_in_frames,
+                                frame_size=self._frame_size or (1280, 720),
+                            )
+                            if arrival_recorder:
+                                self._arrival_recorder = arrival_recorder
+                                self._arrival_clip_frames = 0
+                                clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+                                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
+                                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s) (initialization)")
+
+                            # Start long-term visit recording (with same lead-in frames)
                             self.visit_recorder.start_recording(
                                 arrival_time=now,
                                 lead_in_frames=lead_in_frames,
                                 frame_size=self._frame_size or (1280, 720),
                             )
-
-                            # Schedule arrival clip creation for initialization state
-                            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-                            wait_time = clip_duration + 45  # Extra time for file stability
-                            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s (initialization)")
-                            timer = threading.Timer(
-                                wait_time,
-                                self._create_arrival_clip_early,
-                                args=(now,)
-                            )
-                            timer.daemon = True
-                            timer.start()
-                            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
 
                             # Send startup arrival notification WITH photo
                             self.event_handler.handle_event(
