@@ -229,12 +229,17 @@ class TestVisitRecorderWriteFrame:
     """Tests for frame writing (mocked)."""
 
     @patch("subprocess.Popen")
-    def test_write_frame_when_recording(self, mock_popen, tmp_path):
+    @patch("select.select")
+    def test_write_frame_when_recording(self, mock_select, mock_popen, tmp_path):
         """Test writing frame when recording."""
         mock_process = MagicMock()
         mock_process.poll.return_value = None
         mock_process.stdin = MagicMock()
+        mock_process.stdin.fileno.return_value = 3  # Mock file descriptor as integer
         mock_popen.return_value = mock_process
+
+        # Mock select to indicate stdin is ready for writing
+        mock_select.return_value = ([], [3], [])
 
         recorder = VisitRecorder(clips_dir=str(tmp_path))
         recorder.start_recording(datetime.now())
@@ -245,6 +250,7 @@ class TestVisitRecorderWriteFrame:
         assert result is True
         assert recorder._frame_count == 1
         mock_process.stdin.write.assert_called_once()
+        mock_select.assert_called_once()
 
     def test_write_frame_when_not_recording(self):
         """Test that write_frame returns False when not recording."""
