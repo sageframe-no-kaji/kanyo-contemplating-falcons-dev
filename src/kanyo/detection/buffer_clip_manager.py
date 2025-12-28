@@ -146,7 +146,8 @@ class BufferClipManager:
         """
         Create departure clip from visit recording.
 
-        The departure clip is the last N seconds of the visit recording.
+        The departure clip is centered on the last detection time,
+        NOT the end of the recording file.
 
         Args:
             visit_metadata: Metadata from visit recorder with offsets
@@ -159,18 +160,29 @@ class BufferClipManager:
             logger.warning("Cannot create departure clip: no visit file")
             return False
 
-        visit_end = visit_metadata.get("visit_end")
-        recording_duration = visit_metadata.get("recording_duration_seconds", 0)
+        visit_end = visit_metadata.get("visit_end")  # This is last_detection time
+        recording_start = visit_metadata.get(
+            "recording_start"
+        )  # When file started (includes lead-in)
 
-        if not visit_end or recording_duration <= 0:
+        if not visit_end or not recording_start:
+            logger.warning("Cannot create departure clip: missing visit_end or recording_start")
             return False
 
+        # Parse timestamps if strings
         if isinstance(visit_end, str):
             visit_end = datetime.fromisoformat(visit_end)
+        if isinstance(recording_start, str):
+            recording_start = datetime.fromisoformat(recording_start)
 
-        # Departure clip = last (before + after) seconds
+        # Calculate offset of last detection within the recording file
+        last_detection_offset = (visit_end - recording_start).total_seconds()
+
+        # Departure clip: centered on last detection
+        # Start = last_detection - departure_before
+        # Duration = departure_before + departure_after
+        start_offset = max(0, last_detection_offset - self.clip_departure_before)
         clip_duration = self.clip_departure_before + self.clip_departure_after
-        start_offset = max(0, recording_duration - clip_duration)
 
         clip_path = get_output_path(
             str(self.clips_dir),
@@ -180,6 +192,10 @@ class BufferClipManager:
         )
 
         logger.info(f"📹 Scheduling departure clip: {clip_path.name}")
+        logger.info(
+            f"    Last detection at offset {last_detection_offset:.1f}s, "
+            f"extracting {start_offset:.1f}s + {clip_duration}s"
+        )
 
         self._executor.submit(
             self._extract_clip_from_visit,

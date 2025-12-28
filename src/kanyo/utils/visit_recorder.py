@@ -351,7 +351,10 @@ class VisitRecorder:
         metadata = {
             "visit_file": str(self._visit_path),
             "visit_start": self._visit_start.isoformat() if self._visit_start else None,
-            "visit_end": departure_time.isoformat(),
+            "visit_end": departure_time.isoformat(),  # This is last_detection time
+            "recording_start": (
+                self._recording_start.isoformat() if self._recording_start else None
+            ),  # When file started (includes lead-in)
             "duration_seconds": visit_duration,
             "recording_duration_seconds": self._frame_count / self.fps,
             "frame_count": self._frame_count,
