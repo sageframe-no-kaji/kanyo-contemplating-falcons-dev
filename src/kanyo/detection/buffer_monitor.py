@@ -163,6 +163,7 @@ class BufferMonitor:
 
         # Arrival clip recorder (short-duration, parallel to visit recorder)
         self._arrival_recorder: object | None = None
+        self._arrival_clip_path: Path | None = None
         self._arrival_clip_frames: int = 0
         self._arrival_clip_max_frames: int = 0
 
@@ -192,9 +193,15 @@ class BufferMonitor:
 
                 # Stop arrival clip after max frames reached
                 if self._arrival_clip_frames >= self._arrival_clip_max_frames:
-                    logger.info(f"✅ Arrival clip complete ({self._arrival_clip_frames} frames)")
+                    arrival_path = self._arrival_clip_path
                     self._arrival_recorder.stop_recording(get_now_tz(self.full_config))
+                    logger.info(
+                        f"✅ Arrival clip complete: "
+                        f"{arrival_path.name if arrival_path else 'unknown'} "
+                        f"({self._arrival_clip_frames} frames)"
+                    )
                     self._arrival_recorder = None
+                    self._arrival_clip_path = None
                     self._arrival_clip_frames = 0
 
             # Run detection
@@ -247,6 +254,7 @@ class BufferMonitor:
             )
             if arrival_recorder:
                 self._arrival_recorder = arrival_recorder
+                self._arrival_clip_path = clip_path
                 self._arrival_clip_frames = 0
                 self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
                 logger.info(
@@ -371,6 +379,7 @@ class BufferMonitor:
                             )
                             if arrival_recorder:
                                 self._arrival_recorder = arrival_recorder
+                                self._arrival_clip_path = clip_path
                                 self._arrival_clip_frames = 0
                                 clip_duration = (
                                     self.clip_manager.clip_arrival_before
