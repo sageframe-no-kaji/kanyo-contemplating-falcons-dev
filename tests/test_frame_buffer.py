@@ -34,7 +34,8 @@ class TestBufferedFrame:
         img[:, :, 2] = 255  # Red
 
         import cv2
-        success, jpeg = cv2.imencode('.jpg', img)
+
+        success, jpeg = cv2.imencode(".jpg", img)
         assert success
 
         frame = BufferedFrame(

@@ -9,7 +9,7 @@ import os
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
-from datetime import datetime, timedelta  # noqa: E402
+from datetime import datetime  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
@@ -17,7 +17,7 @@ from kanyo.detection.capture import StreamCapture  # noqa: E402
 from kanyo.detection.detect import FalconDetector  # noqa: E402
 from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
-from kanyo.detection.event_types import FalconEvent, FalconState  # noqa: E402
+from kanyo.detection.event_types import FalconEvent  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
 from kanyo.utils.config import load_config, get_now_tz  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
@@ -147,12 +147,14 @@ class BufferMonitor:
         )
 
         # State machine
-        self.state_machine = FalconStateMachine({
-            "exit_timeout": exit_timeout_seconds,
-            "roosting_threshold": roosting_threshold,
-            "roosting_exit_timeout": roosting_exit_timeout,
-            "activity_timeout": activity_timeout,
-        })
+        self.state_machine = FalconStateMachine(
+            {
+                "exit_timeout": exit_timeout_seconds,
+                "roosting_threshold": roosting_threshold,
+                "roosting_exit_timeout": roosting_exit_timeout,
+                "activity_timeout": activity_timeout,
+            }
+        )
 
         # State tracking
         self.current_visit: FalconVisit | None = None
@@ -195,7 +197,6 @@ class BufferMonitor:
                     self._arrival_recorder = None
                     self._arrival_clip_frames = 0
 
-
             # Run detection
             detections = self.detector.detect_birds(frame_data, timestamp=now)
             falcon_detected = len(detections) > 0
@@ -232,12 +233,13 @@ class BufferMonitor:
 
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
-                event_time,
-                self.visit_recorder.lead_in_seconds
+                event_time, self.visit_recorder.lead_in_seconds
             )
 
             # Start arrival clip recorder (short duration, completes automatically)
-            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+            clip_duration = (
+                self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+            )
             clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
                 arrival_time=event_time,
                 lead_in_frames=lead_in_frames,
@@ -247,7 +249,10 @@ class BufferMonitor:
                 self._arrival_recorder = arrival_recorder
                 self._arrival_clip_frames = 0
                 self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
-                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s)")
+                logger.info(
+                    f"📹 Arrival clip will record {self._arrival_clip_max_frames} "
+                    f"frames ({clip_duration}s)"
+                )
 
             # Start long-term visit recording (with same lead-in frames)
             self.visit_recorder.start_recording(
@@ -280,7 +285,11 @@ class BufferMonitor:
             # Cancel any pending state change clips
             self.clip_manager.cancel_pending_state_change()
 
-        elif event_type in (FalconEvent.ROOSTING, FalconEvent.ACTIVITY_START, FalconEvent.ACTIVITY_END):
+        elif event_type in (
+            FalconEvent.ROOSTING,
+            FalconEvent.ACTIVITY_START,
+            FalconEvent.ACTIVITY_END,
+        ):
             # Log event in visit recording and schedule state change clip
             if self.visit_recorder.is_recording:
                 self.visit_recorder.log_event(
@@ -353,17 +362,28 @@ class BufferMonitor:
                             )
 
                             # Create standalone arrival clip that will record in parallel with visit
-                            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
-                                arrival_time=now,
-                                lead_in_frames=lead_in_frames,
-                                frame_size=self._frame_size or (1280, 720),
+                            clip_path, arrival_recorder = (
+                                self.clip_manager.create_standalone_arrival_clip(
+                                    arrival_time=now,
+                                    lead_in_frames=lead_in_frames,
+                                    frame_size=self._frame_size or (1280, 720),
+                                )
                             )
                             if arrival_recorder:
                                 self._arrival_recorder = arrival_recorder
                                 self._arrival_clip_frames = 0
-                                clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-                                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
-                                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s) (initialization)")
+                                clip_duration = (
+                                    self.clip_manager.clip_arrival_before
+                                    + self.clip_manager.clip_arrival_after
+                                )
+                                self._arrival_clip_max_frames = int(
+                                    clip_duration * self.clip_manager.clip_fps
+                                )
+                                logger.info(
+                                    f"📹 Arrival clip will record "
+                                    f"{self._arrival_clip_max_frames} frames "
+                                    f"({clip_duration}s) (initialization)"
+                                )
 
                             # Start long-term visit recording (with same lead-in frames)
                             self.visit_recorder.start_recording(
@@ -374,9 +394,7 @@ class BufferMonitor:
 
                             # Send startup arrival notification WITH photo
                             self.event_handler.handle_event(
-                                FalconEvent.ARRIVED,
-                                now,
-                                {"state": state_name}
+                                FalconEvent.ARRIVED, now, {"state": state_name}
                             )
                         else:
                             logger.info(f"📊 Initial state: {state_name.upper()} (no birds)")
@@ -435,7 +453,8 @@ class BufferMonitor:
                 time_since_frame = now_time - last_frame_time
                 if time_since_frame > frame_timeout:
                     logger.warning(
-                        f"⚠️  No frames received for {int(time_since_frame)}s - stream may be stalled"
+                        f"⚠️  No frames received for {int(time_since_frame)}s - "
+                        f"stream may be stalled"
                     )
                     last_frame_time = now_time  # Reset to avoid spam
 

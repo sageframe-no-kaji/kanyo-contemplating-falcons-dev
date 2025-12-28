@@ -149,12 +149,18 @@ class VisitRecorder:
         cmd = [
             "ffmpeg",
             "-y",
-            "-f", "rawvideo",
-            "-vcodec", "rawvideo",
-            "-s", f"{width}x{height}",
-            "-pix_fmt", "bgr24",
-            "-r", str(self.fps),
-            "-i", "-",  # Read from stdin
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-s",
+            f"{width}x{height}",
+            "-pix_fmt",
+            "bgr24",
+            "-r",
+            str(self.fps),
+            "-i",
+            "-",  # Read from stdin
         ]
 
         # Add encoder-specific options
@@ -162,12 +168,18 @@ class VisitRecorder:
             quality = max(1, min(100, int((51 - self.crf) * 2)))
             cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(quality)])
         elif self._encoder == "h264_vaapi":
-            cmd.extend([
-                "-vaapi_device", "/dev/dri/renderD128",
-                "-vf", "format=nv12,hwupload",
-                "-c:v", "h264_vaapi",
-                "-qp", str(self.crf),
-            ])
+            cmd.extend(
+                [
+                    "-vaapi_device",
+                    "/dev/dri/renderD128",
+                    "-vf",
+                    "format=nv12,hwupload",
+                    "-c:v",
+                    "h264_vaapi",
+                    "-qp",
+                    str(self.crf),
+                ]
+            )
         elif self._encoder == "h264_nvenc":
             cmd.extend(["-c:v", "h264_nvenc", "-cq", str(self.crf)])
         else:
@@ -182,8 +194,8 @@ class VisitRecorder:
             # Pipe buffers are finite (~64KB); if ffmpeg writes more than that
             # and we don't read it, ffmpeg blocks, which backs up stdin, which
             # blocks our write_frame() calls forever.
-            stderr_log = self._visit_path.with_suffix('.ffmpeg.log')
-            self._stderr_file = open(stderr_log, 'w')
+            stderr_log = self._visit_path.with_suffix(".ffmpeg.log")
+            self._stderr_file = open(stderr_log, "w")
 
             self._process = subprocess.Popen(
                 cmd,
@@ -207,11 +219,13 @@ class VisitRecorder:
                 self._write_raw_frame(frame)
 
         # Log arrival event
-        self._events.append({
-            "type": "arrival",
-            "offset_seconds": self.current_offset_seconds,
-            "timestamp": arrival_time.isoformat(),
-        })
+        self._events.append(
+            {
+                "type": "arrival",
+                "offset_seconds": self.current_offset_seconds,
+                "timestamp": arrival_time.isoformat(),
+            }
+        )
 
         return self._visit_path
 
@@ -295,11 +309,13 @@ class VisitRecorder:
             return None, {}
 
         # Log departure event
-        self._events.append({
-            "type": "departure",
-            "offset_seconds": self.current_offset_seconds,
-            "timestamp": departure_time.isoformat(),
-        })
+        self._events.append(
+            {
+                "type": "departure",
+                "offset_seconds": self.current_offset_seconds,
+                "timestamp": departure_time.isoformat(),
+            }
+        )
 
         # Close ffmpeg
         try:
@@ -329,7 +345,9 @@ class VisitRecorder:
                 self._stderr_file = None
 
         # Build metadata
-        visit_duration = (departure_time - self._visit_start).total_seconds() if self._visit_start else 0
+        visit_duration = (
+            (departure_time - self._visit_start).total_seconds() if self._visit_start else 0
+        )
         metadata = {
             "visit_file": str(self._visit_path),
             "visit_start": self._visit_start.isoformat() if self._visit_start else None,
@@ -407,11 +425,16 @@ class VisitRecorder:
         cmd = [
             "ffmpeg",
             "-y",
-            "-ss", str(start_offset),
-            "-i", str(visit_file),
-            "-t", str(duration),
-            "-c", "copy",  # Fast copy, no re-encoding
-            "-movflags", "+faststart",
+            "-ss",
+            str(start_offset),
+            "-i",
+            str(visit_file),
+            "-t",
+            str(duration),
+            "-c",
+            "copy",  # Fast copy, no re-encoding
+            "-movflags",
+            "+faststart",
             str(output_path),
         ]
 

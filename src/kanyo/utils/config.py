@@ -183,14 +183,10 @@ def _validate(cfg: dict[str, Any]) -> None:
     clip_departure_after = cfg.get("clip_departure_after", 15)
 
     if clip_arrival_before < 0 or clip_arrival_after < 0:
-        raise ValueError(
-            "clip_arrival_before and clip_arrival_after must be non-negative"
-        )
+        raise ValueError("clip_arrival_before and clip_arrival_after must be non-negative")
 
     if clip_departure_before < 0 or clip_departure_after < 0:
-        raise ValueError(
-            "clip_departure_before and clip_departure_after must be non-negative"
-        )
+        raise ValueError("clip_departure_before and clip_departure_after must be non-negative")
 
     # Warn if clip windows are very short
     min_clip_duration = 10  # seconds

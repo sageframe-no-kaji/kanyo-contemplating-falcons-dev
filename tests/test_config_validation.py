@@ -35,9 +35,7 @@ class TestConfigValidation:
             "roosting_threshold": 300,
             "exit_timeout": 300,  # Equal - should fail
         }
-        with pytest.raises(
-            ValueError, match="roosting_threshold.*must be greater than"
-        ):
+        with pytest.raises(ValueError, match="roosting_threshold.*must be greater than"):
             _validate(cfg)
 
     def test_valid_timing_config_passes(self):

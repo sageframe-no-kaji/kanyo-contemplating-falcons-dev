@@ -82,7 +82,7 @@ class FrameBuffer:
         Frame is JPEG-compressed before storage to reduce memory usage.
         Old frames are automatically evicted when buffer is full.
         """
-        success, jpeg = cv2.imencode('.jpg', frame, self._encode_params)
+        success, jpeg = cv2.imencode(".jpg", frame, self._encode_params)
         if not success:
             logger.warning(f"Failed to encode frame {frame_number}")
             return
@@ -109,10 +109,7 @@ class FrameBuffer:
         Returns:
             List of BufferedFrame objects in chronological order
         """
-        return [
-            f for f in self._frames
-            if start_time <= f.timestamp <= end_time
-        ]
+        return [f for f in self._frames if start_time <= f.timestamp <= end_time]
 
     def get_frames_before(
         self,
@@ -130,6 +127,7 @@ class FrameBuffer:
             List of BufferedFrame objects in chronological order
         """
         from datetime import timedelta
+
         start = timestamp - timedelta(seconds=seconds)
         return self.get_frames_in_range(start, timestamp)
 
@@ -147,6 +145,7 @@ class FrameBuffer:
             return []
 
         from datetime import timedelta
+
         end = self._frames[-1].timestamp
         start = end - timedelta(seconds=seconds)
         return self.get_frames_in_range(start, end)
@@ -209,24 +208,38 @@ class FrameBuffer:
         cmd = [
             "ffmpeg",
             "-y",
-            "-f", "rawvideo",
-            "-vcodec", "rawvideo",
-            "-s", f"{width}x{height}",
-            "-pix_fmt", "bgr24",
-            "-r", str(fps),
-            "-i", "-",  # Read from stdin
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-s",
+            f"{width}x{height}",
+            "-pix_fmt",
+            "bgr24",
+            "-r",
+            str(fps),
+            "-i",
+            "-",  # Read from stdin
         ]
 
         # Add encoder-specific options
         if encoder == "h264_videotoolbox":
-            cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(max(1, min(100, int((51 - crf) * 2))))])
+            cmd.extend(
+                ["-c:v", "h264_videotoolbox", "-q:v", str(max(1, min(100, int((51 - crf) * 2))))]
+            )
         elif encoder == "h264_vaapi":
-            cmd.extend([
-                "-vaapi_device", "/dev/dri/renderD128",
-                "-vf", "format=nv12,hwupload",
-                "-c:v", "h264_vaapi",
-                "-qp", str(crf),
-            ])
+            cmd.extend(
+                [
+                    "-vaapi_device",
+                    "/dev/dri/renderD128",
+                    "-vf",
+                    "format=nv12,hwupload",
+                    "-c:v",
+                    "h264_vaapi",
+                    "-qp",
+                    str(crf),
+                ]
+            )
         elif encoder == "h264_nvenc":
             cmd.extend(["-c:v", "h264_nvenc", "-cq", str(crf)])
         else:
