@@ -8,6 +8,7 @@ No tee or segment files - simpler and more reliable.
 import os
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+import threading  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -224,6 +225,14 @@ class BufferMonitor:
                 frame_size=self._frame_size or (1280, 720),
             )
 
+            # Schedule arrival clip creation after clip duration has been recorded
+            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+            threading.Timer(
+                clip_duration + 5,  # Wait for clip duration + 5s buffer
+                self._create_arrival_clip_early,
+                args=[event_time]
+            ).start()
+
         elif event_type == FalconEvent.DEPARTED:
             # Stop recording and create clips
             logger.info("🦅 DEPARTURE - Stopping visit recording")
@@ -231,8 +240,7 @@ class BufferMonitor:
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
             if visit_path and visit_metadata:
-                # Create arrival and departure clips from the visit file
-                self.clip_manager.create_arrival_clip(visit_metadata)
+                # Create departure clip (arrival clip already created immediately after arrival)
                 self.clip_manager.create_departure_clip(visit_metadata)
 
                 # Save visit metadata to event store
@@ -263,6 +271,33 @@ class BufferMonitor:
                     event_name=event_type.name,
                     offset_seconds=self.visit_recorder.current_offset_seconds,
                 )
+
+    def _create_arrival_clip_early(self, arrival_time: datetime) -> None:
+        """
+        Create arrival clip immediately after enough footage has been recorded.
+
+        This extracts the arrival clip from the ongoing visit recording,
+        so users get the clip right away instead of waiting until departure.
+
+        Args:
+            arrival_time: When the falcon arrived
+        """
+        if not self.visit_recorder.is_recording:
+            logger.debug("Visit recording stopped before arrival clip could be created")
+            return
+
+        visit_path = self.visit_recorder._visit_path
+        if not visit_path or not visit_path.exists():
+            logger.warning("Cannot create early arrival clip: visit file not found")
+            return
+
+        visit_metadata = {
+            "visit_file": str(visit_path),
+            "visit_start": arrival_time,
+        }
+
+        logger.info("📹 Creating arrival clip from ongoing recording")
+        self.clip_manager.create_arrival_clip(visit_metadata)
 
     def run(self) -> None:
         """Main monitoring loop."""
