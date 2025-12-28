@@ -7,6 +7,7 @@ No tee or segment files required - simple and reliable.
 
 from __future__ import annotations
 
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -433,16 +434,94 @@ class BufferClipManager:
             crf=self.clip_crf,
         )
 
-        # Override the visit path to our clip path
+        # Manually initialize recording (can't use start_recording() because it
+        # overwrites _visit_path with get_output_path(..., "visit", ...)
         temp_recorder._visit_path = clip_path
+        temp_recorder._visit_path.parent.mkdir(parents=True, exist_ok=True)
         temp_recorder._visit_start = arrival_time
+        temp_recorder._recording_start = arrival_time - timedelta(
+            seconds=temp_recorder.lead_in_seconds
+        )
+        temp_recorder._frame_count = 0
+        temp_recorder._events = []
         temp_recorder._frame_size = frame_size
 
-        # Start recording with lead-in frames
-        temp_recorder.start_recording(
-            arrival_time=arrival_time,
-            lead_in_frames=lead_in_frames,
-            frame_size=frame_size,
+        # Start ffmpeg process
+        width, height = frame_size
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-s",
+            f"{width}x{height}",
+            "-pix_fmt",
+            "bgr24",
+            "-r",
+            str(temp_recorder.fps),
+            "-i",
+            "-",
+        ]
+
+        # Add encoder options
+        if temp_recorder._encoder == "h264_videotoolbox":
+            quality = max(1, min(100, int((51 - temp_recorder.crf) * 2)))
+            cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(quality)])
+        elif temp_recorder._encoder == "h264_vaapi":
+            cmd.extend(
+                [
+                    "-vaapi_device",
+                    "/dev/dri/renderD128",
+                    "-vf",
+                    "format=nv12,hwupload",
+                    "-c:v",
+                    "h264_vaapi",
+                    "-qp",
+                    str(temp_recorder.crf),
+                ]
+            )
+        elif temp_recorder._encoder == "h264_nvenc":
+            cmd.extend(["-c:v", "h264_nvenc", "-cq", str(temp_recorder.crf)])
+        else:
+            cmd.extend(["-c:v", "libx264", "-crf", str(temp_recorder.crf), "-preset", "fast"])
+
+        cmd.extend(["-movflags", "+faststart", str(clip_path)])
+
+        logger.info(f"📹 Starting arrival clip recording: {clip_path}")
+
+        try:
+            stderr_log = clip_path.with_suffix(".ffmpeg.log")
+            temp_recorder._stderr_file = open(stderr_log, "w")
+
+            temp_recorder._process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=temp_recorder._stderr_file,
+            )
+        except Exception as e:
+            logger.error(f"Failed to start ffmpeg for arrival clip: {e}")
+            if temp_recorder._stderr_file:
+                temp_recorder._stderr_file.close()
+                temp_recorder._stderr_file = None
+            return None, None
+
+        # Write lead-in frames
+        if lead_in_frames:
+            logger.info(f"Writing {len(lead_in_frames)} lead-in frames to arrival clip")
+            for buffered_frame in lead_in_frames:
+                frame = buffered_frame.decode()
+                temp_recorder._write_raw_frame(frame)
+
+        # Log arrival event
+        temp_recorder._events.append(
+            {
+                "type": "arrival",
+                "offset_seconds": 0,
+                "timestamp": arrival_time.isoformat(),
+            }
         )
 
         return clip_path, temp_recorder
