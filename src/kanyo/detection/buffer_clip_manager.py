@@ -35,7 +35,6 @@ class BufferClipManager:
     Clip Strategy:
     - ARRIVAL: 15s before + 30s after (from visit recording)
     - DEPARTURE: 30s before + 15s after (from visit recording)
-    - ROOSTING: 15s before + 30s after (from visit recording, with debounce)
     - FULL VISIT: entire visit recording
     """
 
@@ -53,10 +52,6 @@ class BufferClipManager:
         # Departure clip timing
         clip_departure_before: int = 30,
         clip_departure_after: int = 15,
-        # State change clip timing
-        clip_state_change_before: int = 15,
-        clip_state_change_after: int = 30,
-        clip_state_change_cooldown: int = 300,
     ):
         """
         Initialize buffer clip manager.
@@ -71,9 +66,6 @@ class BufferClipManager:
             clip_arrival_after: Seconds after arrival to include
             clip_departure_before: Seconds before departure to include
             clip_departure_after: Seconds after departure to include
-            clip_state_change_before: Seconds before state change
-            clip_state_change_after: Seconds after state change
-            clip_state_change_cooldown: Debounce time for state changes
         """
         self.frame_buffer = frame_buffer
         self.visit_recorder = visit_recorder
@@ -86,13 +78,6 @@ class BufferClipManager:
         self.clip_arrival_after = clip_arrival_after
         self.clip_departure_before = clip_departure_before
         self.clip_departure_after = clip_departure_after
-        self.clip_state_change_before = clip_state_change_before
-        self.clip_state_change_after = clip_state_change_after
-        self.clip_state_change_cooldown = clip_state_change_cooldown
-
-        # State change debounce tracking
-        self.pending_state_change: tuple[datetime, str, float] | None = None  # (time, name, offset)
-        self.state_change_debounce_until: datetime | None = None
 
         # Async clip extraction
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="clip_")
@@ -206,101 +191,6 @@ class BufferClipManager:
         )
         return True
 
-    def schedule_state_change_clip(
-        self,
-        event_time: datetime,
-        event_name: str,
-        offset_seconds: float,
-    ) -> None:
-        """
-        Schedule a state change clip with debounce.
-
-        The clip won't be created immediately - we wait for the debounce
-        period to pass without new state changes. This prevents spam
-        when falcon is fidgety.
-
-        Args:
-            event_time: When the state change occurred
-            event_name: Type of state change (ROOSTING, etc.)
-            offset_seconds: Offset into the visit recording
-        """
-        self.pending_state_change = (event_time, event_name, offset_seconds)
-
-        from kanyo.utils.config import get_now_tz
-
-        self.state_change_debounce_until = get_now_tz(self.full_config) + timedelta(
-            seconds=self.clip_state_change_cooldown
-        )
-        logger.info(
-            f"📹 State change '{event_name}' pending, "
-            f"debounce until {self.state_change_debounce_until.strftime('%H:%M:%S')}"
-        )
-
-    def check_state_change_debounce(self, current_time: datetime) -> bool:
-        """
-        Check if pending state change should now create a clip.
-
-        Returns True if a clip was created.
-        """
-        if not self.pending_state_change or not self.state_change_debounce_until:
-            return False
-
-        if current_time < self.state_change_debounce_until:
-            return False
-
-        # Debounce period passed - create the clip
-        event_time, event_name, offset = self.pending_state_change
-        self.pending_state_change = None
-        self.state_change_debounce_until = None
-
-        if self.visit_recorder.current_visit_path:
-            self._create_state_change_clip(
-                self.visit_recorder.current_visit_path,
-                event_time,
-                event_name,
-                offset,
-            )
-            return True
-
-        return False
-
-    def _create_state_change_clip(
-        self,
-        visit_file: Path,
-        event_time: datetime,
-        event_name: str,
-        offset: float,
-    ) -> None:
-        """Create a state change clip from the visit file."""
-        clip_duration = self.clip_state_change_before + self.clip_state_change_after
-        start_offset = max(0, offset - self.clip_state_change_before)
-
-        clip_path = get_output_path(
-            str(self.clips_dir),
-            event_time,
-            event_name.lower(),
-            "mp4",
-        )
-
-        logger.info(f"📹 Creating {event_name} clip: {clip_path.name}")
-
-        self._executor.submit(
-            self._extract_clip_from_visit,
-            visit_file,
-            start_offset,
-            clip_duration,
-            clip_path,
-            event_name,
-        )
-
-    def cancel_pending_state_change(self) -> None:
-        """Cancel any pending state change clip (e.g., on departure)."""
-        if self.pending_state_change:
-            _, event_name, _ = self.pending_state_change
-            logger.info(f"Cancelling pending {event_name} clip (falcon departed)")
-        self.pending_state_change = None
-        self.state_change_debounce_until = None
-
     def create_clip_from_buffer(
         self,
         event_time: datetime,
@@ -406,7 +296,7 @@ class BufferClipManager:
         arrival_time: datetime,
         lead_in_frames: list,
         frame_size: tuple[int, int],
-    ) -> tuple[Path, object] | tuple[None, None]:
+    ) -> tuple[Path, "VisitRecorder"] | tuple[None, None]:
         """
         Create arrival clip as standalone recording (not extracted from visit file).
 

@@ -8,26 +8,6 @@ from kanyo.utils.config import _validate
 class TestConfigValidation:
     """Test configuration validation catches illogical setups."""
 
-    def test_activity_timeout_must_be_less_than_roosting_exit(self):
-        """activity_timeout >= roosting_exit_timeout should fail."""
-        cfg = {
-            "video_source": "https://youtube.com/test",
-            "activity_timeout": 600,
-            "roosting_exit_timeout": 600,  # Equal - should fail
-        }
-        with pytest.raises(ValueError, match="activity_timeout.*must be less than"):
-            _validate(cfg)
-
-    def test_exit_timeout_must_be_less_than_roosting_exit(self):
-        """exit_timeout >= roosting_exit_timeout should fail."""
-        cfg = {
-            "video_source": "https://youtube.com/test",
-            "exit_timeout": 700,
-            "roosting_exit_timeout": 600,  # Less than exit - should fail
-        }
-        with pytest.raises(ValueError, match="exit_timeout.*must be less than"):
-            _validate(cfg)
-
     def test_roosting_threshold_must_exceed_exit_timeout(self):
         """roosting_threshold <= exit_timeout should fail."""
         cfg = {
@@ -42,10 +22,8 @@ class TestConfigValidation:
         """Valid timing configuration should pass."""
         cfg = {
             "video_source": "https://youtube.com/test",
-            "exit_timeout": 300,
+            "exit_timeout": 90,
             "roosting_threshold": 1800,
-            "roosting_exit_timeout": 600,
-            "activity_timeout": 180,
         }
         # Should not raise
         _validate(cfg)

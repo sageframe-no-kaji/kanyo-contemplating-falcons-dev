@@ -1,11 +1,7 @@
 """Tests for buffer clip manager module."""
 
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import numpy as np
-import pytest
+from unittest.mock import MagicMock
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager
 
@@ -32,9 +28,6 @@ class TestBufferClipManagerInit:
         assert manager.clip_arrival_after == 30
         assert manager.clip_departure_before == 30
         assert manager.clip_departure_after == 15
-        assert manager.clip_state_change_before == 15
-        assert manager.clip_state_change_after == 30
-        assert manager.clip_state_change_cooldown == 300
 
     def test_custom_init(self):
         """Test custom initialization."""
@@ -76,99 +69,6 @@ class TestBufferClipManagerShutdown:
         assert manager._shutdown is True
 
 
-class TestStateChangeDebounce:
-    """Tests for state change clip debouncing."""
-
-    def test_schedule_state_change_clip_sets_pending(self):
-        """Test that scheduling sets pending state change."""
-        mock_buffer = MagicMock()
-        mock_recorder = MagicMock()
-
-        manager = BufferClipManager(
-            frame_buffer=mock_buffer,
-            visit_recorder=mock_recorder,
-            full_config={"timezone": "UTC"},
-            clip_state_change_cooldown=300,  # 5 min cooldown
-        )
-
-        now = datetime.now()
-
-        # Schedule should set pending
-        manager.schedule_state_change_clip(
-            event_time=now,
-            event_name="ROOSTING",
-            offset_seconds=100.0,
-        )
-
-        assert manager.pending_state_change is not None
-        assert manager.pending_state_change[0] == now
-        assert manager.pending_state_change[1] == "ROOSTING"
-        assert manager.pending_state_change[2] == 100.0
-        assert manager.state_change_debounce_until is not None
-
-    def test_check_debounce_before_timeout(self):
-        """Test that check_state_change_debounce returns False before timeout."""
-        mock_buffer = MagicMock()
-        mock_recorder = MagicMock()
-
-        manager = BufferClipManager(
-            frame_buffer=mock_buffer,
-            visit_recorder=mock_recorder,
-            full_config={"timezone": "UTC"},
-            clip_state_change_cooldown=300,
-        )
-
-        now = datetime.now(timezone.utc)
-        manager.schedule_state_change_clip(now, "ROOSTING", 100.0)
-
-        # Check immediately - should not trigger (still in debounce)
-        result = manager.check_state_change_debounce(now + timedelta(seconds=10))
-        assert result is False
-        assert manager.pending_state_change is not None  # Still pending
-
-    def test_check_debounce_after_timeout(self):
-        """Test that check_state_change_debounce returns True after timeout."""
-        mock_buffer = MagicMock()
-        mock_recorder = MagicMock()
-        mock_recorder.current_visit_path = Path("/tmp/visit.mp4")
-
-        manager = BufferClipManager(
-            frame_buffer=mock_buffer,
-            visit_recorder=mock_recorder,
-            full_config={"timezone": "UTC"},
-            clip_state_change_cooldown=300,
-        )
-
-        now = datetime.now(timezone.utc)
-        manager.schedule_state_change_clip(now, "ROOSTING", 100.0)
-
-        # Check after cooldown - should trigger
-        result = manager.check_state_change_debounce(now + timedelta(seconds=301))
-        assert result is True
-        assert manager.pending_state_change is None  # Consumed
-
-    def test_cancel_pending_state_change(self):
-        """Test cancelling pending state change."""
-        mock_buffer = MagicMock()
-        mock_recorder = MagicMock()
-
-        manager = BufferClipManager(
-            frame_buffer=mock_buffer,
-            visit_recorder=mock_recorder,
-            full_config={"timezone": "UTC"},
-        )
-
-        now = datetime.now()
-        manager.schedule_state_change_clip(now, "ACTIVITY", 200.0)
-
-        assert manager.pending_state_change is not None
-
-        manager.cancel_pending_state_change()
-
-        assert manager.pending_state_change is None
-        assert manager.state_change_debounce_until is None
-
-
 class TestClipTimingCalculation:
     """Tests for clip offset calculations."""
 
@@ -198,6 +98,8 @@ class TestClipTimingCalculation:
 
         assert expected_start == 0
         assert expected_duration == 45
+        assert manager.clip_arrival_before == 15
+        assert manager.clip_arrival_after == 30
 
     def test_departure_clip_timing(self):
         """Test departure clip uses correct before/after values."""
@@ -222,6 +124,8 @@ class TestClipTimingCalculation:
 
         assert expected_start == 1770.0
         assert expected_duration == 45
+        assert manager.clip_departure_before == 30
+        assert manager.clip_departure_after == 15
 
 
 class TestBufferClipManagerIntegration:

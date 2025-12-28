@@ -16,10 +16,10 @@ from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
 from kanyo.detection.detect import FalconDetector  # noqa: E402
 from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
-from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.detection.event_types import FalconEvent  # noqa: E402
+from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
-from kanyo.utils.config import load_config, get_now_tz  # noqa: E402
+from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
@@ -65,9 +65,6 @@ class BufferMonitor:
         clip_arrival_after: int = 30,
         clip_departure_before: int = 30,
         clip_departure_after: int = 15,
-        clip_state_change_before: int = 15,
-        clip_state_change_after: int = 30,
-        clip_state_change_cooldown: int = 300,
         clip_fps: int = 30,
         clip_crf: int = 23,
         clips_dir: str = "clips",
@@ -126,9 +123,6 @@ class BufferMonitor:
             clip_arrival_after=clip_arrival_after,
             clip_departure_before=clip_departure_before,
             clip_departure_after=clip_departure_after,
-            clip_state_change_before=clip_state_change_before,
-            clip_state_change_after=clip_state_change_after,
-            clip_state_change_cooldown=clip_state_change_cooldown,
         )
 
         # Event store
@@ -157,7 +151,7 @@ class BufferMonitor:
         self._frame_size: tuple[int, int] | None = None
 
         # Arrival clip recorder (short-duration, parallel to visit recorder)
-        self._arrival_recorder: object | None = None
+        self._arrival_recorder: VisitRecorder | None = None
         self._arrival_clip_path: Path | None = None
         self._arrival_clip_frames: int = 0
         self._arrival_clip_max_frames: int = 0
@@ -214,9 +208,6 @@ class BufferMonitor:
             for event_type, event_time, metadata in events:
                 self.event_handler.handle_event(event_type, event_time, metadata)
                 self._handle_event(event_type, event_time, metadata)
-
-            # Check state change debounce
-            self.clip_manager.check_state_change_debounce(now)
 
         except Exception as e:
             logger.error(f"❌ Error processing frame {frame_number}: {e}", exc_info=True)
@@ -285,22 +276,13 @@ class BufferMonitor:
                     duration = visit_metadata.get("duration_seconds", 0)
                     logger.info(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
 
-            # Cancel any pending state change clips
-            self.clip_manager.cancel_pending_state_change()
-
         elif event_type == FalconEvent.ROOSTING:
-            # Log event in visit recording and schedule state change clip
+            # ROOSTING is notification-only, no clip creation needed
             if self.visit_recorder.is_recording:
                 self.visit_recorder.log_event(
                     event_type.name,
                     event_time,
                     metadata,
-                )
-
-                self.clip_manager.schedule_state_change_clip(
-                    event_time=event_time,
-                    event_name=event_type.name,
-                    offset_seconds=self.visit_recorder.current_offset_seconds,
                 )
 
     def run(self) -> None:
@@ -324,7 +306,7 @@ class BufferMonitor:
         start_time = time.time()
         initialization_complete = False
         initialization_duration = 30
-        initial_detections = []
+        initial_detections: list = []
         max_birds_in_frame = 0
         last_heartbeat = time.time()
         heartbeat_interval = 300  # Log heartbeat every 5 minutes
@@ -535,9 +517,6 @@ def main():
             clip_arrival_after=config.get("clip_arrival_after", 30),
             clip_departure_before=config.get("clip_departure_before", 30),
             clip_departure_after=config.get("clip_departure_after", 15),
-            clip_state_change_before=config.get("clip_state_change_before", 15),
-            clip_state_change_after=config.get("clip_state_change_after", 30),
-            clip_state_change_cooldown=config.get("clip_state_change_cooldown", 300),
             clip_fps=config.get("clip_fps", 30),
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
