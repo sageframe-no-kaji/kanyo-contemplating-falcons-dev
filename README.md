@@ -1,3 +1,6 @@
+Here's the updated README.md:
+
+```markdown
 # Kanyo (観鷹)
 **Contemplating Falcons**
 
@@ -6,7 +9,7 @@ Real-time falcon detection and event tracking for live camera streams. Automatic
 ## What It Does
 
 - 🦅 **Detects falcons** in live YouTube streams using YOLOv8
-- 📹 **Captures video clips** of arrivals, departures, and activity
+- 📹 **Captures video clips** of arrivals and departures
 - 🔔 **Sends notifications** via Telegram when falcons are spotted
 - 📊 **Tracks behavior** with state machine (absent → visiting → roosting → departed)
 - 🕐 **Generates timelines** with thumbnails and event logs
@@ -26,9 +29,9 @@ Born from a conversation with Claudia Goldin (Nobel laureate in Economics) on a 
 mkdir kanyo && cd kanyo
 
 # 2. Download docker-compose file (choose one):
-#    CPU:    https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.example.yml
-#    Intel:  https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.vaapi.yml
-#    NVIDIA: https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.nvidia.yml
+#    CPU:    docker-compose.cpu.yml
+#    Intel:  docker-compose.vaapi.yml
+#    NVIDIA: docker-compose.nvidia.yml
 
 curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.nvidia.yml
 mv docker-compose.nvidia.yml docker-compose.yml
@@ -50,7 +53,7 @@ docker compose up -d
 
 See **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** for multi-stream and ZFS deployment.
 
-### Local Development (Clone Required)
+### Local Development
 
 ```bash
 # Clone repository
@@ -81,21 +84,48 @@ kanyo-contemplating-falcons-dev/
 │   ├── detection/           # Video capture, detection, state machine
 │   ├── generation/          # Clip extraction, site generation
 │   └── utils/               # Config, logging, notifications, encoding
-├── tests/                   # Test suite (115 tests)
-├── configs/                 # Configuration templates and examples
-│   ├── config.template.yaml # Documented config template
-│   └── kanyo-stream-config.example.yaml
+├── tests/                   # Test suite
+├── configs/                 # Configuration templates
+│   └── config.template.yaml # Documented config template
 ├── docker/                  # Docker deployment files
 │   ├── Dockerfile.cpu       # Pure CPU variant
 │   ├── Dockerfile.vaapi     # Intel iGPU + OpenVINO
 │   ├── Dockerfile.nvidia    # NVIDIA CUDA 12.1
-│   ├── docker-compose.*.yml # Deployment configs
-│   └── requirements-ml-*.txt # ML dependencies per variant
+│   └── docker-compose.*.yml # Deployment configs
 ├── scripts/                 # Build, deploy, and utility scripts
-│   └── INDEX.md             # Script documentation
 ├── docs/                    # Architecture and design documentation
 └── devlog/                  # Development journal (hos)
 ```
+
+---
+
+## How It Works
+
+### State Machine
+
+```
+ABSENT ──────► VISITING ──────► ROOSTING
+   ▲              │                 │
+   │              │                 │
+   └──────────────┴─────────────────┘
+              (exit_timeout)
+```
+
+| State | Meaning | Exit Condition |
+|-------|---------|----------------|
+| **ABSENT** | No falcon | Bird detected → VISITING |
+| **VISITING** | Bird present < 30 min | Gone 90s → DEPARTED, or stays 30 min → ROOSTING |
+| **ROOSTING** | Bird present > 30 min | Gone 90s → DEPARTED |
+
+ROOSTING triggers a notification but uses the same exit timeout as VISITING.
+
+### Clips Created
+
+| Event | Clip | Timing |
+|-------|------|--------|
+| **Arrival** | `falcon_HHMMSS_arrival.mp4` | 15s before + 30s after detection |
+| **Departure** | `falcon_HHMMSS_departure.mp4` | 60s before + 30s after last detection |
+| **Full Visit** | `falcon_HHMMSS_visit.mp4` | Entire visit recording |
 
 ---
 
@@ -112,13 +142,16 @@ telegram_enabled: false
 ```
 
 Key parameters:
+
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `video_source` | YouTube stream URL | (required) |
 | `detection_confidence` | Detection threshold (0.0-1.0) | 0.35 |
-| `frame_interval` | Seconds between detection frames | 2 |
+| `frame_interval` | Frames to skip between detections | 2 |
+| `exit_timeout` | Seconds absent before departure | 90 |
+| `roosting_threshold` | Seconds before roosting notification | 1800 |
 | `telegram_enabled` | Send notifications | false |
-| `telegram_channel` | Telegram channel ID | - |
+| `timezone` | Timezone offset for logs/filenames | "+00:00" |
 
 ---
 
@@ -127,7 +160,7 @@ Key parameters:
 | Method | Best For | Hardware |
 |--------|----------|----------|
 | **[Docker](docker/DOCKER-DEPLOYMENT.md)** | Production, multi-stream | CPU, Intel iGPU, NVIDIA GPU |
-| **[Bare Metal](DEPLOYMENT.md)** | Development, single stream | Any |
+| **Local** | Development, testing | Any |
 
 Three Docker image variants:
 - **`:cpu`** - Pure CPU (PyTorch CPU, no GPU)
@@ -138,12 +171,9 @@ Three Docker image variants:
 
 ## Documentation
 
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Bare metal and Docker deployment
-- **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** - Complete Docker guide with ZFS
-- **[docs/architecture.md](docs/architecture.md)** - System design and data flow
-- **[docs/state-detection.md](docs/state-detection.md)** - Falcon state machine
-- **[scripts/INDEX.md](scripts/INDEX.md)** - Build and deploy script reference
-- **[devlog/](devlog/)** - Development journal (ho-by-ho progress)
+- **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** - Complete Docker guide
+- **[docs/sensing-logic.md](docs/sensing-logic.md)** - Detection and state machine details
+- **[devlog/](devlog/)** - Development journal
 
 ---
 
@@ -165,30 +195,16 @@ Three Docker image variants:
 # Activate environment
 source venv/bin/activate
 
-# Run tests with coverage
-pytest --cov
+# Run tests
+pytest
 
 # Format code
 black src/ tests/
 isort src/ tests/
 
-# Check code quality
-flake8 src/ tests/
+# Type check
 mypy src/kanyo/
 ```
-
----
-
-## Roadmap
-
-- [x] Ho 0-1: Project foundation
-- [x] Ho 2: Falcon detection (YOLOv8)
-- [x] Ho 3: Live detection & notifications
-- [x] Ho 4: Docker deployment
-- [x] Ho 5: Production verification
-- [ ] Ho 6: Static site generation
-- [ ] Ho 7: User tagging system
-- [ ] Ho 8: Multi-camera dashboard
 
 ---
 
@@ -201,3 +217,4 @@ MIT
 - Claudia Goldin - For the inspiration
 - Memorial Hall Falcon Cam - For the falcons
 - Anthropic - For Claude (development assistant)
+```
