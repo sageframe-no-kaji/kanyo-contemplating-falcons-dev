@@ -406,6 +406,10 @@ class BufferMonitor:
             logger.info("\nStopping monitoring...")
 
         finally:
+            logger.info("=" * 60)
+            logger.info("🛑 KANYO SHUTTING DOWN")
+            logger.info("=" * 60)
+
             # Stop visit recording if active
             if self.visit_recorder.is_recording:
                 now = get_now_tz(self.full_config)
@@ -419,7 +423,9 @@ class BufferMonitor:
             # Disconnect stream
             self.capture.disconnect()
 
-            logger.info("✅ Monitoring stopped")
+            logger.info("=" * 60)
+            logger.info("🛑 KANYO STOPPED")
+            logger.info("=" * 60)
 
 
 def main():

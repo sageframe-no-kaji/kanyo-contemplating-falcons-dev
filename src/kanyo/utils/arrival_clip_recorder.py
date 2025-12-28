@@ -112,6 +112,16 @@ class ArrivalClipRecorder:
 
         clip_path = self._clip_path
         self._recorder.stop_recording(stop_time)
+
+        # Delete FFmpeg log file after successful recording
+        if clip_path:
+            ffmpeg_log = clip_path.with_suffix(".ffmpeg.log")
+            if ffmpeg_log.exists():
+                try:
+                    ffmpeg_log.unlink()
+                except Exception as e:
+                    logger.debug(f"Could not delete FFmpeg log: {e}")
+
         logger.info(
             f"✅ Arrival clip complete: "
             f"{clip_path.name if clip_path else 'unknown'} "

@@ -364,6 +364,15 @@ class VisitRecorder:
 
         result_path = self._visit_path
 
+        # Delete FFmpeg log file after successful recording
+        if result_path:
+            ffmpeg_log = result_path.with_suffix(".ffmpeg.log")
+            if ffmpeg_log.exists():
+                try:
+                    ffmpeg_log.unlink()
+                except Exception as e:
+                    logger.debug(f"Could not delete FFmpeg log: {e}")
+
         # Reset state
         self._process = None
         self._frame_count = 0
@@ -443,11 +452,24 @@ class VisitRecorder:
 
         logger.info(f"Extracting clip: {start_offset:.1f}s + {duration:.1f}s → {output_path}")
 
+        # Write ffmpeg stderr to log file
+        ffmpeg_log = output_path.with_suffix(".ffmpeg.log")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            with open(ffmpeg_log, "w") as stderr_file:
+                result = subprocess.run(
+                    cmd, stdout=subprocess.DEVNULL, stderr=stderr_file, timeout=60
+                )
             if result.returncode != 0:
-                logger.error(f"ffmpeg clip extraction failed: {result.stderr}")
+                logger.error(f"ffmpeg clip extraction failed (see {ffmpeg_log})")
                 return False
+
+            # Delete log file after successful extraction
+            if ffmpeg_log.exists():
+                try:
+                    ffmpeg_log.unlink()
+                except Exception as e:
+                    logger.debug(f"Could not delete FFmpeg log: {e}")
+
             logger.info(f"✅ Clip extracted: {output_path}")
             return True
         except Exception as e:
