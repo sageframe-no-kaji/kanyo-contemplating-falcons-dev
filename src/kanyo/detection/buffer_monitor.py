@@ -227,11 +227,13 @@ class BufferMonitor:
 
             # Schedule arrival clip creation after clip duration has been recorded
             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-            threading.Timer(
+            timer = threading.Timer(
                 clip_duration + 5,  # Wait for clip duration + 5s buffer
                 self._create_arrival_clip_early,
-                args=[event_time]
-            ).start()
+                args=(event_time,)  # Must be tuple
+            )
+            timer.daemon = True  # Don't block shutdown
+            timer.start()
 
         elif event_type == FalconEvent.DEPARTED:
             # Stop recording and create clips
