@@ -314,30 +314,12 @@ class BufferMonitor:
                                 now, self.visit_recorder.lead_in_seconds
                             )
 
-                            # Create standalone arrival clip that will record in parallel with visit
-                            clip_path, arrival_recorder = (
-                                self.clip_manager.create_standalone_arrival_clip(
-                                    arrival_time=now,
-                                    lead_in_frames=lead_in_frames,
-                                    frame_size=self._frame_size or (1280, 720),
-                                )
+                            # Start arrival clip recorder (short duration, completes automatically)
+                            self.arrival_clip_recorder.start_recording(
+                                arrival_time=now,
+                                lead_in_frames=lead_in_frames,
+                                frame_size=self._frame_size or (1280, 720),
                             )
-                            if arrival_recorder:
-                                self._arrival_recorder = arrival_recorder
-                                self._arrival_clip_path = clip_path
-                                self._arrival_clip_frames = 0
-                                clip_duration = (
-                                    self.clip_manager.clip_arrival_before
-                                    + self.clip_manager.clip_arrival_after
-                                )
-                                self._arrival_clip_max_frames = int(
-                                    clip_duration * self.clip_manager.clip_fps
-                                )
-                                logger.info(
-                                    f"📹 Arrival clip will record "
-                                    f"{self._arrival_clip_max_frames} frames "
-                                    f"({clip_duration}s) (initialization)"
-                                )
 
                             # Start long-term visit recording (with same lead-in frames)
                             self.visit_recorder.start_recording(
