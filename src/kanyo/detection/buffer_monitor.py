@@ -287,7 +287,7 @@ class BufferMonitor:
             arrival_time: When the falcon arrived
         """
         logger.info(f"⏰ Timer fired! Attempting to create early arrival clip for {arrival_time}")
-        
+
         if not self.visit_recorder.is_recording:
             logger.warning("Visit recording stopped before arrival clip could be created")
             return
@@ -366,6 +366,18 @@ class BufferMonitor:
                                 lead_in_frames=lead_in_frames,
                                 frame_size=self._frame_size or (1280, 720),
                             )
+
+                            # Schedule arrival clip creation for initialization state
+                            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+                            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s (initialization)")
+                            timer = threading.Timer(
+                                clip_duration + 5,
+                                self._create_arrival_clip_early,
+                                args=(now,)
+                            )
+                            timer.daemon = True
+                            timer.start()
+                            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
 
                             # Send startup arrival notification WITH photo
                             self.event_handler.handle_event(
