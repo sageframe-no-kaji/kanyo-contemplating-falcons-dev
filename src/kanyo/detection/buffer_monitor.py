@@ -121,6 +121,7 @@ class BufferMonitor:
         self.clip_manager = BufferClipManager(
             frame_buffer=self.frame_buffer,
             visit_recorder=self.visit_recorder,
+            full_config=self.full_config,
             clips_dir=clips_dir,
             clip_fps=clip_fps,
             clip_crf=clip_crf,

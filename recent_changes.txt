@@ -1,0 +1,1377 @@
+commit 08a4a23bdffcfbe38d490e7ab7cfa0b735e532c2
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:33:21 2025 -0500
+
+    fix: arrival clip now actually creates MP4 files
+    
+    ROOT CAUSE: start_recording() calls get_output_path() which overwrites
+    _visit_path with 'visit' suffix instead of 'arrival' suffix.
+    
+    SOLUTION: Manually initialize the arrival recorder instead of calling
+    start_recording(). Directly set _visit_path to arrival clip path and
+    start ffmpeg subprocess with correct output filename.
+    
+    This was why we only saw .jpg files but no .mp4 files for arrivals.
+---
+ src/kanyo/detection/buffer_clip_manager.py | 91 ++++++++++++++++++++++++++++--
+ 1 file changed, 85 insertions(+), 6 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_clip_manager.py b/src/kanyo/detection/buffer_clip_manager.py
+index 3a6d049..58d8c4a 100644
+--- a/src/kanyo/detection/buffer_clip_manager.py
++++ b/src/kanyo/detection/buffer_clip_manager.py
+@@ -7,6 +7,7 @@ No tee or segment files required - simple and reliable.
+ 
+ from __future__ import annotations
+ 
++import subprocess
+ from concurrent.futures import ThreadPoolExecutor
+ from datetime import datetime, timedelta
+ from pathlib import Path
+@@ -433,16 +434,94 @@ class BufferClipManager:
+             crf=self.clip_crf,
+         )
+ 
+-        # Override the visit path to our clip path
++        # Manually initialize recording (can't use start_recording() because it
++        # overwrites _visit_path with get_output_path(..., "visit", ...)
+         temp_recorder._visit_path = clip_path
++        temp_recorder._visit_path.parent.mkdir(parents=True, exist_ok=True)
+         temp_recorder._visit_start = arrival_time
++        temp_recorder._recording_start = arrival_time - timedelta(
++            seconds=temp_recorder.lead_in_seconds
++        )
++        temp_recorder._frame_count = 0
++        temp_recorder._events = []
+         temp_recorder._frame_size = frame_size
+ 
+-        # Start recording with lead-in frames
+-        temp_recorder.start_recording(
+-            arrival_time=arrival_time,
+-            lead_in_frames=lead_in_frames,
+-            frame_size=frame_size,
++        # Start ffmpeg process
++        width, height = frame_size
++        cmd = [
++            "ffmpeg",
++            "-y",
++            "-f",
++            "rawvideo",
++            "-vcodec",
++            "rawvideo",
++            "-s",
++            f"{width}x{height}",
++            "-pix_fmt",
++            "bgr24",
++            "-r",
++            str(temp_recorder.fps),
++            "-i",
++            "-",
++        ]
++
++        # Add encoder options
++        if temp_recorder._encoder == "h264_videotoolbox":
++            quality = max(1, min(100, int((51 - temp_recorder.crf) * 2)))
++            cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(quality)])
++        elif temp_recorder._encoder == "h264_vaapi":
++            cmd.extend(
++                [
++                    "-vaapi_device",
++                    "/dev/dri/renderD128",
++                    "-vf",
++                    "format=nv12,hwupload",
++                    "-c:v",
++                    "h264_vaapi",
++                    "-qp",
++                    str(temp_recorder.crf),
++                ]
++            )
++        elif temp_recorder._encoder == "h264_nvenc":
++            cmd.extend(["-c:v", "h264_nvenc", "-cq", str(temp_recorder.crf)])
++        else:
++            cmd.extend(["-c:v", "libx264", "-crf", str(temp_recorder.crf), "-preset", "fast"])
++
++        cmd.extend(["-movflags", "+faststart", str(clip_path)])
++
++        logger.info(f"📹 Starting arrival clip recording: {clip_path}")
++
++        try:
++            stderr_log = clip_path.with_suffix(".ffmpeg.log")
++            temp_recorder._stderr_file = open(stderr_log, "w")
++
++            temp_recorder._process = subprocess.Popen(
++                cmd,
++                stdin=subprocess.PIPE,
++                stdout=subprocess.DEVNULL,
++                stderr=temp_recorder._stderr_file,
++            )
++        except Exception as e:
++            logger.error(f"Failed to start ffmpeg for arrival clip: {e}")
++            if temp_recorder._stderr_file:
++                temp_recorder._stderr_file.close()
++                temp_recorder._stderr_file = None
++            return None, None
++
++        # Write lead-in frames
++        if lead_in_frames:
++            logger.info(f"Writing {len(lead_in_frames)} lead-in frames to arrival clip")
++            for buffered_frame in lead_in_frames:
++                frame = buffered_frame.decode()
++                temp_recorder._write_raw_frame(frame)
++
++        # Log arrival event
++        temp_recorder._events.append(
++            {
++                "type": "arrival",
++                "offset_seconds": 0,
++                "timestamp": arrival_time.isoformat(),
++            }
+         )
+ 
+         return clip_path, temp_recorder
+
+commit e48f86b00c86e5bcde55b3df9046bffcfcec1b23
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:30:26 2025 -0500
+
+    fix: track and log arrival clip path properly
+    
+    - Add _arrival_clip_path field to track the clip being recorded
+    - Log actual arrival clip filename when complete (not visit path)
+    - Prevents confusion in logs about which file completed
+---
+ src/kanyo/detection/buffer_monitor.py | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index 8b7aea9..159bace 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -163,6 +163,7 @@ class BufferMonitor:
+ 
+         # Arrival clip recorder (short-duration, parallel to visit recorder)
+         self._arrival_recorder: object | None = None
++        self._arrival_clip_path: Path | None = None
+         self._arrival_clip_frames: int = 0
+         self._arrival_clip_max_frames: int = 0
+ 
+@@ -192,9 +193,15 @@ class BufferMonitor:
+ 
+                 # Stop arrival clip after max frames reached
+                 if self._arrival_clip_frames >= self._arrival_clip_max_frames:
+-                    logger.info(f"✅ Arrival clip complete ({self._arrival_clip_frames} frames)")
++                    arrival_path = self._arrival_clip_path
+                     self._arrival_recorder.stop_recording(get_now_tz(self.full_config))
++                    logger.info(
++                        f"✅ Arrival clip complete: "
++                        f"{arrival_path.name if arrival_path else 'unknown'} "
++                        f"({self._arrival_clip_frames} frames)"
++                    )
+                     self._arrival_recorder = None
++                    self._arrival_clip_path = None
+                     self._arrival_clip_frames = 0
+ 
+             # Run detection
+@@ -247,6 +254,7 @@ class BufferMonitor:
+             )
+             if arrival_recorder:
+                 self._arrival_recorder = arrival_recorder
++                self._arrival_clip_path = clip_path
+                 self._arrival_clip_frames = 0
+                 self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
+                 logger.info(
+@@ -371,6 +379,7 @@ class BufferMonitor:
+                             )
+                             if arrival_recorder:
+                                 self._arrival_recorder = arrival_recorder
++                                self._arrival_clip_path = clip_path
+                                 self._arrival_clip_frames = 0
+                                 clip_duration = (
+                                     self.clip_manager.clip_arrival_before
+
+commit e6926e0b17c3d6d26c4f0b0c4d21a75a8f1e1f39
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:23:06 2025 -0500
+
+    feat: parallel recording for immediate arrival clips
+    
+    - Create standalone arrival clip alongside visit recording
+    - Both recordings start simultaneously with same lead-in frames
+    - Arrival clip auto-completes after clip_duration seconds
+    - Eliminates 'moov atom not found' error from timer-based extraction
+    - Removes threading.Timer approach in favor of simpler parallel recording
+    - Users get arrival clips immediately instead of waiting for departure
+---
+ src/kanyo/detection/buffer_monitor.py | 69 ++++++++++++++++++-----------
+ src/kanyo/utils/config.py             |  8 +---
+ src/kanyo/utils/frame_buffer.py       | 49 +++++++++++++--------
+ src/kanyo/utils/visit_recorder.py     | 83 ++++++++++++++++++++++-------------
+ tests/test_config_validation.py       |  4 +-
+ tests/test_frame_buffer.py            |  3 +-
+ uv.lock                               |  3 ++
+ 7 files changed, 136 insertions(+), 83 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index b9cf5fa..8b7aea9 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -9,7 +9,7 @@ import os
+ 
+ os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+ import time  # noqa: E402
+-from datetime import datetime, timedelta  # noqa: E402
++from datetime import datetime  # noqa: E402
+ from pathlib import Path  # noqa: E402
+ 
+ from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
+@@ -17,7 +17,7 @@ from kanyo.detection.capture import StreamCapture  # noqa: E402
+ from kanyo.detection.detect import FalconDetector  # noqa: E402
+ from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
+ from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
+-from kanyo.detection.event_types import FalconEvent, FalconState  # noqa: E402
++from kanyo.detection.event_types import FalconEvent  # noqa: E402
+ from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
+ from kanyo.utils.config import load_config, get_now_tz  # noqa: E402
+ from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
+@@ -147,12 +147,14 @@ class BufferMonitor:
+         )
+ 
+         # State machine
+-        self.state_machine = FalconStateMachine({
+-            "exit_timeout": exit_timeout_seconds,
+-            "roosting_threshold": roosting_threshold,
+-            "roosting_exit_timeout": roosting_exit_timeout,
+-            "activity_timeout": activity_timeout,
+-        })
++        self.state_machine = FalconStateMachine(
++            {
++                "exit_timeout": exit_timeout_seconds,
++                "roosting_threshold": roosting_threshold,
++                "roosting_exit_timeout": roosting_exit_timeout,
++                "activity_timeout": activity_timeout,
++            }
++        )
+ 
+         # State tracking
+         self.current_visit: FalconVisit | None = None
+@@ -195,7 +197,6 @@ class BufferMonitor:
+                     self._arrival_recorder = None
+                     self._arrival_clip_frames = 0
+ 
+-
+             # Run detection
+             detections = self.detector.detect_birds(frame_data, timestamp=now)
+             falcon_detected = len(detections) > 0
+@@ -232,12 +233,13 @@ class BufferMonitor:
+ 
+             # Get lead-in frames from buffer
+             lead_in_frames = self.frame_buffer.get_frames_before(
+-                event_time,
+-                self.visit_recorder.lead_in_seconds
++                event_time, self.visit_recorder.lead_in_seconds
+             )
+ 
+             # Start arrival clip recorder (short duration, completes automatically)
+-            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++            clip_duration = (
++                self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++            )
+             clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+                 arrival_time=event_time,
+                 lead_in_frames=lead_in_frames,
+@@ -247,7 +249,10 @@ class BufferMonitor:
+                 self._arrival_recorder = arrival_recorder
+                 self._arrival_clip_frames = 0
+                 self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
+-                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s)")
++                logger.info(
++                    f"📹 Arrival clip will record {self._arrival_clip_max_frames} "
++                    f"frames ({clip_duration}s)"
++                )
+ 
+             # Start long-term visit recording (with same lead-in frames)
+             self.visit_recorder.start_recording(
+@@ -280,7 +285,11 @@ class BufferMonitor:
+             # Cancel any pending state change clips
+             self.clip_manager.cancel_pending_state_change()
+ 
+-        elif event_type in (FalconEvent.ROOSTING, FalconEvent.ACTIVITY_START, FalconEvent.ACTIVITY_END):
++        elif event_type in (
++            FalconEvent.ROOSTING,
++            FalconEvent.ACTIVITY_START,
++            FalconEvent.ACTIVITY_END,
++        ):
+             # Log event in visit recording and schedule state change clip
+             if self.visit_recorder.is_recording:
+                 self.visit_recorder.log_event(
+@@ -353,17 +362,28 @@ class BufferMonitor:
+                             )
+ 
+                             # Create standalone arrival clip that will record in parallel with visit
+-                            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+-                                arrival_time=now,
+-                                lead_in_frames=lead_in_frames,
+-                                frame_size=self._frame_size or (1280, 720),
++                            clip_path, arrival_recorder = (
++                                self.clip_manager.create_standalone_arrival_clip(
++                                    arrival_time=now,
++                                    lead_in_frames=lead_in_frames,
++                                    frame_size=self._frame_size or (1280, 720),
++                                )
+                             )
+                             if arrival_recorder:
+                                 self._arrival_recorder = arrival_recorder
+                                 self._arrival_clip_frames = 0
+-                                clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+-                                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
+-                                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s) (initialization)")
++                                clip_duration = (
++                                    self.clip_manager.clip_arrival_before
++                                    + self.clip_manager.clip_arrival_after
++                                )
++                                self._arrival_clip_max_frames = int(
++                                    clip_duration * self.clip_manager.clip_fps
++                                )
++                                logger.info(
++                                    f"📹 Arrival clip will record "
++                                    f"{self._arrival_clip_max_frames} frames "
++                                    f"({clip_duration}s) (initialization)"
++                                )
+ 
+                             # Start long-term visit recording (with same lead-in frames)
+                             self.visit_recorder.start_recording(
+@@ -374,9 +394,7 @@ class BufferMonitor:
+ 
+                             # Send startup arrival notification WITH photo
+                             self.event_handler.handle_event(
+-                                FalconEvent.ARRIVED,
+-                                now,
+-                                {"state": state_name}
++                                FalconEvent.ARRIVED, now, {"state": state_name}
+                             )
+                         else:
+                             logger.info(f"📊 Initial state: {state_name.upper()} (no birds)")
+@@ -435,7 +453,8 @@ class BufferMonitor:
+                 time_since_frame = now_time - last_frame_time
+                 if time_since_frame > frame_timeout:
+                     logger.warning(
+-                        f"⚠️  No frames received for {int(time_since_frame)}s - stream may be stalled"
++                        f"⚠️  No frames received for {int(time_since_frame)}s - "
++                        f"stream may be stalled"
+                     )
+                     last_frame_time = now_time  # Reset to avoid spam
+ 
+diff --git a/src/kanyo/utils/config.py b/src/kanyo/utils/config.py
+index 9296d2f..0e873a7 100644
+--- a/src/kanyo/utils/config.py
++++ b/src/kanyo/utils/config.py
+@@ -183,14 +183,10 @@ def _validate(cfg: dict[str, Any]) -> None:
+     clip_departure_after = cfg.get("clip_departure_after", 15)
+ 
+     if clip_arrival_before < 0 or clip_arrival_after < 0:
+-        raise ValueError(
+-            "clip_arrival_before and clip_arrival_after must be non-negative"
+-        )
++        raise ValueError("clip_arrival_before and clip_arrival_after must be non-negative")
+ 
+     if clip_departure_before < 0 or clip_departure_after < 0:
+-        raise ValueError(
+-            "clip_departure_before and clip_departure_after must be non-negative"
+-        )
++        raise ValueError("clip_departure_before and clip_departure_after must be non-negative")
+ 
+     # Warn if clip windows are very short
+     min_clip_duration = 10  # seconds
+diff --git a/src/kanyo/utils/frame_buffer.py b/src/kanyo/utils/frame_buffer.py
+index c8574af..c6165d4 100644
+--- a/src/kanyo/utils/frame_buffer.py
++++ b/src/kanyo/utils/frame_buffer.py
+@@ -82,7 +82,7 @@ class FrameBuffer:
+         Frame is JPEG-compressed before storage to reduce memory usage.
+         Old frames are automatically evicted when buffer is full.
+         """
+-        success, jpeg = cv2.imencode('.jpg', frame, self._encode_params)
++        success, jpeg = cv2.imencode(".jpg", frame, self._encode_params)
+         if not success:
+             logger.warning(f"Failed to encode frame {frame_number}")
+             return
+@@ -109,10 +109,7 @@ class FrameBuffer:
+         Returns:
+             List of BufferedFrame objects in chronological order
+         """
+-        return [
+-            f for f in self._frames
+-            if start_time <= f.timestamp <= end_time
+-        ]
++        return [f for f in self._frames if start_time <= f.timestamp <= end_time]
+ 
+     def get_frames_before(
+         self,
+@@ -130,6 +127,7 @@ class FrameBuffer:
+             List of BufferedFrame objects in chronological order
+         """
+         from datetime import timedelta
++
+         start = timestamp - timedelta(seconds=seconds)
+         return self.get_frames_in_range(start, timestamp)
+ 
+@@ -147,6 +145,7 @@ class FrameBuffer:
+             return []
+ 
+         from datetime import timedelta
++
+         end = self._frames[-1].timestamp
+         start = end - timedelta(seconds=seconds)
+         return self.get_frames_in_range(start, end)
+@@ -209,24 +208,38 @@ class FrameBuffer:
+         cmd = [
+             "ffmpeg",
+             "-y",
+-            "-f", "rawvideo",
+-            "-vcodec", "rawvideo",
+-            "-s", f"{width}x{height}",
+-            "-pix_fmt", "bgr24",
+-            "-r", str(fps),
+-            "-i", "-",  # Read from stdin
++            "-f",
++            "rawvideo",
++            "-vcodec",
++            "rawvideo",
++            "-s",
++            f"{width}x{height}",
++            "-pix_fmt",
++            "bgr24",
++            "-r",
++            str(fps),
++            "-i",
++            "-",  # Read from stdin
+         ]
+ 
+         # Add encoder-specific options
+         if encoder == "h264_videotoolbox":
+-            cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(max(1, min(100, int((51 - crf) * 2))))])
++            cmd.extend(
++                ["-c:v", "h264_videotoolbox", "-q:v", str(max(1, min(100, int((51 - crf) * 2))))]
++            )
+         elif encoder == "h264_vaapi":
+-            cmd.extend([
+-                "-vaapi_device", "/dev/dri/renderD128",
+-                "-vf", "format=nv12,hwupload",
+-                "-c:v", "h264_vaapi",
+-                "-qp", str(crf),
+-            ])
++            cmd.extend(
++                [
++                    "-vaapi_device",
++                    "/dev/dri/renderD128",
++                    "-vf",
++                    "format=nv12,hwupload",
++                    "-c:v",
++                    "h264_vaapi",
++                    "-qp",
++                    str(crf),
++                ]
++            )
+         elif encoder == "h264_nvenc":
+             cmd.extend(["-c:v", "h264_nvenc", "-cq", str(crf)])
+         else:
+diff --git a/src/kanyo/utils/visit_recorder.py b/src/kanyo/utils/visit_recorder.py
+index 044b0b9..d9d8b2a 100644
+--- a/src/kanyo/utils/visit_recorder.py
++++ b/src/kanyo/utils/visit_recorder.py
+@@ -149,12 +149,18 @@ class VisitRecorder:
+         cmd = [
+             "ffmpeg",
+             "-y",
+-            "-f", "rawvideo",
+-            "-vcodec", "rawvideo",
+-            "-s", f"{width}x{height}",
+-            "-pix_fmt", "bgr24",
+-            "-r", str(self.fps),
+-            "-i", "-",  # Read from stdin
++            "-f",
++            "rawvideo",
++            "-vcodec",
++            "rawvideo",
++            "-s",
++            f"{width}x{height}",
++            "-pix_fmt",
++            "bgr24",
++            "-r",
++            str(self.fps),
++            "-i",
++            "-",  # Read from stdin
+         ]
+ 
+         # Add encoder-specific options
+@@ -162,12 +168,18 @@ class VisitRecorder:
+             quality = max(1, min(100, int((51 - self.crf) * 2)))
+             cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(quality)])
+         elif self._encoder == "h264_vaapi":
+-            cmd.extend([
+-                "-vaapi_device", "/dev/dri/renderD128",
+-                "-vf", "format=nv12,hwupload",
+-                "-c:v", "h264_vaapi",
+-                "-qp", str(self.crf),
+-            ])
++            cmd.extend(
++                [
++                    "-vaapi_device",
++                    "/dev/dri/renderD128",
++                    "-vf",
++                    "format=nv12,hwupload",
++                    "-c:v",
++                    "h264_vaapi",
++                    "-qp",
++                    str(self.crf),
++                ]
++            )
+         elif self._encoder == "h264_nvenc":
+             cmd.extend(["-c:v", "h264_nvenc", "-cq", str(self.crf)])
+         else:
+@@ -182,8 +194,8 @@ class VisitRecorder:
+             # Pipe buffers are finite (~64KB); if ffmpeg writes more than that
+             # and we don't read it, ffmpeg blocks, which backs up stdin, which
+             # blocks our write_frame() calls forever.
+-            stderr_log = self._visit_path.with_suffix('.ffmpeg.log')
+-            self._stderr_file = open(stderr_log, 'w')
++            stderr_log = self._visit_path.with_suffix(".ffmpeg.log")
++            self._stderr_file = open(stderr_log, "w")
+ 
+             self._process = subprocess.Popen(
+                 cmd,
+@@ -207,11 +219,13 @@ class VisitRecorder:
+                 self._write_raw_frame(frame)
+ 
+         # Log arrival event
+-        self._events.append({
+-            "type": "arrival",
+-            "offset_seconds": self.current_offset_seconds,
+-            "timestamp": arrival_time.isoformat(),
+-        })
++        self._events.append(
++            {
++                "type": "arrival",
++                "offset_seconds": self.current_offset_seconds,
++                "timestamp": arrival_time.isoformat(),
++            }
++        )
+ 
+         return self._visit_path
+ 
+@@ -295,11 +309,13 @@ class VisitRecorder:
+             return None, {}
+ 
+         # Log departure event
+-        self._events.append({
+-            "type": "departure",
+-            "offset_seconds": self.current_offset_seconds,
+-            "timestamp": departure_time.isoformat(),
+-        })
++        self._events.append(
++            {
++                "type": "departure",
++                "offset_seconds": self.current_offset_seconds,
++                "timestamp": departure_time.isoformat(),
++            }
++        )
+ 
+         # Close ffmpeg
+         try:
+@@ -329,7 +345,9 @@ class VisitRecorder:
+                 self._stderr_file = None
+ 
+         # Build metadata
+-        visit_duration = (departure_time - self._visit_start).total_seconds() if self._visit_start else 0
++        visit_duration = (
++            (departure_time - self._visit_start).total_seconds() if self._visit_start else 0
++        )
+         metadata = {
+             "visit_file": str(self._visit_path),
+             "visit_start": self._visit_start.isoformat() if self._visit_start else None,
+@@ -407,11 +425,16 @@ class VisitRecorder:
+         cmd = [
+             "ffmpeg",
+             "-y",
+-            "-ss", str(start_offset),
+-            "-i", str(visit_file),
+-            "-t", str(duration),
+-            "-c", "copy",  # Fast copy, no re-encoding
+-            "-movflags", "+faststart",
++            "-ss",
++            str(start_offset),
++            "-i",
++            str(visit_file),
++            "-t",
++            str(duration),
++            "-c",
++            "copy",  # Fast copy, no re-encoding
++            "-movflags",
++            "+faststart",
+             str(output_path),
+         ]
+ 
+diff --git a/tests/test_config_validation.py b/tests/test_config_validation.py
+index c70f3f1..e8762ec 100644
+--- a/tests/test_config_validation.py
++++ b/tests/test_config_validation.py
+@@ -35,9 +35,7 @@ class TestConfigValidation:
+             "roosting_threshold": 300,
+             "exit_timeout": 300,  # Equal - should fail
+         }
+-        with pytest.raises(
+-            ValueError, match="roosting_threshold.*must be greater than"
+-        ):
++        with pytest.raises(ValueError, match="roosting_threshold.*must be greater than"):
+             _validate(cfg)
+ 
+     def test_valid_timing_config_passes(self):
+diff --git a/tests/test_frame_buffer.py b/tests/test_frame_buffer.py
+index 1d5b7b1..4e3e847 100644
+--- a/tests/test_frame_buffer.py
++++ b/tests/test_frame_buffer.py
+@@ -34,7 +34,8 @@ class TestBufferedFrame:
+         img[:, :, 2] = 255  # Red
+ 
+         import cv2
+-        success, jpeg = cv2.imencode('.jpg', img)
++
++        success, jpeg = cv2.imencode(".jpg", img)
+         assert success
+ 
+         frame = BufferedFrame(
+diff --git a/uv.lock b/uv.lock
+new file mode 100644
+index 0000000..a5bc514
+--- /dev/null
++++ b/uv.lock
+@@ -0,0 +1,3 @@
++version = 1
++revision = 3
++requires-python = ">=3.14"
+
+commit 9dc74c31541883a8755c4bd243c6f8099e0248db
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:18:24 2025 -0500
+
+    feat: parallel recording for immediate arrival clips
+    
+    - Create standalone arrival clip (45s) alongside visit recording
+    - Both recorders use same lead-in frames from buffer
+    - Arrival clip auto-completes after clip_duration, visit continues
+    - Applies to both arrival events and initialization state
+    - Removes timer-based extraction (failed with 'moov atom not found')
+    - Cleaner, simpler, and works perfectly
+---
+ src/kanyo/detection/buffer_clip_manager.py |  52 ++++++++++++++
+ src/kanyo/detection/buffer_monitor.py      | 105 +++++++++++++----------------
+ 2 files changed, 100 insertions(+), 57 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_clip_manager.py b/src/kanyo/detection/buffer_clip_manager.py
+index c332681..3a6d049 100644
+--- a/src/kanyo/detection/buffer_clip_manager.py
++++ b/src/kanyo/detection/buffer_clip_manager.py
+@@ -394,3 +394,55 @@ class BufferClipManager:
+         except Exception as e:
+             logger.error(f"Error creating {clip_type} clip: {e}")
+             return None
++
++    def create_standalone_arrival_clip(
++        self,
++        arrival_time: datetime,
++        lead_in_frames: list,
++        frame_size: tuple[int, int],
++    ) -> tuple[Path, object] | tuple[None, None]:
++        """
++        Create arrival clip as standalone recording (not extracted from visit file).
++
++        This records frames directly: buffer lead-in + next N seconds after arrival.
++        Returns immediately with a recorder that needs frames written to it.
++
++        Args:
++            arrival_time: When falcon arrived
++            lead_in_frames: Buffer frames before arrival
++            frame_size: (width, height) of frames
++
++        Returns:
++            Tuple of (clip_path, recorder) or (None, None) if failed
++        """
++        from kanyo.utils.visit_recorder import VisitRecorder
++
++        clip_path = get_output_path(
++            str(self.clips_dir),
++            arrival_time,
++            "arrival",
++            "mp4",
++        )
++
++        logger.info(f"📹 Creating standalone arrival clip: {clip_path.name}")
++
++        # Create temporary recorder for the arrival clip
++        temp_recorder = VisitRecorder(
++            clips_dir=str(self.clips_dir.parent),  # Parent since we have full path
++            fps=self.clip_fps,
++            crf=self.clip_crf,
++        )
++
++        # Override the visit path to our clip path
++        temp_recorder._visit_path = clip_path
++        temp_recorder._visit_start = arrival_time
++        temp_recorder._frame_size = frame_size
++
++        # Start recording with lead-in frames
++        temp_recorder.start_recording(
++            arrival_time=arrival_time,
++            lead_in_frames=lead_in_frames,
++            frame_size=frame_size,
++        )
++
++        return clip_path, temp_recorder
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index 62c6bce..b9cf5fa 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -8,7 +8,6 @@ No tee or segment files - simpler and more reliable.
+ import os
+ 
+ os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+-import threading  # noqa: E402
+ import time  # noqa: E402
+ from datetime import datetime, timedelta  # noqa: E402
+ from pathlib import Path  # noqa: E402
+@@ -160,6 +159,11 @@ class BufferMonitor:
+         self.last_detection_time: datetime | None = None
+         self._frame_size: tuple[int, int] | None = None
+ 
++        # Arrival clip recorder (short-duration, parallel to visit recorder)
++        self._arrival_recorder: object | None = None
++        self._arrival_clip_frames: int = 0
++        self._arrival_clip_max_frames: int = 0
++
+         logger.info("BufferMonitor initialized (no tee mode)")
+ 
+     def process_frame(self, frame_data, frame_number: int) -> None:
+@@ -179,6 +183,19 @@ class BufferMonitor:
+             if self.visit_recorder.is_recording:
+                 self.visit_recorder.write_frame(frame_data)
+ 
++            # If arrival clip recording is active, write frame
++            if self._arrival_recorder is not None:
++                self._arrival_recorder.write_frame(frame_data)
++                self._arrival_clip_frames += 1
++
++                # Stop arrival clip after max frames reached
++                if self._arrival_clip_frames >= self._arrival_clip_max_frames:
++                    logger.info(f"✅ Arrival clip complete ({self._arrival_clip_frames} frames)")
++                    self._arrival_recorder.stop_recording(get_now_tz(self.full_config))
++                    self._arrival_recorder = None
++                    self._arrival_clip_frames = 0
++
++
+             # Run detection
+             detections = self.detector.detect_birds(frame_data, timestamp=now)
+             falcon_detected = len(detections) > 0
+@@ -211,7 +228,7 @@ class BufferMonitor:
+ 
+         if event_type == FalconEvent.ARRIVED:
+             # Start recording the visit
+-            logger.info("🦅 ARRIVAL - Starting visit recording")
++            logger.info("🦅 ARRIVAL - Starting arrival clip + visit recording")
+ 
+             # Get lead-in frames from buffer
+             lead_in_frames = self.frame_buffer.get_frames_before(
+@@ -219,24 +236,25 @@ class BufferMonitor:
+                 self.visit_recorder.lead_in_seconds
+             )
+ 
+-            self.visit_recorder.start_recording(
++            # Start arrival clip recorder (short duration, completes automatically)
++            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+                 arrival_time=event_time,
+                 lead_in_frames=lead_in_frames,
+                 frame_size=self._frame_size or (1280, 720),
+             )
++            if arrival_recorder:
++                self._arrival_recorder = arrival_recorder
++                self._arrival_clip_frames = 0
++                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
++                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s)")
+ 
+-            # Schedule arrival clip creation after clip duration has been recorded
+-            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+-            wait_time = clip_duration + 45  # Extra time for file stability
+-            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s")
+-            timer = threading.Timer(
+-                wait_time,
+-                self._create_arrival_clip_early,
+-                args=(event_time,)  # Must be tuple
++            # Start long-term visit recording (with same lead-in frames)
++            self.visit_recorder.start_recording(
++                arrival_time=event_time,
++                lead_in_frames=lead_in_frames,
++                frame_size=self._frame_size or (1280, 720),
+             )
+-            timer.daemon = True  # Don't block shutdown
+-            timer.start()
+-            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
+ 
+         elif event_type == FalconEvent.DEPARTED:
+             # Stop recording and create clips
+@@ -245,7 +263,7 @@ class BufferMonitor:
+             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
+ 
+             if visit_path and visit_metadata:
+-                # Create departure clip (arrival clip already created immediately after arrival)
++                # Create departure clip
+                 self.clip_manager.create_departure_clip(visit_metadata)
+ 
+                 # Save visit metadata to event store
+@@ -277,35 +295,6 @@ class BufferMonitor:
+                     offset_seconds=self.visit_recorder.current_offset_seconds,
+                 )
+ 
+-    def _create_arrival_clip_early(self, arrival_time: datetime) -> None:
+-        """
+-        Create arrival clip immediately after enough footage has been recorded.
+-
+-        This extracts the arrival clip from the ongoing visit recording,
+-        so users get the clip right away instead of waiting until departure.
+-
+-        Args:
+-            arrival_time: When the falcon arrived
+-        """
+-        logger.info(f"⏰ Timer fired! Attempting to create early arrival clip for {arrival_time}")
+-
+-        if not self.visit_recorder.is_recording:
+-            logger.warning("Visit recording stopped before arrival clip could be created")
+-            return
+-
+-        visit_path = self.visit_recorder._visit_path
+-        if not visit_path or not visit_path.exists():
+-            logger.warning(f"Cannot create early arrival clip: visit file not found (path={visit_path})")
+-            return
+-
+-        visit_metadata = {
+-            "visit_file": str(visit_path),
+-            "visit_start": arrival_time,
+-        }
+-
+-        logger.info(f"📹 Creating arrival clip from ongoing recording: {visit_path}")
+-        self.clip_manager.create_arrival_clip(visit_metadata)
+-
+     def run(self) -> None:
+         """Main monitoring loop."""
+         logger.info("=" * 60)
+@@ -362,24 +351,26 @@ class BufferMonitor:
+                             lead_in_frames = self.frame_buffer.get_frames_before(
+                                 now, self.visit_recorder.lead_in_seconds
+                             )
+-                            self.visit_recorder.start_recording(
++
++                            # Create standalone arrival clip that will record in parallel with visit
++                            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+                                 arrival_time=now,
+                                 lead_in_frames=lead_in_frames,
+                                 frame_size=self._frame_size or (1280, 720),
+                             )
+-
+-                            # Schedule arrival clip creation for initialization state
+-                            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+-                            wait_time = clip_duration + 45  # Extra time for file stability
+-                            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s (initialization)")
+-                            timer = threading.Timer(
+-                                wait_time,
+-                                self._create_arrival_clip_early,
+-                                args=(now,)
++                            if arrival_recorder:
++                                self._arrival_recorder = arrival_recorder
++                                self._arrival_clip_frames = 0
++                                clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++                                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
++                                logger.info(f"📹 Arrival clip will record {self._arrival_clip_max_frames} frames ({clip_duration}s) (initialization)")
++
++                            # Start long-term visit recording (with same lead-in frames)
++                            self.visit_recorder.start_recording(
++                                arrival_time=now,
++                                lead_in_frames=lead_in_frames,
++                                frame_size=self._frame_size or (1280, 720),
+                             )
+-                            timer.daemon = True
+-                            timer.start()
+-                            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
+ 
+                             # Send startup arrival notification WITH photo
+                             self.event_handler.handle_event(
+
+commit 8d54536fe1df1d08af211dca6fda6ddbd0c1ee04
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:10:01 2025 -0500
+
+    fix: increase arrival clip timer to 90s for MP4 file stability
+    
+    - Changed from clip_duration+5s to clip_duration+45s (90s total)
+    - Fixes 'moov atom not found' error when extracting from active recording
+    - MP4 files need time to stabilize before extraction works reliably
+---
+ src/kanyo/detection/buffer_monitor.py | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index deef425..62c6bce 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -227,9 +227,10 @@ class BufferMonitor:
+ 
+             # Schedule arrival clip creation after clip duration has been recorded
+             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+-            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s")
++            wait_time = clip_duration + 45  # Extra time for file stability
++            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s")
+             timer = threading.Timer(
+-                clip_duration + 5,  # Wait for clip duration + 5s buffer
++                wait_time,
+                 self._create_arrival_clip_early,
+                 args=(event_time,)  # Must be tuple
+             )
+@@ -369,9 +370,10 @@ class BufferMonitor:
+ 
+                             # Schedule arrival clip creation for initialization state
+                             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+-                            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s (initialization)")
++                            wait_time = clip_duration + 45  # Extra time for file stability
++                            logger.info(f"⏱️  Scheduling arrival clip creation in {wait_time}s (initialization)")
+                             timer = threading.Timer(
+-                                clip_duration + 5,
++                                wait_time,
+                                 self._create_arrival_clip_early,
+                                 args=(now,)
+                             )
+
+commit e3015230cb75770fccb3b24fdf991e3ae63aa660
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:05:39 2025 -0500
+
+    fix: schedule arrival clip timer for initialization state
+    
+    - Timer was only scheduled for real arrivals, not initialization
+    - Now schedules timer when system starts with bird already present
+    - Should create arrival clip 50s after initialization completes
+---
+ src/kanyo/detection/buffer_monitor.py | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index f052340..deef425 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -287,7 +287,7 @@ class BufferMonitor:
+             arrival_time: When the falcon arrived
+         """
+         logger.info(f"⏰ Timer fired! Attempting to create early arrival clip for {arrival_time}")
+-        
++
+         if not self.visit_recorder.is_recording:
+             logger.warning("Visit recording stopped before arrival clip could be created")
+             return
+@@ -367,6 +367,18 @@ class BufferMonitor:
+                                 frame_size=self._frame_size or (1280, 720),
+                             )
+ 
++                            # Schedule arrival clip creation for initialization state
++                            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++                            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s (initialization)")
++                            timer = threading.Timer(
++                                clip_duration + 5,
++                                self._create_arrival_clip_early,
++                                args=(now,)
++                            )
++                            timer.daemon = True
++                            timer.start()
++                            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
++
+                             # Send startup arrival notification WITH photo
+                             self.event_handler.handle_event(
+                                 FalconEvent.ARRIVED,
+
+commit 850f6ef11f828e54ced3a4ef86a9031e079b0045
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 21:03:05 2025 -0500
+
+    debug: add more detailed logging in timer callback
+---
+ src/kanyo/detection/buffer_monitor.py | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index a45aa36..f052340 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -286,13 +286,15 @@ class BufferMonitor:
+         Args:
+             arrival_time: When the falcon arrived
+         """
++        logger.info(f"⏰ Timer fired! Attempting to create early arrival clip for {arrival_time}")
++        
+         if not self.visit_recorder.is_recording:
+-            logger.debug("Visit recording stopped before arrival clip could be created")
++            logger.warning("Visit recording stopped before arrival clip could be created")
+             return
+ 
+         visit_path = self.visit_recorder._visit_path
+         if not visit_path or not visit_path.exists():
+-            logger.warning("Cannot create early arrival clip: visit file not found")
++            logger.warning(f"Cannot create early arrival clip: visit file not found (path={visit_path})")
+             return
+ 
+         visit_metadata = {
+@@ -300,7 +302,7 @@ class BufferMonitor:
+             "visit_start": arrival_time,
+         }
+ 
+-        logger.info("📹 Creating arrival clip from ongoing recording")
++        logger.info(f"📹 Creating arrival clip from ongoing recording: {visit_path}")
+         self.clip_manager.create_arrival_clip(visit_metadata)
+ 
+     def run(self) -> None:
+
+commit fa91966a698e8e6323b7b7261d07c2f4d1ab0b09
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 20:37:45 2025 -0500
+
+    debug: add logging for arrival clip timer scheduling
+---
+ src/kanyo/detection/buffer_monitor.py | 2 ++
+ src/kanyo/utils/visit_recorder.py     | 2 +-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index b378df5..a45aa36 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -227,6 +227,7 @@ class BufferMonitor:
+ 
+             # Schedule arrival clip creation after clip duration has been recorded
+             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++            logger.info(f"⏱️  Scheduling arrival clip creation in {clip_duration + 5}s")
+             timer = threading.Timer(
+                 clip_duration + 5,  # Wait for clip duration + 5s buffer
+                 self._create_arrival_clip_early,
+@@ -234,6 +235,7 @@ class BufferMonitor:
+             )
+             timer.daemon = True  # Don't block shutdown
+             timer.start()
++            logger.debug(f"Timer started: {timer.name}, daemon={timer.daemon}")
+ 
+         elif event_type == FalconEvent.DEPARTED:
+             # Stop recording and create clips
+diff --git a/src/kanyo/utils/visit_recorder.py b/src/kanyo/utils/visit_recorder.py
+index a3b7c09..044b0b9 100644
+--- a/src/kanyo/utils/visit_recorder.py
++++ b/src/kanyo/utils/visit_recorder.py
+@@ -307,7 +307,7 @@ class VisitRecorder:
+                 self._process.stdin.close()
+             if self._process:
+                 self._process.wait(timeout=30)
+-            
++
+             # Close stderr file
+             if self._stderr_file:
+                 self._stderr_file.close()
+
+commit 1135409a8de13aa99b3edf4df238722d2dc0a749
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 20:29:13 2025 -0500
+
+    fix: arrival clip timer args must be tuple and daemon thread
+    
+    - Changed args=[event_time] to args=(event_time,) for Timer
+    - Set daemon=True to prevent blocking shutdown
+    - This was preventing the early arrival clip from being created
+---
+ src/kanyo/detection/buffer_monitor.py | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index 52f92f6..b378df5 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -227,11 +227,13 @@ class BufferMonitor:
+ 
+             # Schedule arrival clip creation after clip duration has been recorded
+             clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
+-            threading.Timer(
++            timer = threading.Timer(
+                 clip_duration + 5,  # Wait for clip duration + 5s buffer
+                 self._create_arrival_clip_early,
+-                args=[event_time]
+-            ).start()
++                args=(event_time,)  # Must be tuple
++            )
++            timer.daemon = True  # Don't block shutdown
++            timer.start()
+ 
+         elif event_type == FalconEvent.DEPARTED:
+             # Stop recording and create clips
+
+commit 20d66e69ff4ec0f994da59451fecbe98a6d29ecc
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 20:26:23 2025 -0500
+
+    test: fix write_frame test for select() changes
+    
+    - Mock select.select() to indicate stdin ready
+    - Mock fileno() to return integer file descriptor
+    - All 124 tests passing
+---
+ tests/test_visit_recorder.py | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tests/test_visit_recorder.py b/tests/test_visit_recorder.py
+index a45d0b9..09964a2 100644
+--- a/tests/test_visit_recorder.py
++++ b/tests/test_visit_recorder.py
+@@ -229,13 +229,18 @@ class TestVisitRecorderWriteFrame:
+     """Tests for frame writing (mocked)."""
+ 
+     @patch("subprocess.Popen")
+-    def test_write_frame_when_recording(self, mock_popen, tmp_path):
++    @patch("select.select")
++    def test_write_frame_when_recording(self, mock_select, mock_popen, tmp_path):
+         """Test writing frame when recording."""
+         mock_process = MagicMock()
+         mock_process.poll.return_value = None
+         mock_process.stdin = MagicMock()
++        mock_process.stdin.fileno.return_value = 3  # Mock file descriptor as integer
+         mock_popen.return_value = mock_process
+ 
++        # Mock select to indicate stdin is ready for writing
++        mock_select.return_value = ([], [3], [])
++
+         recorder = VisitRecorder(clips_dir=str(tmp_path))
+         recorder.start_recording(datetime.now())
+ 
+@@ -245,6 +250,7 @@ class TestVisitRecorderWriteFrame:
+         assert result is True
+         assert recorder._frame_count == 1
+         mock_process.stdin.write.assert_called_once()
++        mock_select.assert_called_once()
+ 
+     def test_write_frame_when_not_recording(self):
+         """Test that write_frame returns False when not recording."""
+
+commit 7ce2382a93dc382e25e1f5203a5c3db015095205
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 20:17:13 2025 -0500
+
+    feat: create arrival clip immediately after arrival
+    
+    - Schedule arrival clip extraction 50s after falcon arrives
+    - Extract from ongoing visit recording (first 45 seconds)
+    - Users get arrival clip right away instead of waiting hours for departure
+    - Prevents duplicate arrival clip on departure
+---
+ src/kanyo/detection/buffer_monitor.py | 39 +++++++++++++++++++++++++++++++++--
+ 1 file changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/src/kanyo/detection/buffer_monitor.py b/src/kanyo/detection/buffer_monitor.py
+index 20b4446..52f92f6 100644
+--- a/src/kanyo/detection/buffer_monitor.py
++++ b/src/kanyo/detection/buffer_monitor.py
+@@ -8,6 +8,7 @@ No tee or segment files - simpler and more reliable.
+ import os
+ 
+ os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
++import threading  # noqa: E402
+ import time  # noqa: E402
+ from datetime import datetime, timedelta  # noqa: E402
+ from pathlib import Path  # noqa: E402
+@@ -224,6 +225,14 @@ class BufferMonitor:
+                 frame_size=self._frame_size or (1280, 720),
+             )
+ 
++            # Schedule arrival clip creation after clip duration has been recorded
++            clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
++            threading.Timer(
++                clip_duration + 5,  # Wait for clip duration + 5s buffer
++                self._create_arrival_clip_early,
++                args=[event_time]
++            ).start()
++
+         elif event_type == FalconEvent.DEPARTED:
+             # Stop recording and create clips
+             logger.info("🦅 DEPARTURE - Stopping visit recording")
+@@ -231,8 +240,7 @@ class BufferMonitor:
+             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
+ 
+             if visit_path and visit_metadata:
+-                # Create arrival and departure clips from the visit file
+-                self.clip_manager.create_arrival_clip(visit_metadata)
++                # Create departure clip (arrival clip already created immediately after arrival)
+                 self.clip_manager.create_departure_clip(visit_metadata)
+ 
+                 # Save visit metadata to event store
+@@ -264,6 +272,33 @@ class BufferMonitor:
+                     offset_seconds=self.visit_recorder.current_offset_seconds,
+                 )
+ 
++    def _create_arrival_clip_early(self, arrival_time: datetime) -> None:
++        """
++        Create arrival clip immediately after enough footage has been recorded.
++
++        This extracts the arrival clip from the ongoing visit recording,
++        so users get the clip right away instead of waiting until departure.
++
++        Args:
++            arrival_time: When the falcon arrived
++        """
++        if not self.visit_recorder.is_recording:
++            logger.debug("Visit recording stopped before arrival clip could be created")
++            return
++
++        visit_path = self.visit_recorder._visit_path
++        if not visit_path or not visit_path.exists():
++            logger.warning("Cannot create early arrival clip: visit file not found")
++            return
++
++        visit_metadata = {
++            "visit_file": str(visit_path),
++            "visit_start": arrival_time,
++        }
++
++        logger.info("📹 Creating arrival clip from ongoing recording")
++        self.clip_manager.create_arrival_clip(visit_metadata)
++
+     def run(self) -> None:
+         """Main monitoring loop."""
+         logger.info("=" * 60)
+
+commit dfdb5c168ddd47613c8a2178985b410944fbb946
+Author: Your Name <your-email@example.com>
+Date:   Sat Dec 27 19:13:00 2025 -0500
+
+    fix: FFmpeg pipe deadlock causing 7-10min freeze
+    
+    - stdout→DEVNULL (discard, don't need it)
+    - stderr→file (.ffmpeg.log) instead of PIPE to avoid buffer deadlock
+    - select() with 0.5s timeout before stdin.write() to detect stalled writes
+    - Drop frames instead of blocking forever if ffmpeg not ready
+    - Cleanup stderr file in all exit paths
+    
+    Root cause: FFmpeg stderr/stdout PIPE buffers fill (~64KB) after 7-10 min
+    of recording. Once full, ffmpeg blocks on write, which backs up stdin,
+    causing write_frame() to freeze forever.
+    
+    Fix tested: Prevents complete system freeze after first bird arrival.
+---
+ src/kanyo/utils/visit_recorder.py | 45 ++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 42 insertions(+), 3 deletions(-)
+
+diff --git a/src/kanyo/utils/visit_recorder.py b/src/kanyo/utils/visit_recorder.py
+index 161fcf5..a3b7c09 100644
+--- a/src/kanyo/utils/visit_recorder.py
++++ b/src/kanyo/utils/visit_recorder.py
+@@ -7,7 +7,9 @@ Starts recording when falcon arrives, stops when falcon departs.
+ 
+ from __future__ import annotations
+ 
++import select
+ import subprocess
++import typing
+ from datetime import datetime, timedelta
+ from pathlib import Path
+ from typing import TYPE_CHECKING
+@@ -85,6 +87,7 @@ class VisitRecorder:
+         self._frame_count: int = 0
+         self._events: list[dict] = []
+         self._frame_size: tuple[int, int] | None = None
++        self._stderr_file: typing.IO | None = None
+ 
+         # Get encoder
+         self._encoder = detect_hardware_encoder()
+@@ -175,14 +178,24 @@ class VisitRecorder:
+         logger.info(f"📹 Starting visit recording: {self._visit_path}")
+ 
+         try:
++            # Write ffmpeg stderr to log file instead of pipe to prevent deadlock.
++            # Pipe buffers are finite (~64KB); if ffmpeg writes more than that
++            # and we don't read it, ffmpeg blocks, which backs up stdin, which
++            # blocks our write_frame() calls forever.
++            stderr_log = self._visit_path.with_suffix('.ffmpeg.log')
++            self._stderr_file = open(stderr_log, 'w')
++
+             self._process = subprocess.Popen(
+                 cmd,
+                 stdin=subprocess.PIPE,
+-                stdout=subprocess.PIPE,
+-                stderr=subprocess.PIPE,
++                stdout=subprocess.DEVNULL,
++                stderr=self._stderr_file,
+             )
+         except Exception as e:
+             logger.error(f"Failed to start ffmpeg: {e}")
++            if self._stderr_file:
++                self._stderr_file.close()
++                self._stderr_file = None
+             self._process = None
+             raise
+ 
+@@ -223,17 +236,30 @@ class VisitRecorder:
+         return self._write_raw_frame(frame)
+ 
+     def _write_raw_frame(self, frame: np.ndarray) -> bool:
+-        """Write raw frame bytes to ffmpeg stdin."""
++        """Write raw frame bytes to ffmpeg stdin with timeout protection."""
+         if self._process is None or self._process.stdin is None:
+             return False
+ 
+         try:
++            # Check if stdin is ready for writing (timeout 0.5s)
++            # This prevents blocking forever if ffmpeg stalls
++            stdin_fd = self._process.stdin.fileno()
++            _, ready, _ = select.select([], [stdin_fd], [], 0.5)
++
++            if not ready:
++                logger.warning("⚠️ FFmpeg stdin not ready - frame dropped (possible encoder stall)")
++                return False
++
+             self._process.stdin.write(frame.tobytes())
+             self._frame_count += 1
+             return True
+         except (BrokenPipeError, OSError) as e:
+             logger.error(f"Failed to write frame: {e}")
+             return False
++        except (ValueError, select.error) as e:
++            # stdin closed or invalid
++            logger.error(f"FFmpeg stdin error: {e}")
++            return False
+ 
+     def log_event(self, event_type: str, timestamp: datetime, metadata: dict = None) -> None:
+         """
+@@ -281,13 +307,26 @@ class VisitRecorder:
+                 self._process.stdin.close()
+             if self._process:
+                 self._process.wait(timeout=30)
++            
++            # Close stderr file
++            if self._stderr_file:
++                self._stderr_file.close()
++                self._stderr_file = None
+         except subprocess.TimeoutExpired:
+             logger.warning("ffmpeg didn't finish in time, killing")
+             if self._process:
+                 self._process.kill()
+                 self._process.wait()
++            # Close stderr file
++            if self._stderr_file:
++                self._stderr_file.close()
++                self._stderr_file = None
+         except Exception as e:
+             logger.error(f"Error closing ffmpeg: {e}")
++            # Close stderr file
++            if self._stderr_file:
++                self._stderr_file.close()
++                self._stderr_file = None
+ 
+         # Build metadata
+         visit_duration = (departure_time - self._visit_start).total_seconds() if self._visit_start else 0

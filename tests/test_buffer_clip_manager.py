@@ -1,6 +1,6 @@
 """Tests for buffer clip manager module."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,10 +17,12 @@ class TestBufferClipManagerInit:
         """Test default initialization."""
         mock_buffer = MagicMock()
         mock_recorder = MagicMock()
+        mock_config = {"timezone": "UTC"}
 
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config=mock_config,
         )
 
         assert manager.clips_dir == Path("clips")
@@ -42,6 +44,7 @@ class TestBufferClipManagerInit:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clips_dir="output/clips",
             clip_fps=24,
             clip_arrival_before=20,
@@ -65,6 +68,7 @@ class TestBufferClipManagerShutdown:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
         )
 
         assert manager._shutdown is False
@@ -83,6 +87,7 @@ class TestStateChangeDebounce:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clip_state_change_cooldown=300,  # 5 min cooldown
         )
 
@@ -109,10 +114,11 @@ class TestStateChangeDebounce:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clip_state_change_cooldown=300,
         )
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         manager.schedule_state_change_clip(now, "ROOSTING", 100.0)
 
         # Check immediately - should not trigger (still in debounce)
@@ -129,10 +135,11 @@ class TestStateChangeDebounce:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clip_state_change_cooldown=300,
         )
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         manager.schedule_state_change_clip(now, "ROOSTING", 100.0)
 
         # Check after cooldown - should trigger
@@ -148,6 +155,7 @@ class TestStateChangeDebounce:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
         )
 
         now = datetime.now()
@@ -173,6 +181,7 @@ class TestClipTimingCalculation:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clip_arrival_before=15,
             clip_arrival_after=30,
         )
@@ -198,6 +207,7 @@ class TestClipTimingCalculation:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clip_departure_before=30,
             clip_departure_after=15,
         )
@@ -226,6 +236,7 @@ class TestBufferClipManagerIntegration:
         manager = BufferClipManager(
             frame_buffer=mock_buffer,
             visit_recorder=mock_recorder,
+            full_config={"timezone": "UTC"},
             clips_dir="/tmp/clips",
         )
 

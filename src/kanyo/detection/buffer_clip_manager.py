@@ -43,6 +43,7 @@ class BufferClipManager:
         self,
         frame_buffer: FrameBuffer,
         visit_recorder: VisitRecorder,
+        full_config: dict,
         clips_dir: str = "clips",
         clip_fps: int = 30,
         clip_crf: int = 23,
@@ -76,6 +77,7 @@ class BufferClipManager:
         """
         self.frame_buffer = frame_buffer
         self.visit_recorder = visit_recorder
+        self.full_config = full_config
         self.clips_dir = Path(clips_dir)
         self.clip_fps = clip_fps
         self.clip_crf = clip_crf
@@ -223,7 +225,10 @@ class BufferClipManager:
             offset_seconds: Offset into the visit recording
         """
         self.pending_state_change = (event_time, event_name, offset_seconds)
-        self.state_change_debounce_until = datetime.now() + timedelta(
+
+        from kanyo.utils.config import get_now_tz
+
+        self.state_change_debounce_until = get_now_tz(self.full_config) + timedelta(
             seconds=self.clip_state_change_cooldown
         )
         logger.info(
