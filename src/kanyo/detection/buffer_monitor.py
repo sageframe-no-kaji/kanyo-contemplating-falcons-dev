@@ -19,6 +19,7 @@ from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
 from kanyo.detection.event_types import FalconEvent  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
+from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder  # noqa: E402
 from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
@@ -151,10 +152,7 @@ class BufferMonitor:
         self._frame_size: tuple[int, int] | None = None
 
         # Arrival clip recorder (short-duration, parallel to visit recorder)
-        self._arrival_recorder: VisitRecorder | None = None
-        self._arrival_clip_path: Path | None = None
-        self._arrival_clip_frames: int = 0
-        self._arrival_clip_max_frames: int = 0
+        self.arrival_clip_recorder = ArrivalClipRecorder(self.clip_manager)
 
         logger.info("BufferMonitor initialized (no tee mode)")
 
@@ -176,22 +174,8 @@ class BufferMonitor:
                 self.visit_recorder.write_frame(frame_data)
 
             # If arrival clip recording is active, write frame
-            if self._arrival_recorder is not None:
-                self._arrival_recorder.write_frame(frame_data)
-                self._arrival_clip_frames += 1
-
-                # Stop arrival clip after max frames reached
-                if self._arrival_clip_frames >= self._arrival_clip_max_frames:
-                    arrival_path = self._arrival_clip_path
-                    self._arrival_recorder.stop_recording(get_now_tz(self.full_config))
-                    logger.info(
-                        f"✅ Arrival clip complete: "
-                        f"{arrival_path.name if arrival_path else 'unknown'} "
-                        f"({self._arrival_clip_frames} frames)"
-                    )
-                    self._arrival_recorder = None
-                    self._arrival_clip_path = None
-                    self._arrival_clip_frames = 0
+            if self.arrival_clip_recorder.is_recording():
+                self.arrival_clip_recorder.write_frame(frame_data, now)
 
             # Run detection
             detections = self.detector.detect_birds(frame_data, timestamp=now)
@@ -230,23 +214,11 @@ class BufferMonitor:
             )
 
             # Start arrival clip recorder (short duration, completes automatically)
-            clip_duration = (
-                self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
-            )
-            clip_path, arrival_recorder = self.clip_manager.create_standalone_arrival_clip(
+            self.arrival_clip_recorder.start_recording(
                 arrival_time=event_time,
                 lead_in_frames=lead_in_frames,
                 frame_size=self._frame_size or (1280, 720),
             )
-            if arrival_recorder:
-                self._arrival_recorder = arrival_recorder
-                self._arrival_clip_path = clip_path
-                self._arrival_clip_frames = 0
-                self._arrival_clip_max_frames = int(clip_duration * self.clip_manager.clip_fps)
-                logger.info(
-                    f"📹 Arrival clip will record {self._arrival_clip_max_frames} "
-                    f"frames ({clip_duration}s)"
-                )
 
             # Start long-term visit recording (with same lead-in frames)
             self.visit_recorder.start_recording(
