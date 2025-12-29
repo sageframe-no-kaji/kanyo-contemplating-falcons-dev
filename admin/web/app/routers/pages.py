@@ -62,8 +62,8 @@ async def stream_detail(request: Request, stream_id: str):
     today = datetime.now().strftime("%Y-%m-%d")
     clips = clip_service.list_clips(stream["clips_path"], today)
 
-    # Get events for today (arrival clips)
-    events = [clip for clip in clips if clip["type"] == "arrival"]
+    # Get deduplicated events for today
+    events = clip_service.get_today_events(stream["clips_path"])
 
     return templates.TemplateResponse(
         "stream/detail.html",
@@ -72,6 +72,7 @@ async def stream_detail(request: Request, stream_id: str):
             "stream": stream,
             "clips": clips,
             "events": events,
+            "date": today,
         }
     )
 

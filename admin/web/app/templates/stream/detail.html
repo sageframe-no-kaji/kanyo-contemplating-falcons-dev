@@ -59,9 +59,9 @@
                     {% for clip in clips[:9] %}
                     <div class="aspect-video bg-zinc-900 rounded overflow-hidden">
                         {% if not clip.is_video %}
-                        <div class="w-full h-full flex items-center justify-center text-zinc-500 text-sm">
-                            {{ clip.time }}
-                        </div>
+                        <img src="/clips/{{ stream.id }}/{{ date }}/{{ clip.filename }}"
+                             class="w-full h-full object-cover"
+                             alt="{{ clip.type }} at {{ clip.time }}">
                         {% else %}
                         <div class="w-full h-full flex items-center justify-center text-zinc-500 text-sm">
                             📹 {{ clip.time }}

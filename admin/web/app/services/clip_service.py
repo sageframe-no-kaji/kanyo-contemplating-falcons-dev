@@ -172,3 +172,27 @@ def get_last_event(clips_path: str) -> Optional[dict]:
         "type": latest_type,
         "ago": ago,
     }
+
+
+def get_today_events(clips_path: str) -> list[dict]:
+    """Get today's events (deduplicated by timestamp).
+
+    Args:
+        clips_path: Path to clips directory
+
+    Returns:
+        List of deduplicated events
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    clips = list_clips(clips_path, today)
+
+    # Deduplicate by time - keep first occurrence (usually .jpg)
+    seen_times = set()
+    events = []
+    for clip in clips:
+        key = (clip["time"], clip["type"])
+        if key not in seen_times:
+            seen_times.add(key)
+            events.append(clip)
+
+    return events
