@@ -12,7 +12,6 @@ x-kanyo-gpu-service: &kanyo-gpu-service
     - MALLOC_MMAP_THRESHOLD_=131072
     - MALLOC_TRIM_THRESHOLD_=131072
   volumes:
-    # Mount source code from host - overrides baked-in code in image
     - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
   deploy:
     resources:
@@ -32,10 +31,9 @@ services:
   harvard-gpu:
     <<: *kanyo-gpu-service
     container_name: kanyo-harvard-gpu
+    command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
     volumes:
-      # Mount source code from host - overrides baked-in code in image
       - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
-      # Config, clips, and logs all from stream directory (separate ZFS dataset)
       - ${KANYO_CAM1_ROOT:-./data/harvard}/config.yaml:/app/config.yaml:ro
       - ${KANYO_CAM1_ROOT:-./data/harvard}/clips:/app/clips
       - ${KANYO_CAM1_ROOT:-./data/harvard}/logs:/app/logs
@@ -43,6 +41,19 @@ services:
   nsw-gpu:
     <<: *kanyo-gpu-service
     container_name: kanyo-nsw-gpu
+    command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
+    volumes:
+      - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
+      - ${KANYO_CAM2_ROOT:-./data/nsw}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAM2_ROOT:-./data/nsw}/clips:/app/clips
+      - ${KANYO_CAM2_ROOT:-./data/nsw}/logs:/app/logs
+
+      - ${KANYO_CAM1_ROOT:-./data/harvard}/logs:/app/logs
+
+  nsw-gpu:
+    <<: *kanyo-gpu-service
+    container_name: kanyo-nsw-gpu
+    command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
     volumes:
       # Mount source code from host - overrides baked-in code in image
       - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
@@ -50,3 +61,21 @@ services:
       - ${KANYO_CAM2_ROOT:-./data/nsw}/config.yaml:/app/config.yaml:ro
       - ${KANYO_CAM2_ROOT:-./data/nsw}/clips:/app/clips
       - ${KANYO_CAM2_ROOT:-./data/nsw}/logs:/app/logs
+
+dashboard:
+    build: ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/admin/web
+    container_name: kanyo-admin-web
+    group_add:
+      - "988"
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${KANYO_CAM1_ROOT:-./data/harvard}:/data/harvard:ro
+      - ${KANYO_CAM2_ROOT:-./data/nsw}:/data/nsw:ro
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

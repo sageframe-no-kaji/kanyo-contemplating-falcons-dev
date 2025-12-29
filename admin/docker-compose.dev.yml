@@ -5,7 +5,7 @@ services:
     build: ./web
     container_name: kanyo-admin-web
     ports:
-      - "5000:5000"
+      - "5004:5000"
     volumes:
       - ./web/app:/app/app:ro
       # Mount test data (create fake config.yaml files for testing)
