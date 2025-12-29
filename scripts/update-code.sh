@@ -36,9 +36,13 @@ for config_dir in harvard nsw; do
     fi
 done
 
-# Restart containers
-echo "🔄 Restarting containers..."
-ssh -t "${REMOTE_HOST}" "cd ${ADMIN_DIR} && sudo docker compose restart"
+# Rebuild admin container with new code
+echo "🔨 Rebuilding admin container..."
+ssh -t "${REMOTE_HOST}" "cd ${ADMIN_DIR} && sudo docker compose up -d --build dashboard"
+
+# Restart stream containers (admin already restarted by rebuild)
+echo "🔄 Restarting stream containers..."
+ssh -t "${REMOTE_HOST}" "cd ${ADMIN_DIR} && sudo docker compose restart kanyo-harvard-gpu kanyo-nsw-gpu"
 
 echo ""
 echo "✓ Code updated, configs synced, and containers restarted!"
