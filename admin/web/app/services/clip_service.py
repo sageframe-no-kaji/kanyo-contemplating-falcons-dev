@@ -176,33 +176,35 @@ def get_last_event(clips_path: str) -> Optional[dict]:
 
 
 def get_today_events(clips_path: str) -> list[dict]:
-    """Get today's events from events JSON file.
+    """Get today's events from clips, deduplicated by timestamp.
 
     Args:
         clips_path: Path to clips directory
 
     Returns:
-        List of events with time, type, and duration
+        List of events with time, type, and filename
     """
     today = datetime.now().strftime("%Y-%m-%d")
-    events_file = Path(clips_path) / today / f"events_{today}.json"
+    clips = list_clips(clips_path, today)
 
-    if not events_file.exists():
-        return []
+    # Group by time, prefer showing arrival/departure over visit
+    events_by_time = {}
+    for clip in clips:
+        time = clip["time"]
+        clip_type = clip["type"]
 
-    try:
-        with open(events_file) as f:
-            events = json.load(f)
+        # Skip if we already have this time with a better type
+        if time in events_by_time:
+            existing = events_by_time[time]
+            # Prefer arrival/departure over visit
+            if existing["type"] in ["arrival", "departure"]:
+                continue
 
-        # Format for display
-        result = []
-        for event in events:
-            start = datetime.fromisoformat(event["start_time"])
-            result.append({
-                "time": start.strftime("%H:%M:%S"),
-                "type": "visit",
-                "duration": event.get("duration_str", ""),
-            })
-        return result
-    except (json.JSONDecodeError, KeyError):
-        return []
+        events_by_time[time] = {
+            "time": time,
+            "type": clip_type,
+            "filename": clip["filename"],
+        }
+
+    # Sort by time
+    return sorted(events_by_time.values(), key=lambda x: x["time"])

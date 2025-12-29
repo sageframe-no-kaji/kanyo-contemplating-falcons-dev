@@ -62,9 +62,10 @@
             <button hx-post="/api/streams/{{ stream.id }}/restart"
                     hx-target="#stream-{{ stream.id }}"
                     hx-swap="outerHTML"
-                    class="bg-zinc-700 hover:bg-zinc-600 py-2 px-4 rounded transition"
-                    title="Restart">
-                ⟳
+                    hx-confirm="Restart {{ stream.name }}? This will interrupt detection for ~30 seconds."
+                    title="Restart detection container"
+                    class="bg-amber-600 hover:bg-amber-500 px-3 py-2 rounded text-sm font-medium transition">
+                ↻
             </button>
         </div>
     </div>

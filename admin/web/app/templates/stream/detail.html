@@ -24,11 +24,15 @@
             <div class="flex gap-2">
                 <button hx-post="/api/streams/{{ stream.id }}/restart"
                         hx-swap="none"
-                        class="bg-zinc-700 hover:bg-zinc-600 py-2 px-4 rounded transition">
-                    Restart
+                        hx-confirm="Restart {{ stream.name }}? Detection will pause for ~30 seconds."
+                        title="Restart the detection container"
+                        class="bg-amber-600 hover:bg-amber-500 py-2 px-4 rounded transition font-medium">
+                    ↻ Restart
                 </button>
                 <button hx-post="/api/streams/{{ stream.id }}/stop"
                         hx-swap="none"
+                        hx-confirm="Stop {{ stream.name }}? Detection will stop until manually restarted."
+                        title="Stop the detection container"
                         class="bg-red-700 hover:bg-red-600 py-2 px-4 rounded transition">
                     Stop
                 </button>
@@ -67,28 +71,28 @@
                         <span class="w-3 h-3 rounded bg-blue-600"></span> Visit
                     </span>
                 </div>
-                
+
                 <div class="grid grid-cols-3 gap-3">
                     {% for clip in clips[:12] %}
                     <a href="/clips/{{ stream.id }}/{{ date }}/{{ clip.filename }}"
                        target="_blank"
                        class="aspect-video bg-zinc-900 rounded overflow-hidden relative group">
-                        
+
                         {# Find thumbnail - same name but .jpg #}
                         {% set thumb_name = clip.filename.rsplit('.', 1)[0] + '.jpg' %}
                         <img src="/clips/{{ stream.id }}/{{ date }}/{{ thumb_name }}"
                              class="w-full h-full object-cover"
                              onerror="this.style.display='none'"
                              alt="{{ clip.type }} at {{ clip.time }}">
-                        
+
                         {# Overlay with type indicator #}
                         <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="flex items-center gap-1">
                                     {% if clip.is_video %}
-                                        <span>🎬</span>
+                                        <span class="text-[10px] font-bold bg-white/20 px-1 rounded">VID</span>
                                     {% else %}
-                                        <span>📷</span>
+                                        <span class="text-[10px] font-bold bg-white/20 px-1 rounded">IMG</span>
                                     {% endif %}
                                     {{ clip.time }}
                                 </span>
