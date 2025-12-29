@@ -106,11 +106,14 @@
                     <div class="text-sm">
                         <span class="text-zinc-400">{{ event.time }}</span>
                         <span class="text-white ml-2">{{ event.type }}</span>
+                        {% if event.duration %}
+                        <span class="text-zinc-500 ml-1">({{ event.duration }})</span>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-zinc-400 text-sm">No events today</p>
+                <p class="text-zinc-500 text-sm">No events today</p>
                 {% endif %}
             </div>
         </div>

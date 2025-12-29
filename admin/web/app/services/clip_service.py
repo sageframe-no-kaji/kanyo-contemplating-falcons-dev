@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 import re
+import json
 
 
 def list_clips(clips_path: str, date: str) -> list[dict]:
@@ -175,24 +176,33 @@ def get_last_event(clips_path: str) -> Optional[dict]:
 
 
 def get_today_events(clips_path: str) -> list[dict]:
-    """Get today's events (deduplicated by timestamp).
+    """Get today's events from events JSON file.
 
     Args:
         clips_path: Path to clips directory
 
     Returns:
-        List of deduplicated events
+        List of events with time, type, and duration
     """
     today = datetime.now().strftime("%Y-%m-%d")
-    clips = list_clips(clips_path, today)
+    events_file = Path(clips_path) / today / f"events_{today}.json"
 
-    # Deduplicate by time - keep first occurrence (usually .jpg)
-    seen_times = set()
-    events = []
-    for clip in clips:
-        key = (clip["time"], clip["type"])
-        if key not in seen_times:
-            seen_times.add(key)
-            events.append(clip)
+    if not events_file.exists():
+        return []
 
-    return events
+    try:
+        with open(events_file) as f:
+            events = json.load(f)
+
+        # Format for display
+        result = []
+        for event in events:
+            start = datetime.fromisoformat(event["start_time"])
+            result.append({
+                "time": start.strftime("%H:%M:%S"),
+                "type": "visit",
+                "duration": event.get("duration_str", ""),
+            })
+        return result
+    except (json.JSONDecodeError, KeyError):
+        return []
