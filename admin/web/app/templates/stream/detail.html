@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}{{ stream.name }} - Kanyo Admin{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Back Link -->
+    <a href="/" class="text-zinc-400 hover:text-white mb-4 inline-block">
+        ← Back to Overview
+    </a>
+
+    <!-- Header -->
+    <header class="mb-8">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <h1 class="text-3xl font-bold">{{ stream.name }}</h1>
+                {% if stream.status == "running" %}
+                <span class="w-3 h-3 bg-green-500 rounded-full"></span>
+                {% else %}
+                <span class="w-3 h-3 bg-red-500 rounded-full"></span>
+                {% endif %}
+            </div>
+
+            <div class="flex gap-2">
+                <button hx-post="/api/streams/{{ stream.id }}/restart"
+                        hx-swap="none"
+                        class="bg-zinc-700 hover:bg-zinc-600 py-2 px-4 rounded transition">
+                    Restart
+                </button>
+                <button hx-post="/api/streams/{{ stream.id }}/stop"
+                        hx-swap="none"
+                        class="bg-red-700 hover:bg-red-600 py-2 px-4 rounded transition">
+                    Stop
+                </button>
+            </div>
+        </div>
+
+        {% if stream.uptime %}
+        <p class="text-zinc-400 mt-2">Uptime: {{ stream.uptime }}</p>
+        {% endif %}
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Main Content -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Video Player Placeholder -->
+            <div class="bg-zinc-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Live View</h2>
+                <div class="aspect-video bg-zinc-900 rounded flex items-center justify-center">
+                    <p class="text-zinc-500">Video player coming soon...</p>
+                </div>
+            </div>
+
+            <!-- Recent Clips -->
+            <div class="bg-zinc-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Recent Clips</h2>
+                {% if clips %}
+                <div class="grid grid-cols-3 gap-3">
+                    {% for clip in clips[:9] %}
+                    <div class="aspect-video bg-zinc-900 rounded overflow-hidden">
+                        {% if not clip.is_video %}
+                        <div class="w-full h-full flex items-center justify-center text-zinc-500 text-sm">
+                            {{ clip.time }}
+                        </div>
+                        {% else %}
+                        <div class="w-full h-full flex items-center justify-center text-zinc-500 text-sm">
+                            📹 {{ clip.time }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-zinc-400">No clips for today</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-6">
+            <!-- Navigation -->
+            <div class="bg-zinc-800 rounded-lg p-4">
+                <h3 class="font-semibold mb-3">Navigation</h3>
+                <nav class="space-y-2">
+                    <a href="/streams/{{ stream.id }}/config"
+                       class="block bg-zinc-700 hover:bg-zinc-600 py-2 px-3 rounded transition">
+                        ⚙️ Configuration
+                    </a>
+                    <a href="/streams/{{ stream.id }}/logs"
+                       class="block bg-zinc-700 hover:bg-zinc-600 py-2 px-3 rounded transition">
+                        📄 Logs
+                    </a>
+                    <a href="#"
+                       class="block bg-zinc-700 hover:bg-zinc-600 py-2 px-3 rounded transition">
+                        📁 Files
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Today's Events -->
+            <div class="bg-zinc-800 rounded-lg p-4">
+                <h3 class="font-semibold mb-3">Today's Events</h3>
+                {% if events %}
+                <div class="space-y-2">
+                    {% for event in events %}
+                    <div class="text-sm">
+                        <span class="text-zinc-400">{{ event.time }}</span>
+                        <span class="text-white ml-2">{{ event.type }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-zinc-400 text-sm">No events today</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

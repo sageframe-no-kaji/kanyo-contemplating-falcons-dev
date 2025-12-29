@@ -1,0 +1,69 @@
+<div id="stream-{{ stream.id }}" class="bg-zinc-800 rounded-lg overflow-hidden hover:bg-zinc-750 transition">
+    <!-- Thumbnail -->
+    <div class="relative aspect-video bg-zinc-900">
+        {% if stream.latest_thumbnail %}
+        <img src="/static/clips/{{ stream.latest_thumbnail }}"
+             alt="{{ stream.name }}"
+             class="w-full h-full object-cover">
+        {% else %}
+        <div class="flex items-center justify-center h-full text-zinc-500">
+            <p>No recent clips</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Content -->
+    <div class="p-4">
+        <!-- Stream Name -->
+        <h3 class="text-xl font-semibold mb-2">{{ stream.name }}</h3>
+
+        <!-- Status -->
+        <div class="flex items-center gap-2 mb-3">
+            {% if stream.status == "running" %}
+            <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+            <span class="text-green-400">Running</span>
+            {% elif stream.status == "not_found" %}
+            <span class="w-2 h-2 bg-zinc-500 rounded-full"></span>
+            <span class="text-zinc-400">Not Found</span>
+            {% else %}
+            <span class="w-2 h-2 bg-red-500 rounded-full"></span>
+            <span class="text-red-400">Stopped</span>
+            {% endif %}
+
+            {% if stream.uptime %}
+            <span class="text-zinc-400 text-sm ml-2">{{ stream.uptime }}</span>
+            {% endif %}
+        </div>
+
+        <!-- Stats -->
+        <div class="mb-4 space-y-1">
+            <p class="text-sm text-zinc-400">
+                Today: <span class="text-white font-medium">{{ stream.today_visits }} visits</span>
+            </p>
+            {% if stream.last_event %}
+            <p class="text-sm text-zinc-400">
+                Last: <span class="text-white">{{ stream.last_event.ago }} ({{ stream.last_event.type }})</span>
+            </p>
+            {% endif %}
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-2">
+            <a href="/streams/{{ stream.id }}"
+               class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-center py-2 px-4 rounded transition">
+                View
+            </a>
+            <a href="/streams/{{ stream.id }}/config"
+               class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-center py-2 px-4 rounded transition">
+                Config
+            </a>
+            <button hx-post="/api/streams/{{ stream.id }}/restart"
+                    hx-target="#stream-{{ stream.id }}"
+                    hx-swap="outerHTML"
+                    class="bg-zinc-700 hover:bg-zinc-600 py-2 px-4 rounded transition"
+                    title="Restart">
+                ⟳
+            </button>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}{{ stream.name }} - Configuration{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+    <!-- Back Link -->
+    <a href="/streams/{{ stream.id }}" class="text-zinc-400 hover:text-white mb-4 inline-block">
+        ← Back to Stream
+    </a>
+
+    <!-- Header -->
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold">Configuration</h1>
+        <p class="text-zinc-400 mt-2">{{ stream.name }}</p>
+    </header>
+
+    <!-- Configuration Form -->
+    <form hx-put="/api/streams/{{ stream.id }}/config"
+          hx-target="#config-result"
+          class="space-y-6">
+
+        <!-- Result Message -->
+        <div id="config-result"></div>
+
+        <!-- Stream & Detection Section -->
+        <section class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Stream & Detection</h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Stream Name</label>
+                    <input type="text"
+                           name="stream_name"
+                           value="{{ config.stream_name }}"
+                           class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">Video Source</label>
+                    <input type="text"
+                           name="video_source"
+                           value="{{ config.video_source }}"
+                           class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500"
+                           required>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Detection Confidence</label>
+                        <input type="number"
+                               name="detection_confidence"
+                               value="{{ config.detection_confidence }}"
+                               step="0.01"
+                               min="0"
+                               max="1"
+                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Frame Interval</label>
+                        <input type="number"
+                               name="frame_interval"
+                               value="{{ config.frame_interval }}"
+                               min="1"
+                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">Timezone</label>
+                    <input type="text"
+                           name="timezone"
+                           value="{{ config.timezone }}"
+                           class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                </div>
+            </div>
+        </section>
+
+        <!-- State Machine Section -->
+        <section class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">State Machine</h2>
+
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Exit Timeout (seconds)</label>
+                        <input type="number"
+                               name="exit_timeout"
+                               value="{{ config.exit_timeout }}"
+                               min="0"
+                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Roosting Threshold (seconds)</label>
+                        <input type="number"
+                               name="roosting_threshold"
+                               value="{{ config.roosting_threshold }}"
+                               min="0"
+                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                    </div>
+                </div>
+
+                <p class="text-sm text-zinc-400">
+                    Note: Roosting threshold must be greater than exit timeout
+                </p>
+            </div>
+        </section>
+
+        <!-- Notifications Section -->
+        <section class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Notifications</h2>
+
+            <div class="space-y-4">
+                <div class="flex items-center gap-2">
+                    <input type="checkbox"
+                           name="telegram_enabled"
+                           id="telegram_enabled"
+                           {% if config.telegram_enabled %}checked{% endif %}
+                           class="w-4 h-4 bg-zinc-700 border-zinc-600 rounded">
+                    <label for="telegram_enabled" class="text-sm font-medium">Enable Telegram Notifications</label>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">Telegram Channel</label>
+                    <input type="text"
+                           name="telegram_channel"
+                           value="{{ config.telegram_channel or '' }}"
+                           class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                </div>
+            </div>
+        </section>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-3 justify-end">
+            <a href="/streams/{{ stream.id }}"
+               class="bg-zinc-700 hover:bg-zinc-600 py-2 px-6 rounded transition">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-500 py-2 px-6 rounded transition">
+                Save
+            </button>
+            <button type="button"
+                    class="bg-green-600 hover:bg-green-500 py-2 px-6 rounded transition">
+                Save & Restart
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
