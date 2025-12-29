@@ -379,7 +379,13 @@ class BufferClipManager:
         # Add encoder options
         if temp_recorder._encoder == "h264_videotoolbox":
             quality = max(1, min(100, int((51 - temp_recorder.crf) * 2)))
-            cmd.extend(["-c:v", "h264_videotoolbox", "-q:v", str(quality)])
+            cmd.extend([
+                "-c:v", "h264_videotoolbox",
+                "-q:v", str(quality),
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p"
+            ])
         elif temp_recorder._encoder == "h264_vaapi":
             cmd.extend(
                 [
@@ -391,12 +397,27 @@ class BufferClipManager:
                     "h264_vaapi",
                     "-qp",
                     str(temp_recorder.crf),
+                    "-profile:v", "baseline",
+                    "-level", "3.0",
                 ]
             )
         elif temp_recorder._encoder == "h264_nvenc":
-            cmd.extend(["-c:v", "h264_nvenc", "-cq", str(temp_recorder.crf)])
+            cmd.extend([
+                "-c:v", "h264_nvenc",
+                "-cq", str(temp_recorder.crf),
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p"
+            ])
         else:
-            cmd.extend(["-c:v", "libx264", "-crf", str(temp_recorder.crf), "-preset", "fast"])
+            cmd.extend([
+                "-c:v", "libx264",
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p",
+                "-crf", str(temp_recorder.crf),
+                "-preset", "fast"
+            ])
 
         cmd.extend(["-movflags", "+faststart", str(clip_path)])
 

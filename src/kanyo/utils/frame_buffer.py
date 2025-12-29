@@ -224,9 +224,13 @@ class FrameBuffer:
 
         # Add encoder-specific options
         if encoder == "h264_videotoolbox":
-            cmd.extend(
-                ["-c:v", "h264_videotoolbox", "-q:v", str(max(1, min(100, int((51 - crf) * 2))))]
-            )
+            cmd.extend([
+                "-c:v", "h264_videotoolbox",
+                "-q:v", str(max(1, min(100, int((51 - crf) * 2)))),
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p"
+            ])
         elif encoder == "h264_vaapi":
             cmd.extend(
                 [
@@ -238,12 +242,27 @@ class FrameBuffer:
                     "h264_vaapi",
                     "-qp",
                     str(crf),
+                    "-profile:v", "baseline",
+                    "-level", "3.0",
                 ]
             )
         elif encoder == "h264_nvenc":
-            cmd.extend(["-c:v", "h264_nvenc", "-cq", str(crf)])
+            cmd.extend([
+                "-c:v", "h264_nvenc",
+                "-cq", str(crf),
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p"
+            ])
         else:
-            cmd.extend(["-c:v", "libx264", "-crf", str(crf), "-preset", "fast"])
+            cmd.extend([
+                "-c:v", "libx264",
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p",
+                "-crf", str(crf),
+                "-preset", "fast"
+            ])
 
         cmd.extend(["-movflags", "+faststart", str(output_path)])
 
