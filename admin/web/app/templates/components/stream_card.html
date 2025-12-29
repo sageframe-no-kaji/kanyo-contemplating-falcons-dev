@@ -1,16 +1,18 @@
 <div id="stream-{{ stream.id }}" class="bg-zinc-800 rounded-lg overflow-hidden hover:bg-zinc-750 transition">
     <!-- Thumbnail -->
-    <div class="relative aspect-video bg-zinc-900">
-        {% if stream.latest_thumbnail %}
-        <img src="{{ stream.latest_thumbnail }}"
-             alt="{{ stream.name }}"
-             class="w-full h-full object-cover">
-        {% else %}
-        <div class="flex items-center justify-center h-full text-zinc-500">
-            <p>No recent clips</p>
+    <a href="/streams/{{ stream.id }}" class="block">
+        <div class="relative aspect-video bg-zinc-900">
+            {% if stream.latest_thumbnail %}
+            <img src="{{ stream.latest_thumbnail }}"
+                 alt="{{ stream.name }}"
+                 class="w-full h-full object-cover">
+            {% else %}
+            <div class="flex items-center justify-center h-full text-zinc-500">
+                <p>No recent clips</p>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
-    </div>
+    </a>
 
     <!-- Content -->
     <div class="p-4">

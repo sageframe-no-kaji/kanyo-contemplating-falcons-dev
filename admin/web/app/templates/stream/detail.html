@@ -55,19 +55,53 @@
             <div class="bg-zinc-800 rounded-lg p-6">
                 <h2 class="text-xl font-semibold mb-4">Recent Clips</h2>
                 {% if clips %}
+                <!-- Legend -->
+                <div class="flex gap-4 mb-4 text-xs">
+                    <span class="flex items-center gap-1">
+                        <span class="w-3 h-3 rounded bg-green-600"></span> Arrival
+                    </span>
+                    <span class="flex items-center gap-1">
+                        <span class="w-3 h-3 rounded bg-red-600"></span> Departure
+                    </span>
+                    <span class="flex items-center gap-1">
+                        <span class="w-3 h-3 rounded bg-blue-600"></span> Visit
+                    </span>
+                </div>
+                
                 <div class="grid grid-cols-3 gap-3">
-                    {% for clip in clips[:9] %}
-                    <div class="aspect-video bg-zinc-900 rounded overflow-hidden">
-                        {% if not clip.is_video %}
-                        <img src="/clips/{{ stream.id }}/{{ date }}/{{ clip.filename }}"
+                    {% for clip in clips[:12] %}
+                    <a href="/clips/{{ stream.id }}/{{ date }}/{{ clip.filename }}"
+                       target="_blank"
+                       class="aspect-video bg-zinc-900 rounded overflow-hidden relative group">
+                        
+                        {# Find thumbnail - same name but .jpg #}
+                        {% set thumb_name = clip.filename.rsplit('.', 1)[0] + '.jpg' %}
+                        <img src="/clips/{{ stream.id }}/{{ date }}/{{ thumb_name }}"
                              class="w-full h-full object-cover"
+                             onerror="this.style.display='none'"
                              alt="{{ clip.type }} at {{ clip.time }}">
-                        {% else %}
-                        <div class="w-full h-full flex items-center justify-center text-zinc-500 text-sm">
-                            📹 {{ clip.time }}
+                        
+                        {# Overlay with type indicator #}
+                        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="flex items-center gap-1">
+                                    {% if clip.is_video %}
+                                        <span>🎬</span>
+                                    {% else %}
+                                        <span>📷</span>
+                                    {% endif %}
+                                    {{ clip.time }}
+                                </span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium
+                                    {% if clip.type == 'arrival' %}bg-green-600
+                                    {% elif clip.type == 'departure' %}bg-red-600
+                                    {% elif clip.type == 'visit' %}bg-blue-600
+                                    {% else %}bg-zinc-600{% endif %}">
+                                    {{ clip.type }}
+                                </span>
+                            </div>
                         </div>
-                        {% endif %}
-                    </div>
+                    </a>
                     {% endfor %}
                 </div>
                 {% else %}
@@ -101,15 +135,17 @@
             <div class="bg-zinc-800 rounded-lg p-4">
                 <h3 class="font-semibold mb-3">Today's Events</h3>
                 {% if events %}
-                <div class="space-y-2">
+                <div class="space-y-2 max-h-96 overflow-y-auto">
                     {% for event in events %}
-                    <div class="text-sm">
+                    <a href="/clips/{{ stream.id }}/{{ date }}/falcon_{{ event.time.replace(':', '') }}_arrival.mp4"
+                       target="_blank"
+                       class="block text-sm hover:bg-zinc-700 rounded px-2 py-1 -mx-2 transition">
                         <span class="text-zinc-400">{{ event.time }}</span>
                         <span class="text-white ml-2">{{ event.type }}</span>
                         {% if event.duration %}
                         <span class="text-zinc-500 ml-1">({{ event.duration }})</span>
                         {% endif %}
-                    </div>
+                    </a>
                     {% endfor %}
                 </div>
                 {% else %}
