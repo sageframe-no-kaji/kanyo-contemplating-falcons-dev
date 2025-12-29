@@ -8,6 +8,11 @@
 # - Safe to use as a starting point
 #
 # Any value can be overridden with an environment variable:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stream Identity (for Admin GUI)
+# ─────────────────────────────────────────────────────────────────────────────
+stream_name: "My Falcon Cam"       # Display name in admin UI
 #   KANYO_<KEY>
 #   e.g. KANYO_VIDEO_SOURCE, KANYO_LOG_LEVEL
 # ============================================================================

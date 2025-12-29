@@ -3,6 +3,11 @@
 # TIMING CONSTRAINTS (enforced at load):
 #   roosting_threshold > exit_timeout
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Stream Identity (for Admin GUI)
+# ─────────────────────────────────────────────────────────────────────────────
+stream_name: "My Falcon Cam"       # Display name in admin UI
+
 video_source: "https://youtube.com/watch?v=YOUR_STREAM_ID"
 
 # Detection
