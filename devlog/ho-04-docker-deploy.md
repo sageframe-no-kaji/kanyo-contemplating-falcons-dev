@@ -444,7 +444,7 @@ __pycache__
 *.pyo
 *.pyd
 .Python
-venv/
+.venv/
 env/
 *.egg-info/
 .pytest_cache/
@@ -705,7 +705,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
+.venv/
 env/
 *.egg-info/
 .pytest_cache/
@@ -892,7 +892,7 @@ cd ~/Vaults/.../kanyo-contemplating-falcons-dev
 
 # Transfer entire project
 rsync -av \
-  --exclude 'venv/' \
+  --exclude '.venv/' \
   --exclude '__pycache__/' \
   --exclude 'clips/' \
   --exclude '.git/' \

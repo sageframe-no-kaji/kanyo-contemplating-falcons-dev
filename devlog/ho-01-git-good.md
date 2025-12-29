@@ -62,25 +62,25 @@ cd ~/path/to/kanyo
 python3 -m venv venv
 
 # If you are using fish:
-source venv/bin/activate.fish
+source .venv/bin/activate.fish
 
 # Activate it
-source venv/bin/activate  # Mac/Linux
+source .venv/bin/activate  # Mac/Linux
 # OR
-venv\Scripts\activate  # Windows
+.venv\Scripts\activate  # Windows
 
-# Verify (should show kanyo/venv/bin/python)
+# Verify (should show kanyo/.venv/bin/python)
 which python3
 ```
 
-**You should see `(venv)` prefix in terminal** - this means it's active.
+**You should see `(.venv)` prefix in terminal** - this means it's active.
 
 ### Update .gitignore
 
 **Add to `.gitignore`:**
 ```bash
 # Python virtual environment
-venv/
+.venv/
 env/
 ENV/
 ```
@@ -99,9 +99,9 @@ git push
 # Every time you work on kanyo:
 cd ~/path/to/kanyo
 
-source venv/bin/activate.fish #fish
+source .venv/bin/activate.fish #fish
 #OR
-source venv/bin/activate  # Mac/Linux
+source .venv/bin/activate  # Mac/Linux
 # Now you're in the isolated environment
 ```
 
@@ -876,8 +876,8 @@ git clone https://github.com/YOUR_USERNAME/kanyo.git
 cd kanyo
 
 # Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # Mac/Linux
+python3 -m venv .venv
+source .venv/bin/activate  # Mac/Linux
 
 # Install dependencies
 pip install -r requirements-dev.txt
@@ -923,7 +923,7 @@ kanyo/
 
 ```bash
 # Activate environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # Format code
 black src/ tests/
@@ -1172,8 +1172,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 **Solution:**
 ```bash
 # Activate venv first
-source venv/bin/activate
-which pip  # Should show kanyo/venv/bin/pip
+source .venv/bin/activate
+which pip  # Should show kanyo/.venv/bin/pip
 ```
 
 ### YOLOv8 installation fails
