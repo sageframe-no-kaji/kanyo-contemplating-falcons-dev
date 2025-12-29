@@ -2,7 +2,7 @@
     <!-- Thumbnail -->
     <div class="relative aspect-video bg-zinc-900">
         {% if stream.latest_thumbnail %}
-        <img src="/static/clips/{{ stream.latest_thumbnail }}"
+        <img src="{{ stream.latest_thumbnail }}"
              alt="{{ stream.name }}"
              class="w-full h-full object-cover">
         {% else %}

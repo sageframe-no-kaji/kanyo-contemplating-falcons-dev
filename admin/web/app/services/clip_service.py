@@ -56,15 +56,16 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
     return clips
 
 
-def get_latest_thumbnail(clips_path: str) -> Optional[str]:
+def get_latest_thumbnail(clips_path: str, stream_id: str) -> Optional[str]:
     """
     Find most recent .jpg file across all date folders.
 
     Args:
         clips_path: Path to clips directory
+        stream_id: Stream identifier (e.g., 'harvard', 'nsw')
 
     Returns:
-        Relative path to thumbnail or None
+        URL path to thumbnail or None
     """
     clips_dir = Path(clips_path)
     if not clips_dir.exists():
@@ -72,6 +73,8 @@ def get_latest_thumbnail(clips_path: str) -> Optional[str]:
 
     latest_jpg = None
     latest_time = 0
+    latest_date = None
+    latest_filename = None
 
     # Search all date folders
     for date_dir in clips_dir.iterdir():
@@ -82,9 +85,13 @@ def get_latest_thumbnail(clips_path: str) -> Optional[str]:
             mtime = file.stat().st_mtime
             if mtime > latest_time:
                 latest_time = mtime
-                latest_jpg = f"{date_dir.name}/{file.name}"
+                latest_date = date_dir.name
+                latest_filename = file.name
 
-    return latest_jpg
+    if latest_date and latest_filename:
+        return f"/clips/{stream_id}/{latest_date}/{latest_filename}"
+
+    return None
 
 
 def get_today_visits(clips_path: str) -> int:

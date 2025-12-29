@@ -29,7 +29,7 @@ async def overview(request: Request):
         stream["uptime"] = status.get("uptime", "")
 
         # Get clip info
-        stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
+        stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"], stream["id"])
         stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
         stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
 

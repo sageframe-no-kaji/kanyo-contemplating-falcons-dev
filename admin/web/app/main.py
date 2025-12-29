@@ -1,7 +1,8 @@
 """FastAPI application entry point."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pathlib import Path
 
 from app.config import settings
@@ -31,3 +32,12 @@ app.include_router(pages.router)
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/clips/{stream_id}/{date}/{filename}")
+async def serve_clip(stream_id: str, date: str, filename: str):
+    """Serve clip files (videos and thumbnails) from /data/{stream}/clips/."""
+    file_path = settings.DATA_PATH / stream_id / "clips" / date / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
