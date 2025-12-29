@@ -386,3 +386,91 @@ class TestEdgeCases:
         t2 = start_time + timedelta(seconds=20)
         fsm.update(falcon_detected=True, timestamp=t2)
         assert fsm.last_detection == t2
+
+
+class TestOutageCompensation:
+    """Test stream outage handling."""
+
+    def test_outage_prevents_false_departure(self):
+        """Stream outage should not count toward absence duration."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)  # Bird arrives
+
+        # Bird detected at t0+10
+        t1 = t0 + timedelta(seconds=10)
+        fsm.update(falcon_detected=True, timestamp=t1)
+
+        # Stream drops for 60s (outage)
+        fsm.add_outage(60)
+
+        # First frame after reconnect at t0+70 - no detection
+        t2 = t0 + timedelta(seconds=70)
+        fsm.update(falcon_detected=False, timestamp=t2)
+
+        # Another frame at t0+100 - no detection
+        # Real absence: 90s, but 60s was outage
+        # Effective absence: 30s < 90s threshold
+        t3 = t0 + timedelta(seconds=100)
+        events = fsm.update(falcon_detected=False, timestamp=t3)
+
+        assert fsm.state == FalconState.VISITING
+        assert len(events) == 0
+
+    def test_outage_resets_on_detection(self):
+        """Outage accumulator should reset when bird detected."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.initialize_state(falcon_detected=True, timestamp=t0)
+        fsm.add_outage(30)
+        assert fsm.cumulative_outage == 30
+
+        # Bird detected - should reset outage
+        t1 = t0 + timedelta(seconds=10)
+        fsm.update(falcon_detected=True, timestamp=t1)
+
+        assert fsm.cumulative_outage == 0.0
+
+    def test_multiple_outages_accumulate(self):
+        """Multiple outages should accumulate until detection."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.initialize_state(falcon_detected=True, timestamp=t0)
+
+        fsm.add_outage(20)
+        fsm.add_outage(30)
+        fsm.add_outage(10)
+
+        assert fsm.cumulative_outage == 60
+
+    def test_real_departure_still_works(self):
+        """Real departure should still trigger after accounting for outages."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+
+        # 20s outage
+        fsm.add_outage(20)
+
+        # Start absence
+        t1 = t0 + timedelta(seconds=10)
+        fsm.update(falcon_detected=False, timestamp=t1)
+
+        # 130s later - real absence is 120s, minus 20s outage = 100s effective
+        # 100s > 90s threshold = should depart
+        t2 = t0 + timedelta(seconds=130)
+        events = fsm.update(falcon_detected=False, timestamp=t2)
+
+        assert fsm.state == FalconState.ABSENT
+        assert len(events) == 1
+        assert events[0][0] == FalconEvent.DEPARTED

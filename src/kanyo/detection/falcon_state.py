@@ -54,6 +54,7 @@ class FalconStateMachine:
         self.last_detection: datetime | None = None
         self.last_absence_start: datetime | None = None
         self.roosting_start: datetime | None = None
+        self.cumulative_outage = 0.0  # Track total outage time during absence
 
     def update(
         self, falcon_detected: bool, timestamp: datetime
@@ -76,6 +77,10 @@ class FalconStateMachine:
             events.extend(self._handle_absence(timestamp))
 
         return events
+
+    def add_outage(self, seconds: float) -> None:
+        """Add stream outage time. This time won't count toward absence duration."""
+        self.cumulative_outage += seconds
 
     def _handle_detection(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
         """Handle falcon detection based on current state."""
@@ -122,6 +127,9 @@ class FalconStateMachine:
             self.last_detection = timestamp
             self.last_absence_start = None
 
+        # Reset outage accumulator on detection
+        self.cumulative_outage = 0.0
+
         return events
 
     def _handle_absence(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
@@ -136,7 +144,8 @@ class FalconStateMachine:
             # Check if absence exceeds exit timeout
             if self.last_detection and self.last_absence_start:
                 absence_duration = (timestamp - self.last_absence_start).total_seconds()
-                if absence_duration >= self.exit_timeout:
+                effective_absence = absence_duration - self.cumulative_outage
+                if effective_absence >= self.exit_timeout:
                     # VISITING → ABSENT: Falcon departed
                     visit_duration = (
                         (self.last_detection - self.visit_start).total_seconds()
@@ -164,8 +173,9 @@ class FalconStateMachine:
             # Check if absence exceeds exit timeout (same as VISITING)
             if self.last_detection and self.last_absence_start:
                 absence_duration = (timestamp - self.last_absence_start).total_seconds()
+                effective_absence = absence_duration - self.cumulative_outage
 
-                if absence_duration >= self.exit_timeout:
+                if effective_absence >= self.exit_timeout:
                     # ROOSTING → ABSENT: Falcon departed
                     total_duration = (
                         (self.last_detection - self.visit_start).total_seconds()
@@ -202,6 +212,7 @@ class FalconStateMachine:
         self.last_detection = None
         self.last_absence_start = None
         self.roosting_start = None
+        self.cumulative_outage = 0.0
 
     def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> None:
         """
