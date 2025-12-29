@@ -65,11 +65,11 @@ This document captures the architecture decisions, technology choices, and imple
 
 - Everything from Local Viewer
 - Works without exposing any local ports
+- Subscribe to notification feed (Telegram) per feed
 
 **Future (not in initial release):**
 
 - Comment on individual clips (scientific annotations)
-- Subscribe to notification feed
 - User accounts (optional)
 
 ---
@@ -424,20 +424,20 @@ See [ho-06.1-admin-gui.md](https://claude.ai/chat/ho-06.1-admin-gui.md) for deta
 │  KANYO  ←  Harvard Falcon Cam                          [Admin]  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌─────────────────────────────────────┐  ┌──────────────────┐ │
-│  │                                     │  │  TODAY           │ │
-│  │         [Video Player]              │  │  ────────────────│ │
+│  ┌─────────────────────────────────────   ┌──────────────────┐  │
+│  │                                     │  │  TODAY           │  │
+│  │         [Video Player]              │  │  ────────────────│  │
 │  │         (clip or live)              │  │  07:23 🔵 Arrival │ │
 │  │                                     │  │  07:45 🔴 Depart  │ │
 │  │                                     │  │  09:12 🔵 Arrival │ │
 │  └─────────────────────────────────────┘  │  ...             │ │
 │                                           │                  │ │
-│  ◀ Dec 26  ──────────────────── Dec 27 ▶ │  [Watch Live →]  │ │
-│  ░░░░░▓▓░░░░░░░░░▓░░░░░░░░░░░░░░░░░░░░░  └──────────────────┘ │
+│  ◀ Dec 26  ──────────────────── Dec 27 ▶  │  [Watch Live →]  │ │
+│  ░░░░░▓▓░░░░░░░░░▓░░░░░░░░░░░░░░░░░░░░░   └──────────────────┘ │
 │       ^                                                        │
 │    [7:23 AM - Arrival]                                         │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 **Timeline Component Detail:**
@@ -446,7 +446,7 @@ See [ho-06.1-admin-gui.md](https://claude.ai/chat/ho-06.1-admin-gui.md) for deta
 Timeline bar represents 24 hours (midnight to midnight)
 ├── Gray background: no activity
 ├── Blue segments: falcon present (visiting/roosting)
-├── Yellow dots: activity events
+├── Yellow dots: activity events (arrival/departure)
 ├── Playhead: current viewing position
 └── Hover: shows thumbnail preview + timestamp
 
@@ -680,6 +680,6 @@ We'll adapt this for Kanyo with:
 
 ### Related Documentation
 
-- [sensing-logic.md](https://claude.ai/docs/sensing-logic.md) - Detection pipeline
-- [ho-04-docker-deploy.md](https://claude.ai/chat/ho-04-docker-deploy.md) - Docker setup
-- [ho-05-deployment-verification.md](https://claude.ai/chat/ho-05-deployment-verification.md) - Current deployment
+- [[sensing-logic]] - Detection pipeline
+- [[ho-04-docker-deploy]] - Docker setup
+- [[ho-05-deployment-verification]]- Current deployment

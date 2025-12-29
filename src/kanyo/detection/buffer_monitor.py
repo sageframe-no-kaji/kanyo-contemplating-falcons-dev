@@ -9,7 +9,7 @@ import os
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
@@ -156,13 +156,24 @@ class BufferMonitor:
 
         logger.info("BufferMonitor initialized (no tee mode)")
 
-    def process_frame(self, frame_data, frame_number: int) -> None:
-        """Process a single frame for falcon detection."""
+    def process_frame(self, frame_data, frame_number: int, outage_compensation: float = 0) -> None:
+        """Process a single frame for falcon detection.
+
+        Args:
+            frame_data: Frame image data
+            frame_number: Frame sequence number
+            outage_compensation: Seconds to subtract from current time to compensate for stream outages
+        """
         try:
             now = get_now_tz(self.full_config)
 
-            # Always add frame to buffer
-            self.frame_buffer.add_frame(frame_data, now, frame_number)
+            # Compensate for stream outages by adjusting the effective "now"
+            # This prevents outage time from counting toward absence duration
+            if outage_compensation > 0:
+                now = now - timedelta(seconds=outage_compensation)
+
+            # Always add frame to buffer (use real time, not adjusted)
+            self.frame_buffer.add_frame(frame_data, get_now_tz(self.full_config), frame_number)
 
             # Store frame size for recorder initialization
             if self._frame_size is None:
@@ -286,11 +297,25 @@ class BufferMonitor:
         last_frame_time = time.time()
         frame_timeout = 60  # Warn if no frames for 60 seconds
 
+        # Track stream outages to exclude from state machine timing
+        total_outage_time = 0.0
+        last_successful_frame_time = time.time()
+
         try:
             for frame in self.capture.frames(skip=0):
                 frames_processed += 1
-                last_frame_time = time.time()
-                elapsed = time.time() - start_time
+                current_time = time.time()
+
+                # Detect if we just recovered from an outage
+                time_since_last_frame = current_time - last_frame_time
+                if time_since_last_frame > 10:  # More than 10s gap = outage
+                    outage_duration = time_since_last_frame
+                    total_outage_time += outage_duration
+                    logger.info(f"⚠️  Stream outage detected: {outage_duration:.1f}s (total outages: {total_outage_time:.1f}s)")
+
+                last_frame_time = current_time
+                last_successful_frame_time = current_time
+                elapsed = current_time - start_time
 
                 # Initialization phase - process every frame
                 if not initialization_complete:
@@ -372,7 +397,10 @@ class BufferMonitor:
                             self.visit_recorder.write_frame(frame.data)
                         continue
 
-                    self.process_frame(frame.data, frame.frame_number)
+                    # Pass outage compensation to process_frame
+                    self.process_frame(frame.data, frame.frame_number, outage_compensation=total_outage_time)
+                    # Reset outage time after processing (it's been accounted for)
+                    total_outage_time = 0
 
                 # Heartbeat logging
                 now_time = time.time()

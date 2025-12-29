@@ -1,0 +1,16 @@
+streams:
+  harvard:
+    name: "Harvard Falcon Cam"
+    container_name: "kanyo-harvard-gpu"
+    config_path: "/data/harvard/config.yaml"
+    clips_path: "/data/harvard/clips"
+    youtube_url: "https://www.youtube.com/watch?v=glczTFRRAK4"
+    timezone: "-05:00"
+    
+  nsw:
+    name: "NSW Falcon Cam"
+    container_name: "kanyo-nsw-gpu"
+    config_path: "/data/nsw/config.yaml"
+    clips_path: "/data/nsw/clips"
+    youtube_url: "https://www.youtube.com/watch?v=yv2RtoIMNzA"
+    timezone: "+11:00"
