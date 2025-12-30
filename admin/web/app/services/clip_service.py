@@ -100,16 +100,20 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         if is_video:
             thumb_path = clip_file.with_suffix('.jpg')
 
-            # For visit clips, use arrival thumbnail if it exists
+            # For visit clips, create composite thumbnail from arrival + nearest departure
             if clip_type == 'visit' and not thumb_path.exists():
                 arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
-                if arrival_thumb.exists():
-                    # Symlink or copy the arrival thumbnail
-                    try:
-                        import shutil
-                        shutil.copy2(arrival_thumb, thumb_path)
-                    except Exception:
-                        pass
+
+                # Find departure thumbnail - it may be at a later time
+                departure_thumb = None
+                for dep_file in sorted(date_path.glob(f"falcon_*_departure.jpg")):
+                    dep_time_str = dep_file.name.split('_')[1]
+                    if dep_time_str >= time_str:  # Find first departure >= arrival time
+                        departure_thumb = dep_file
+                        break
+
+                if arrival_thumb.exists() and departure_thumb and departure_thumb.exists():
+                    create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
 
             has_thumbnail = thumb_path.exists()
 
