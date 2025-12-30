@@ -31,7 +31,7 @@ EVENT = 25
 logging.addLevelName(EVENT, "EVENT")
 
 
-def _event(self, message, *args, **kwargs):
+def _event(self: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
     """Log a message at the EVENT level."""
     if self.isEnabledFor(EVENT):
         self.log(EVENT, message, *args, **kwargs)

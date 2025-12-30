@@ -257,37 +257,46 @@ class ClipExtractor:
                 if encoder == "h264_videotoolbox":
                     # Mac VideoToolbox uses -q:v (1-100, higher=better)
                     quality_opts = [
-                        "-q:v", str(max(1, min(100, int((51 - crf) * 2)))),
-                        "-profile:v", "baseline",
-                        "-level", "3.0",
-                        "-pix_fmt", "yuv420p"
+                        "-q:v",
+                        str(max(1, min(100, int((51 - crf) * 2)))),
+                        "-profile:v",
+                        "baseline",
+                        "-level",
+                        "3.0",
+                        "-pix_fmt",
+                        "yuv420p",
                     ]
                     input_opts = []
                 elif encoder == "h264_vaapi":
                     # VAAPI needs device and hwupload filter
-                    quality_opts = [
-                        "-qp", str(crf),
-                        "-profile:v", "baseline",
-                        "-level", "3.0"
-                    ]
+                    quality_opts = ["-qp", str(crf), "-profile:v", "baseline", "-level", "3.0"]
                     input_opts = ["-vaapi_device", "/dev/dri/renderD128"]
                 elif encoder == "libx264":
                     # Software uses CRF directly
                     quality_opts = [
-                        "-profile:v", "baseline",
-                        "-level", "3.0",
-                        "-pix_fmt", "yuv420p",
-                        "-crf", str(crf),
-                        "-preset", "fast"
+                        "-profile:v",
+                        "baseline",
+                        "-level",
+                        "3.0",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-crf",
+                        str(crf),
+                        "-preset",
+                        "fast",
                     ]
                     input_opts = []
                 else:
                     # NVENC/QSV/AMF use -cq or -global_quality
                     quality_opts = [
-                        "-cq", str(crf),
-                        "-profile:v", "baseline",
-                        "-level", "3.0",
-                        "-pix_fmt", "yuv420p"
+                        "-cq",
+                        str(crf),
+                        "-profile:v",
+                        "baseline",
+                        "-level",
+                        "3.0",
+                        "-pix_fmt",
+                        "yuv420p",
                     ]
                     input_opts = []
 

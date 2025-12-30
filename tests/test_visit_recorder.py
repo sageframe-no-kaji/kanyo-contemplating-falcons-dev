@@ -1,11 +1,10 @@
 """Tests for visit recorder module."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from kanyo.utils.visit_recorder import VisitRecorder
 

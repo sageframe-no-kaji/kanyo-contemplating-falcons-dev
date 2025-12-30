@@ -1,9 +1,8 @@
 """Tests for custom EVENT log level."""
 
 import logging
-import pytest
 
-from kanyo.utils.logger import get_logger, EVENT, setup_logging
+from kanyo.utils.logger import get_logger, EVENT
 
 
 class TestEventLogLevel:

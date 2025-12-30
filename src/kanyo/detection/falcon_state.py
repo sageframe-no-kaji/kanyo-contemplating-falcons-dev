@@ -110,15 +110,17 @@ class FalconStateMachine:
                     self.state = FalconState.ROOSTING
                     self.roosting_start = timestamp
 
+                    metadata: dict[str, datetime | float | None] = {
+                        "visit_start": self.visit_start,
+                        "visit_duration_seconds": visit_duration,
+                        "roosting_start": timestamp,
+                    }
+
                     events.append(
                         (
                             FalconEvent.ROOSTING,
                             timestamp,
-                            {
-                                "visit_start": self.visit_start,
-                                "visit_duration": visit_duration,
-                                "roosting_start": timestamp,
-                            },
+                            metadata,
                         )
                     )
 
@@ -160,7 +162,7 @@ class FalconStateMachine:
                             {
                                 "visit_start": self.visit_start,
                                 "visit_end": self.last_detection,
-                                "visit_duration": visit_duration,
+                                "visit_duration_seconds": visit_duration,
                                 "total_visit_duration": visit_duration,
                             },
                         )
@@ -195,7 +197,7 @@ class FalconStateMachine:
                             {
                                 "visit_start": self.visit_start,
                                 "visit_end": self.last_detection,
-                                "visit_duration": total_duration,
+                                "visit_duration_seconds": total_duration,
                                 "roosting_duration": roosting_duration,
                             },
                         )
@@ -250,7 +252,7 @@ class FalconStateMachine:
         Returns:
             Dictionary with current state and relevant timing information
         """
-        info = {
+        info: dict[str, str | float | None] = {
             "state": self.state.value,
             "visit_start": self.visit_start.isoformat() if self.visit_start else None,
             "last_detection": self.last_detection.isoformat() if self.last_detection else None,

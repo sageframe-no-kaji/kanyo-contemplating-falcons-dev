@@ -140,7 +140,7 @@ class TestVisitingToRoosting:
         assert fsm.state == FalconState.ROOSTING
         assert len(events) == 1
         assert events[0][0] == FalconEvent.ROOSTING
-        assert events[0][2]["visit_duration"] == 100
+        assert events[0][2]["visit_duration_seconds"] == 100
         assert fsm.roosting_start == roosting_time
 
 
@@ -179,7 +179,7 @@ class TestVisitingToDeparted:
         assert len(events) == 1
         assert events[0][0] == FalconEvent.DEPARTED
         assert events[0][1] == last_detection  # Event timestamp is last detection
-        assert events[0][2]["visit_duration"] == 30
+        assert events[0][2]["visit_duration_seconds"] == 30
         assert fsm.visit_start is None
 
 
@@ -368,7 +368,7 @@ class TestEdgeCases:
 
         assert fsm.state == FalconState.ROOSTING
         assert events[0][0] == FalconEvent.ROOSTING
-        assert events[0][2]["visit_duration"] == 100
+        assert events[0][2]["visit_duration_seconds"] == 100
 
     def test_continuous_detection_updates_last_detection(self):
         """Test continuous detections update last_detection timestamp."""

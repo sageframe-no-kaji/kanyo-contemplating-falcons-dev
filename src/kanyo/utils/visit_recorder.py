@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import cv2
 import numpy as np
 
 from kanyo.utils.encoder import detect_hardware_encoder
@@ -22,7 +21,7 @@ from kanyo.utils.logger import get_logger
 from kanyo.utils.output import get_output_path
 
 if TYPE_CHECKING:
-    from kanyo.utils.frame_buffer import FrameBuffer
+    pass  # No TYPE_CHECKING imports needed currently
 
 logger = get_logger(__name__)
 
@@ -111,7 +110,7 @@ class VisitRecorder:
     def start_recording(
         self,
         arrival_time: datetime,
-        lead_in_frames: list = None,
+        lead_in_frames: list | None = None,
         frame_size: tuple[int, int] = (1280, 720),
     ) -> Path:
         """
@@ -166,13 +165,20 @@ class VisitRecorder:
         # Add encoder-specific options
         if self._encoder == "h264_videotoolbox":
             quality = max(1, min(100, int((51 - self.crf) * 2)))
-            cmd.extend([
-                "-c:v", "h264_videotoolbox",
-                "-q:v", str(quality),
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p"
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    "h264_videotoolbox",
+                    "-q:v",
+                    str(quality),
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
+                    "-pix_fmt",
+                    "yuv420p",
+                ]
+            )
         elif self._encoder == "h264_vaapi":
             cmd.extend(
                 [
@@ -184,27 +190,44 @@ class VisitRecorder:
                     "h264_vaapi",
                     "-qp",
                     str(self.crf),
-                    "-profile:v", "baseline",
-                    "-level", "3.0",
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
                 ]
             )
         elif self._encoder == "h264_nvenc":
-            cmd.extend([
-                "-c:v", "h264_nvenc",
-                "-cq", str(self.crf),
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p"
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    "h264_nvenc",
+                    "-cq",
+                    str(self.crf),
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
+                    "-pix_fmt",
+                    "yuv420p",
+                ]
+            )
         else:
-            cmd.extend([
-                "-c:v", "libx264",
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p",
-                "-crf", str(self.crf),
-                "-preset", "fast"
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-crf",
+                    str(self.crf),
+                    "-preset",
+                    "fast",
+                ]
+            )
 
         cmd.extend(["-movflags", "+faststart", str(self._visit_path)])
 
@@ -296,7 +319,9 @@ class VisitRecorder:
             logger.error(f"FFmpeg stdin error: {e}")
             return False
 
-    def log_event(self, event_type: str, timestamp: datetime, metadata: dict = None) -> None:
+    def log_event(
+        self, event_type: str, timestamp: datetime, metadata: dict | None = None
+    ) -> None:
         """
         Log an event with its offset in the recording.
 

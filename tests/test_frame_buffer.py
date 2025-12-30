@@ -1,10 +1,8 @@
 """Tests for frame buffer module."""
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from kanyo.utils.frame_buffer import BufferedFrame, FrameBuffer
 

@@ -22,3 +22,16 @@ ignore_missing_imports = true
 warn_return_any = false
 warn_unused_ignores = true
 show_error_codes = true
+
+# Custom event() method is dynamically added to Logger
+[[tool.mypy.overrides]]
+module = [
+    "kanyo.utils.logger",
+    "kanyo.utils.notifications",
+    "kanyo.utils.visit_recorder",
+    "kanyo.utils.arrival_clip_recorder",
+    "kanyo.detection.event_handler",
+    "kanyo.detection.buffer_monitor",
+    "kanyo.detection.buffer_clip_manager",
+]
+disable_error_code = ["attr-defined"]

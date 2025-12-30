@@ -11,7 +11,6 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
 
 import cv2
 import numpy as np
@@ -30,7 +29,7 @@ class BufferedFrame:
     frame_number: int
     jpeg_data: bytes
 
-    def decode(self) -> np.ndarray:
+    def decode(self) -> np.ndarray | None:
         """Decode JPEG back to numpy array."""
         arr = np.frombuffer(self.jpeg_data, dtype=np.uint8)
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -199,6 +198,9 @@ class FrameBuffer:
 
         # Decode first frame to get dimensions
         first_frame = frames[0].decode()
+        if first_frame is None:
+            logger.error("Failed to decode first frame")
+            return False
         height, width = first_frame.shape[:2]
 
         # Get encoder
@@ -224,13 +226,20 @@ class FrameBuffer:
 
         # Add encoder-specific options
         if encoder == "h264_videotoolbox":
-            cmd.extend([
-                "-c:v", "h264_videotoolbox",
-                "-q:v", str(max(1, min(100, int((51 - crf) * 2)))),
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p"
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    "h264_videotoolbox",
+                    "-q:v",
+                    str(max(1, min(100, int((51 - crf) * 2)))),
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
+                    "-pix_fmt",
+                    "yuv420p",
+                ]
+            )
         elif encoder == "h264_vaapi":
             cmd.extend(
                 [
@@ -242,27 +251,44 @@ class FrameBuffer:
                     "h264_vaapi",
                     "-qp",
                     str(crf),
-                    "-profile:v", "baseline",
-                    "-level", "3.0",
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
                 ]
             )
         elif encoder == "h264_nvenc":
-            cmd.extend([
-                "-c:v", "h264_nvenc",
-                "-cq", str(crf),
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p"
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    "h264_nvenc",
+                    "-cq",
+                    str(crf),
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
+                    "-pix_fmt",
+                    "yuv420p",
+                ]
+            )
         else:
-            cmd.extend([
-                "-c:v", "libx264",
-                "-profile:v", "baseline",
-                "-level", "3.0",
-                "-pix_fmt", "yuv420p",
-                "-crf", str(crf),
-                "-preset", "fast"
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-profile:v",
+                    "baseline",
+                    "-level",
+                    "3.0",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-crf",
+                    str(crf),
+                    "-preset",
+                    "fast",
+                ]
+            )
 
         cmd.extend(["-movflags", "+faststart", str(output_path)])
 
@@ -282,9 +308,11 @@ class FrameBuffer:
             # Write all frames to ffmpeg stdin
             for buffered_frame in frames:
                 frame = buffered_frame.decode()
-                process.stdin.write(frame.tobytes())
+                if frame is not None and process.stdin:
+                    process.stdin.write(frame.tobytes())
 
-            process.stdin.close()
+            if process.stdin:
+                process.stdin.close()
             _, stderr = process.communicate(timeout=60)
 
             if process.returncode != 0:

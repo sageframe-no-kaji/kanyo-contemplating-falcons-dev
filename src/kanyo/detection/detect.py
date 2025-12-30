@@ -181,7 +181,8 @@ class FalconDetector:
             logger.debug(f"Falcon detected: confidence={max_confidence:.3f}")
         else:
             logger.debug(
-                f"No falcon detected (checked {total_checked} detections, targets={self.target_classes})"
+                f"No falcon detected (checked {total_checked} detections, "
+                f"targets={self.target_classes})"
             )
 
         return detections
