@@ -27,7 +27,7 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
     # Pattern: falcon_HHMMSS_type.ext
     pattern = re.compile(r'falcon_(\d{6})_(\w+)\.(\w+)$')
 
-    for clip_file in sorted(date_path.iterdir()):
+    for clip_file in sorted(date_path.iterdir(), reverse=True):
         if not clip_file.is_file():
             continue
 
