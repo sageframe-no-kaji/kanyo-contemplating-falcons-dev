@@ -4,7 +4,7 @@ Log service for reading kanyo.log files from disk.
 Replaces docker logs with persistent file-based logging.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -31,14 +31,16 @@ def get_logs(
     if not log_path.exists():
         return []
 
-    # Calculate cutoff time
+    # Calculate cutoff time (all times are UTC since logs are in UTC)
     cutoff = None
+    now_utc = datetime.now(timezone.utc)
+
     if since == "1h":
-        cutoff = datetime.now() - timedelta(hours=1)
+        cutoff = now_utc - timedelta(hours=1)
     elif since == "24h":
-        cutoff = datetime.now() - timedelta(hours=24)
+        cutoff = now_utc - timedelta(hours=24)
     elif since == "7d":
-        cutoff = datetime.now() - timedelta(days=7)
+        cutoff = now_utc - timedelta(days=7)
     elif since == "startup":
         # Find last startup message
         cutoff = _find_last_startup(log_path)
@@ -88,6 +90,8 @@ def _parse_log_line(line: str) -> dict | None:
     Parse log line into structured dict.
 
     Expected format: 2025-12-30 12:08:03 UTC | INFO     | module | message
+
+    Returns UTC-aware datetime for accurate time comparisons.
     """
     try:
         # Split on " | " to separate components
@@ -95,7 +99,9 @@ def _parse_log_line(line: str) -> dict | None:
         if len(parts) >= 4:
             # Parse timestamp (remove "UTC" suffix if present)
             timestamp_str = parts[0].strip().replace(" UTC", "")
-            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+            # Parse as naive datetime then make UTC-aware
+            timestamp_naive = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+            timestamp = timestamp_naive.replace(tzinfo=timezone.utc)
 
             return {
                 "timestamp": timestamp,
