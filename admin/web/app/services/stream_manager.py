@@ -2,6 +2,7 @@
 
 import yaml
 import re
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +39,14 @@ clip_after_event: 3
 # Notification cooldowns (seconds)
 arrival_cooldown: 300
 departure_cooldown: 300
+
+# Model path (using default from image)
+model_path: "/app/models/yolo11x.pt"
 """
+
+# Paths
+SERVICES_BASE = Path("/opt/services")
+ADMIN_COMPOSE = Path("/opt/services/kanyo-admin/docker-compose.yml")
 
 
 def validate_stream_id(stream_id: str) -> tuple[bool, str]:
@@ -49,6 +57,8 @@ def validate_stream_id(stream_id: str) -> tuple[bool, str]:
         return False, "Stream ID must start with lowercase letter, contain only a-z, 0-9, _, -"
     if len(stream_id) > 32:
         return False, "Stream ID must be 32 characters or less"
+    if stream_id in ["admin", "nvidia", "code", "new"]:
+        return False, f"'{stream_id}' is a reserved name"
     return True, ""
 
 
@@ -59,9 +69,6 @@ def create_stream(
     timezone: str = "+00:00",
     telegram_enabled: bool = False,
     telegram_channel: str = "",
-    base_path: Path = Path("/data"),
-    compose_path: Path = Path("/opt/services/kanyo-nvidia/docker-compose.yml"),
-    admin_compose_path: Path = Path("/opt/services/kanyo-admin/docker-compose.yml"),
 ) -> tuple[bool, str]:
     """
     Create a new stream with all necessary configuration.
@@ -74,7 +81,10 @@ def create_stream(
     if not valid:
         return False, error
 
-    stream_dir = base_path / stream_id
+    if not video_source.startswith("http"):
+        return False, "Video source must be a valid URL"
+
+    stream_dir = SERVICES_BASE / f"kanyo-{stream_id}"
 
     # Check if already exists
     if stream_dir.exists():
@@ -92,92 +102,193 @@ def create_stream(
             video_source=video_source,
             timezone=timezone,
             telegram_enabled=str(telegram_enabled).lower(),
-            telegram_channel=telegram_channel,
+            telegram_channel=telegram_channel or "",
         )
         (stream_dir / "config.yaml").write_text(config_content)
 
-        # 3. Add to detection docker-compose.yml (if exists)
-        if compose_path.exists():
-            if not _add_to_compose(stream_id, compose_path):
-                return False, "Failed to update docker-compose.yml"
+        # 3. Add to detection docker-compose.yml
+        success, msg = _add_to_detection_compose(stream_id)
+        if not success:
+            _cleanup(stream_dir)
+            return False, f"Failed to update detection compose: {msg}"
 
-        # 4. Add volume mount to admin docker-compose.yml (if exists)
-        if admin_compose_path.exists():
-            if not _add_admin_volume(stream_id, stream_dir, admin_compose_path):
-                return False, "Failed to update admin docker-compose.yml"
+        # 4. Add volume mount to admin docker-compose.yml
+        success, msg = _add_admin_volume(stream_id, stream_dir)
+        if not success:
+            _cleanup(stream_dir)
+            return False, f"Failed to update admin compose: {msg}"
 
-        return True, f"Stream '{stream_id}' created successfully. Run 'docker compose up -d' to start."
+        # 5. Start the new detection container
+        success, msg = _start_detection_container(stream_id)
+        if not success:
+            # Don't cleanup - compose files are updated, just container didn't start
+            return False, f"Stream created but container failed to start: {msg}"
+
+        return True, f"Stream '{name}' created and container started!"
 
     except Exception as e:
-        # Cleanup on failure
-        if stream_dir.exists():
-            import shutil
-            shutil.rmtree(stream_dir)
+        _cleanup(stream_dir)
         return False, f"Error creating stream: {str(e)}"
 
 
-def _add_to_compose(stream_id: str, compose_path: Path) -> bool:
-    """Add new service to docker-compose.yml."""
+def _cleanup(stream_dir: Path):
+    """Remove stream directory on failure."""
+    if stream_dir.exists():
+        import shutil
+        shutil.rmtree(stream_dir)
+
+
+def _add_to_detection_compose(stream_id: str) -> tuple[bool, str]:
+    """Add new service to detection docker-compose.yml."""
+    compose_path = ADMIN_COMPOSE  # Both services are in the admin compose file
+
     if not compose_path.exists():
-        return False
+        return False, f"Compose file not found: {compose_path}"
 
-    with open(compose_path) as f:
-        compose = yaml.safe_load(f)
+    try:
+        with open(compose_path) as f:
+            compose = yaml.safe_load(f)
 
-    service_name = f"{stream_id}-gpu"
+        container_name = f"kanyo-{stream_id}-gpu"
 
-    # Check if already exists
-    if service_name in compose.get("services", {}):
-        return True  # Already exists
+        # Check if already exists
+        if f"{stream_id}-gpu" in compose.get("services", {}):
+            return True, "Service already exists"
 
-    # Add new service (copy structure from existing)
-    compose["services"][service_name] = {
-        "image": "kanyo-detection:latest",
-        "container_name": f"kanyo-{service_name}",
-        "runtime": "nvidia",
-        "environment": [
-            "NVIDIA_VISIBLE_DEVICES=all",
-        ],
-        "volumes": [
-            f"/data/{stream_id}:/data",
-        ],
-        "env_file": [".env"],
-        "restart": "unless-stopped",
-        "logging": {
-            "driver": "json-file",
-            "options": {
-                "max-size": "10m",
-                "max-file": "3",
-            },
-        },
-    }
+        # Find an existing kanyo service to copy structure from
+        template_service = None
+        for svc_name, svc_config in compose.get("services", {}).items():
+            if svc_name.startswith("harvard-") or svc_name.startswith("nsw-"):
+                template_service = svc_config.copy()
+                break
 
-    with open(compose_path, "w") as f:
-        yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+        if not template_service:
+            return False, "No template service found to copy from"
 
-    return True
+        # Create new service based on template
+        new_service = template_service.copy()
+        new_service["container_name"] = container_name
+
+        # Update volumes
+        new_volumes = []
+        for vol in new_service.get("volumes", []):
+            if "/config.yaml" in vol:
+                new_volumes.append(f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/config.yaml:/app/config.yaml:ro")
+            elif "/clips" in vol:
+                new_volumes.append(f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/clips:/app/clips")
+            elif "/logs" in vol:
+                new_volumes.append(f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/logs:/app/logs")
+            else:
+                new_volumes.append(vol)
+
+        new_service["volumes"] = new_volumes
+
+        # Add the new service
+        compose["services"][f"{stream_id}-gpu"] = new_service
+
+        with open(compose_path, "w") as f:
+            yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+
+        return True, "Added to compose"
+
+    except Exception as e:
+        return False, str(e)
 
 
-def _add_admin_volume(stream_id: str, stream_dir: Path, admin_compose_path: Path) -> bool:
+def _add_admin_volume(stream_id: str, stream_dir: Path) -> tuple[bool, str]:
     """Add volume mount to admin docker-compose.yml."""
-    if not admin_compose_path.exists():
-        return False
+    if not ADMIN_COMPOSE.exists():
+        return False, f"Admin compose file not found: {ADMIN_COMPOSE}"
 
-    with open(admin_compose_path) as f:
-        compose = yaml.safe_load(f)
+    try:
+        with open(ADMIN_COMPOSE) as f:
+            compose = yaml.safe_load(f)
 
-    # Find admin/dashboard service
-    for service_name in ["dashboard", "admin"]:
-        if service_name in compose.get("services", {}):
-            volumes = compose["services"][service_name].get("volumes", [])
-            new_volume = f"{stream_dir}:/data/{stream_id}:ro"
+        # Find admin/dashboard service
+        service_name = None
+        for name in ["dashboard", "admin"]:
+            if name in compose.get("services", {}):
+                service_name = name
+                break
 
-            if new_volume not in volumes:
-                volumes.append(new_volume)
-                compose["services"][service_name]["volumes"] = volumes
-            break
+        if not service_name:
+            return False, "No dashboard or admin service found"
 
-    with open(admin_compose_path, "w") as f:
-        yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+        volumes = compose["services"][service_name].get("volumes", [])
+        new_volume = f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}:/data/{stream_id}"
 
-    return True
+        # Check if already exists
+        if any(f"/data/{stream_id}" in v for v in volumes):
+            return True, "Volume already exists"
+
+        volumes.append(new_volume)
+        compose["services"][service_name]["volumes"] = volumes
+
+        with open(ADMIN_COMPOSE, "w") as f:
+            yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+
+        return True, "Added admin volume"
+
+    except Exception as e:
+        return False, str(e)
+
+
+def _start_detection_container(stream_id: str) -> tuple[bool, str]:
+    """Start the new detection container."""
+    try:
+        service_name = f"{stream_id}-gpu"
+        result = subprocess.run(
+            ["docker-compose", "-f", str(ADMIN_COMPOSE), "up", "-d", service_name],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=ADMIN_COMPOSE.parent,
+        )
+
+        if result.returncode == 0:
+            return True, "Container started"
+        else:
+            return False, result.stderr or result.stdout
+
+    except subprocess.TimeoutExpired:
+        return False, "Timeout starting container"
+    except Exception as e:
+        return False, str(e)
+
+
+def restart_admin_container() -> tuple[bool, str]:
+    """Restart the admin container itself."""
+    try:
+        # Get our own container name
+        result = subprocess.run(
+            ["hostname"],
+            capture_output=True,
+            text=True,
+        )
+        container_id = result.stdout.strip()
+
+        # Schedule restart (docker will restart us)
+        # Use nohup to ensure the restart command continues after we die
+        subprocess.Popen(
+            ["sh", "-c", f"sleep 2 && docker restart {container_id}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        return True, "Admin restart scheduled"
+
+    except Exception as e:
+        return False, str(e)
+
+
+def get_available_streams() -> list[str]:
+    """Get list of stream IDs that could be added (have dirs but not in compose)."""
+    # This could be useful for detecting orphaned streams
+    existing = []
+    if SERVICES_BASE.exists():
+        for d in SERVICES_BASE.iterdir():
+            if d.is_dir() and d.name.startswith("kanyo-") and d.name not in ["kanyo-admin", "kanyo-nvidia", "kanyo-code"]:
+                stream_id = d.name.replace("kanyo-", "")
+                existing.append(stream_id)
+    return existing

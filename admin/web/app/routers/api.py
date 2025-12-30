@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from app.services import stream_service, docker_service, config_service
+from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
 
 
 router = APIRouter()
@@ -172,9 +173,7 @@ async def update_config(
     telegram_channel: str = Form(""),
 ):
     """Update stream configuration."""
-    import traceback
     try:
-        print(f"DEBUG: Received config update for {stream_id}, action={action}")
         # Get stream info
         stream = stream_service.get_stream(stream_id)
         if not stream:
@@ -226,11 +225,82 @@ async def update_config(
         )
 
     except Exception as e:
-        print(f"ERROR in update_config: {str(e)}")
-        traceback.print_exc()
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
             f'Error: {str(e)}'
+            f'</div>',
+            status_code=500
+        )
+
+
+@router.post("/streams")
+async def create_new_stream(
+    stream_id: str = Form(...),
+    name: str = Form(...),
+    video_source: str = Form(...),
+    timezone: str = Form("+00:00"),
+    telegram_enabled: bool = Form(False),
+    telegram_channel: str = Form(""),
+):
+    """Create a new stream."""
+    # Validate first
+    valid, error = validate_stream_id(stream_id)
+    if not valid:
+        return HTMLResponse(
+            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
+            f'Error: {error}'
+            f'</div>',
+            status_code=400
+        )
+
+    success, message = create_stream(
+        stream_id=stream_id,
+        name=name,
+        video_source=video_source,
+        timezone=timezone,
+        telegram_enabled=telegram_enabled,
+        telegram_channel=telegram_channel,
+    )
+
+    if success:
+        return HTMLResponse(
+            f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-3 rounded mb-4">'
+            f'<p class="font-medium mb-2">✓ {message}</p>'
+            f'<p class="text-sm mb-3">The detection container is now running. Restart the admin to see the new stream in the overview.</p>'
+            f'<button hx-post="/api/admin/restart" '
+            f'        hx-swap="outerHTML" '
+            f'        class="bg-amber-600 hover:bg-amber-500 px-4 py-2 rounded font-medium text-white">'
+            f'    ↻ Restart Admin Now'
+            f'</button>'
+            f'</div>'
+        )
+    else:
+        return HTMLResponse(
+            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
+            f'Error: {message}'
+            f'</div>',
+            status_code=400
+        )
+
+
+@router.post("/admin/restart")
+async def restart_admin():
+    """Restart the admin container."""
+    success, message = restart_admin_container()
+
+    if success:
+        return HTMLResponse(
+            '<div class="bg-blue-600/20 border border-blue-600 text-blue-400 px-4 py-3 rounded">'
+            '<p class="font-medium">↻ Restarting admin container...</p>'
+            '<p class="text-sm mt-1">This page will be unavailable for a few seconds. '
+            '<a href="/" class="underline">Click here</a> to return to the overview once it\'s back.</p>'
+            '</div>'
+        )
+    else:
+        return HTMLResponse(
+            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+            f'Error restarting: {message}<br>'
+            f'<span class="text-sm">Manual restart: <code>docker restart kanyo-admin-web</code></span>'
             f'</div>',
             status_code=500
         )

@@ -46,6 +46,14 @@ async def overview(request: Request):
     )
 
 
+@router.get("/streams/new", response_class=HTMLResponse)
+async def new_stream_page(request: Request):
+    """New stream form."""
+    return templates.TemplateResponse("stream/new.html", {
+        "request": request,
+    })
+
+
 @router.get("/streams/{stream_id}", response_class=HTMLResponse)
 async def stream_detail(request: Request, stream_id: str):
     """Render stream detail page."""

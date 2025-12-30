@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}New Stream - Kanyo Admin{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-2xl">
+    <a href="/" class="text-zinc-400 hover:text-white mb-4 inline-block">
+        ← Back to Overview
+    </a>
+
+    <h1 class="text-3xl font-bold mb-2">Add New Stream</h1>
+    <p class="text-zinc-400 mb-8">Configure a new falcon cam to monitor.</p>
+
+    <form hx-post="/api/streams"
+          hx-target="#form-feedback"
+          hx-swap="innerHTML"
+          class="space-y-6">
+
+        <div id="form-feedback"></div>
+
+        <!-- Stream ID -->
+        <div class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Stream Identity</h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">
+                        Stream ID <span class="text-red-400">*</span>
+                    </label>
+                    <input type="text"
+                           name="stream_id"
+                           required
+                           pattern="[a-z][a-z0-9_-]*"
+                           maxlength="32"
+                           placeholder="e.g., melbourne, cornell-redtail"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-zinc-500 text-sm mt-1">
+                        Lowercase letters, numbers, hyphens, underscores only. This becomes the directory and container name.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">
+                        Display Name <span class="text-red-400">*</span>
+                    </label>
+                    <input type="text"
+                           name="name"
+                           required
+                           placeholder="e.g., Melbourne Peregrine Falcon Cam"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-zinc-500 text-sm mt-1">
+                        Human-readable name shown in the admin interface.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Source -->
+        <div class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Video Source</h2>
+
+            <div>
+                <label class="block text-sm font-medium mb-2">
+                    YouTube URL <span class="text-red-400">*</span>
+                </label>
+                <input type="url"
+                       name="video_source"
+                       required
+                       placeholder="https://www.youtube.com/watch?v=..."
+                       class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-zinc-500 text-sm mt-1">
+                    The YouTube live stream URL to monitor. Must be a public live stream.
+                </p>
+            </div>
+        </div>
+
+        <!-- Timezone -->
+        <div class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Location Settings</h2>
+
+            <div>
+                <label class="block text-sm font-medium mb-2">Timezone</label>
+                <select name="timezone"
+                        class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="-12:00">UTC-12:00 (Baker Island)</option>
+                    <option value="-11:00">UTC-11:00 (American Samoa)</option>
+                    <option value="-10:00">UTC-10:00 (Hawaii)</option>
+                    <option value="-09:00">UTC-09:00 (Alaska)</option>
+                    <option value="-08:00">UTC-08:00 (Pacific Time)</option>
+                    <option value="-07:00">UTC-07:00 (Mountain Time)</option>
+                    <option value="-06:00">UTC-06:00 (Central Time)</option>
+                    <option value="-05:00">UTC-05:00 (Eastern Time)</option>
+                    <option value="-04:00">UTC-04:00 (Atlantic Time)</option>
+                    <option value="-03:00">UTC-03:00 (Buenos Aires)</option>
+                    <option value="+00:00" selected>UTC+00:00 (London/GMT)</option>
+                    <option value="+01:00">UTC+01:00 (Paris/Berlin)</option>
+                    <option value="+02:00">UTC+02:00 (Cairo)</option>
+                    <option value="+03:00">UTC+03:00 (Moscow)</option>
+                    <option value="+04:00">UTC+04:00 (Dubai)</option>
+                    <option value="+05:00">UTC+05:00 (Karachi)</option>
+                    <option value="+05:30">UTC+05:30 (India)</option>
+                    <option value="+06:00">UTC+06:00 (Bangladesh)</option>
+                    <option value="+07:00">UTC+07:00 (Bangkok)</option>
+                    <option value="+08:00">UTC+08:00 (Singapore/Perth)</option>
+                    <option value="+09:00">UTC+09:00 (Tokyo)</option>
+                    <option value="+09:30">UTC+09:30 (Adelaide)</option>
+                    <option value="+10:00">UTC+10:00 (Sydney)</option>
+                    <option value="+11:00">UTC+11:00 (Solomon Islands)</option>
+                    <option value="+12:00">UTC+12:00 (Auckland)</option>
+                </select>
+                <p class="text-zinc-500 text-sm mt-1">
+                    Timezone where the camera is located. Used for clip timestamps.
+                </p>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Notifications</h2>
+
+            <div class="space-y-4">
+                <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox"
+                           name="telegram_enabled"
+                           value="true"
+                           id="telegram-toggle"
+                           onchange="document.getElementById('telegram-channel').disabled = !this.checked"
+                           class="w-5 h-5 rounded bg-zinc-700 border-zinc-600">
+                    <span>Enable Telegram Notifications</span>
+                </label>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">Telegram Channel</label>
+                    <input type="text"
+                           name="telegram_channel"
+                           id="telegram-channel"
+                           disabled
+                           placeholder="@your_channel_name"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
+                    <p class="text-zinc-500 text-sm mt-1">
+                        The Telegram channel to send notifications to. Bot must be admin of the channel.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="flex gap-3 justify-end pt-4">
+            <a href="/"
+               class="bg-zinc-600 hover:bg-zinc-500 py-2 px-6 rounded transition">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="bg-green-600 hover:bg-green-500 py-2 px-6 rounded transition font-medium flex items-center gap-2">
+                <span>+</span> Create Stream
+            </button>
+        </div>
+    </form>
+
+    <!-- Help text -->
+    <div class="mt-8 p-4 bg-zinc-800/50 rounded-lg text-sm text-zinc-400">
+        <p class="font-medium text-zinc-300 mb-2">What happens when you create a stream:</p>
+        <ol class="list-decimal list-inside space-y-1 ml-2">
+            <li>Directory created at <code class="bg-zinc-700 px-1 rounded">/opt/services/kanyo-{id}/</code></li>
+            <li>Config file generated with your settings</li>
+            <li>Detection container added to docker-compose and started</li>
+            <li>Admin volume mount added (requires admin restart to see)</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}
