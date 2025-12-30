@@ -1,5 +1,6 @@
 """Page router for HTML templates."""
 
+from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -126,5 +127,69 @@ async def stream_logs(request: Request, stream_id: str):
             "request": request,
             "stream": stream,
             "logs": logs,
+        },
+    )
+
+
+@router.get("/streams/{stream_id}/files", response_class=HTMLResponse)
+@router.get("/streams/{stream_id}/files/{path:path}", response_class=HTMLResponse)
+async def stream_files(request: Request, stream_id: str, path: str = ""):
+    """File browser for stream data directory."""
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    base_path = Path(f"/data/{stream_id}")
+    current_path = base_path / path
+
+    # Security: ensure path stays within stream directory
+    try:
+        current_path.resolve().relative_to(base_path.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not current_path.exists():
+        raise HTTPException(status_code=404, detail="Path not found")
+
+    # List directory contents
+    items = []
+    is_file = current_path.is_file()
+    file_content = None
+
+    if current_path.is_dir():
+        for item in sorted(current_path.iterdir()):
+            items.append(
+                {
+                    "name": item.name,
+                    "is_dir": item.is_dir(),
+                    "size": item.stat().st_size if item.is_file() else None,
+                    "modified": datetime.fromtimestamp(item.stat().st_mtime),
+                    "path": str(item.relative_to(base_path)),
+                }
+            )
+    else:
+        # If it's a file, try to read text content
+        if current_path.suffix in [".log", ".txt", ".json", ".yaml", ".yml"]:
+            try:
+                file_content = current_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                file_content = None
+
+    # Breadcrumb parts
+    parts = [p for p in path.split("/") if p]
+    breadcrumbs = [{"name": "Root", "path": ""}]
+    for i, part in enumerate(parts):
+        breadcrumbs.append({"name": part, "path": "/".join(parts[: i + 1])})
+
+    return templates.TemplateResponse(
+        "stream/files.html",
+        {
+            "request": request,
+            "stream": stream,
+            "items": items,
+            "current_path": path,
+            "breadcrumbs": breadcrumbs,
+            "is_file": is_file,
+            "file_content": file_content,
         },
     )

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Files - {{ stream.name }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Back Link -->
+    <a href="/streams/{{ stream.id }}" class="text-zinc-400 hover:text-white mb-4 inline-block">
+        ← Back to {{ stream.name }}
+    </a>
+
+    <!-- Header -->
+    <header class="mb-6">
+        <h1 class="text-3xl font-bold">Files</h1>
+        <p class="text-zinc-400 mt-2">Browse stream data directory</p>
+    </header>
+
+    <!-- Breadcrumbs -->
+    <nav class="flex items-center gap-2 text-sm text-zinc-400 mb-6">
+        {% for crumb in breadcrumbs %}
+            {% if not loop.last %}
+                <a href="/streams/{{ stream.id }}/files/{{ crumb.path }}"
+                   class="hover:text-white transition">{{ crumb.name }}</a>
+                <span class="text-zinc-600">/</span>
+            {% else %}
+                <span class="text-white font-medium">{{ crumb.name }}</span>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    {% if is_file %}
+        <!-- File Content Display -->
+        <div class="bg-zinc-800 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">{{ breadcrumbs[-1].name }}</h2>
+                <a href="/clips/{{ stream.id }}/{{ current_path }}"
+                   download
+                   class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm transition">
+                    Download
+                </a>
+            </div>
+
+            {% if file_content %}
+                <pre class="bg-zinc-900 rounded p-4 overflow-auto text-sm font-mono max-h-96">{{ file_content }}</pre>
+            {% else %}
+                <p class="text-zinc-400">Cannot preview this file type. Use Download button.</p>
+            {% endif %}
+        </div>
+    {% else %}
+        <!-- Directory Listing -->
+        <div class="bg-zinc-800 rounded-lg overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-zinc-700 text-left text-sm">
+                    <tr>
+                        <th class="px-4 py-3">Name</th>
+                        <th class="px-4 py-3">Size</th>
+                        <th class="px-4 py-3">Modified</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-700">
+                    {% if current_path %}
+                    <tr class="hover:bg-zinc-700 transition">
+                        <td class="px-4 py-3">
+                            <a href="/streams/{{ stream.id }}/files/{{ '/'.join(current_path.split('/')[:-1]) }}"
+                               class="flex items-center gap-2 text-blue-400 hover:text-blue-300">
+                                <span class="text-lg">📁</span> ..
+                            </a>
+                        </td>
+                        <td class="px-4 py-3"></td>
+                        <td class="px-4 py-3"></td>
+                    </tr>
+                    {% endif %}
+
+                    {% for item in items %}
+                    <tr class="hover:bg-zinc-700 transition">
+                        <td class="px-4 py-3">
+                            {% if item.is_dir %}
+                                <a href="/streams/{{ stream.id }}/files/{{ item.path }}"
+                                   class="flex items-center gap-2 text-blue-400 hover:text-blue-300">
+                                    <span class="text-lg">📁</span> {{ item.name }}
+                                </a>
+                            {% elif item.name.endswith('.jpg') or item.name.endswith('.png') or item.name.endswith('.jpeg') %}
+                                <a href="#"
+                                   onclick="showImage('/clips/{{ stream.id }}/{{ item.path }}', '{{ item.name }}'); return false;"
+                                   class="flex items-center gap-2 text-green-400 hover:text-green-300">
+                                    <span class="text-lg">🖼️</span> {{ item.name }}
+                                </a>
+                            {% elif item.name.endswith('.mp4') or item.name.endswith('.avi') or item.name.endswith('.mov') %}
+                                <a href="#"
+                                   onclick="playClip('/clips/{{ stream.id }}/{{ item.path }}', '{{ item.name }}'); return false;"
+                                   class="flex items-center gap-2 text-purple-400 hover:text-purple-300">
+                                    <span class="text-lg">🎬</span> {{ item.name }}
+                                </a>
+                            {% elif item.name.endswith('.log') or item.name.endswith('.txt') or item.name.endswith('.json') or item.name.endswith('.yaml') or item.name.endswith('.yml') %}
+                                <a href="/streams/{{ stream.id }}/files/{{ item.path }}"
+                                   class="flex items-center gap-2 text-amber-400 hover:text-amber-300">
+                                    <span class="text-lg">📄</span> {{ item.name }}
+                                </a>
+                            {% else %}
+                                <a href="/clips/{{ stream.id }}/{{ item.path }}"
+                                   download
+                                   class="flex items-center gap-2 text-zinc-300 hover:text-white">
+                                    <span class="text-lg">📄</span> {{ item.name }}
+                                </a>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-zinc-400">
+                            {% if item.size is not none %}
+                                {% if item.size < 1024 %}
+                                    {{ item.size }} B
+                                {% elif item.size < 1024 * 1024 %}
+                                    {{ "%.1f"|format(item.size / 1024) }} KB
+                                {% elif item.size < 1024 * 1024 * 1024 %}
+                                    {{ "%.1f"|format(item.size / 1024 / 1024) }} MB
+                                {% else %}
+                                    {{ "%.2f"|format(item.size / 1024 / 1024 / 1024) }} GB
+                                {% endif %}
+                            {% else %}
+                                <span class="text-zinc-600">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-zinc-400">
+                            {{ item.modified.strftime('%Y-%m-%d %H:%M') }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    {% if not items and not current_path %}
+                    <tr>
+                        <td colspan="3" class="px-4 py-8 text-center text-zinc-500">
+                            Directory is empty
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
