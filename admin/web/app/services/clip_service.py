@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path: Path) -> bool:
     """
     Create composite thumbnail for visit clip combining arrival and departure.
+    Split diagonally from lower-left to upper-right.
 
     Args:
         arrival_path: Path to arrival thumbnail
@@ -28,27 +29,22 @@ def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path
         # Get dimensions
         width, height = arrival.size
 
-        # Create new image
-        composite = Image.new('RGB', (width, height))
+        # Create composite starting with arrival
+        composite = arrival.copy()
 
-        # Resize thumbnails to half size
-        half_width = width // 2
-        half_height = height // 2
+        # Create mask for diagonal split (lower-left to upper-right)
+        mask = Image.new('L', (width, height), 0)
+        draw = ImageDraw.Draw(mask)
 
-        # Arrival in upper left
-        arrival_small = arrival.resize((half_width, half_height))
-        composite.paste(arrival_small, (0, 0))
+        # Fill lower-right triangle (for departure)
+        draw.polygon([(0, height), (width, height), (width, 0)], fill=255)
 
-        # Departure in lower right
-        departure_small = departure.resize((half_width, half_height))
-        composite.paste(departure_small, (half_width, half_height))
+        # Paste departure using mask
+        composite.paste(departure, (0, 0), mask)
 
-        # Draw diagonal line
+        # Draw diagonal line from lower-left to upper-right
         draw = ImageDraw.Draw(composite)
-        draw.line([(0, half_height), (half_width, 0)], fill='white', width=3)
-
-        # Save
-        composite.save(output_path, 'JPEG', quality=85)
+        draw.line([(0, height), (width, 0)], fill='white', width=4)
         return True
 
     except Exception as e:
