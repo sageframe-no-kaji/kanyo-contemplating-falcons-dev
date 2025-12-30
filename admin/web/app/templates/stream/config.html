@@ -16,12 +16,14 @@
     </header>
 
     <!-- Configuration Form -->
-    <form hx-put="/api/streams/{{ stream.id }}/config"
-          hx-target="#config-result"
+    <form id="config-form"
+          hx-put="/api/streams/{{ stream.id }}/config"
+          hx-target="#save-feedback"
+          hx-swap="innerHTML"
           class="space-y-6">
 
-        <!-- Result Message -->
-        <div id="config-result"></div>
+        <!-- Feedback Message -->
+        <div id="save-feedback"></div>
 
         <!-- Stream & Detection Section -->
         <section class="bg-zinc-800 rounded-lg p-6">
@@ -139,11 +141,17 @@
                 Cancel
             </a>
             <button type="submit"
-                    class="bg-blue-600 hover:bg-blue-500 py-2 px-6 rounded transition">
+                    name="action"
+                    value="save"
+                    class="bg-blue-600 hover:bg-blue-500 py-2 px-6 rounded transition font-medium disabled:opacity-50"
+                    hx-disabled-elt="this">
                 Save
             </button>
-            <button type="button"
-                    class="bg-green-600 hover:bg-green-500 py-2 px-6 rounded transition">
+            <button type="submit"
+                    name="action"
+                    value="save_restart"
+                    class="bg-green-600 hover:bg-green-500 py-2 px-6 rounded transition font-medium disabled:opacity-50"
+                    hx-disabled-elt="this">
                 Save & Restart
             </button>
         </div>

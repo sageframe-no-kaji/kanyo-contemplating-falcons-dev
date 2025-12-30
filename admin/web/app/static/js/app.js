@@ -182,3 +182,20 @@ function showImage(url, title) {
 window.showLive = showLive;
 window.playClip = playClip;
 window.showImage = showImage;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-hide success messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+document.body.addEventListener('htmx:afterSwap', function(event) {
+    if (event.target.id === 'save-feedback') {
+        const successMsg = event.target.querySelector('.bg-green-600\\/20');
+        if (successMsg) {
+            setTimeout(() => {
+                successMsg.style.transition = 'opacity 0.5s';
+                successMsg.style.opacity = '0';
+                setTimeout(() => successMsg.remove(), 500);
+            }, 5000);
+        }
+    }
+});

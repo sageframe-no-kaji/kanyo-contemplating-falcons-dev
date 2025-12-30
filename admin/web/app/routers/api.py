@@ -1,6 +1,6 @@
 """API router for JSON endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -158,20 +158,72 @@ async def get_logs(stream_id: str, lines: int = 100, level: str = None):
 
 
 @router.put("/streams/{stream_id}/config")
-async def update_config(stream_id: str, config: dict):
+async def update_config(
+    stream_id: str,
+    action: str = Form("save"),
+    stream_name: str = Form(...),
+    video_source: str = Form(...),
+    detection_confidence: float = Form(...),
+    frame_interval: int = Form(...),
+    timezone: str = Form(...),
+    exit_timeout: int = Form(...),
+    roosting_threshold: int = Form(...),
+    telegram_enabled: bool = Form(False),
+    telegram_channel: str = Form(""),
+):
     """Update stream configuration."""
-    stream = stream_service.get_stream(stream_id)
-    if not stream:
-        raise HTTPException(status_code=404, detail="Stream not found")
-
-    # Validate config
-    errors = config_service.validate_config(config)
-    if errors:
-        return {"success": False, "errors": errors}
-
-    # Write config
     try:
+        # Build config dict
+        config = {
+            "stream_name": stream_name,
+            "video_source": video_source,
+            "detection_confidence": detection_confidence,
+            "frame_interval": frame_interval,
+            "timezone": timezone,
+            "exit_timeout": exit_timeout,
+            "roosting_threshold": roosting_threshold,
+            "telegram_enabled": telegram_enabled,
+            "telegram_channel": telegram_channel,
+        }
+
+        # Validate: roosting_threshold must be > exit_timeout
+        if roosting_threshold <= exit_timeout:
+            return HTMLResponse(
+                '<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+                'Error: Roosting threshold must be greater than exit timeout'
+                '</div>',
+                status_code=400
+            )
+
+        # Get stream info
+        stream = stream_service.get_stream(stream_id)
+        if not stream:
+            return HTMLResponse(
+                f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+                f'Error: Stream {stream_id} not found'
+                f'</div>',
+                status_code=404
+            )
+
+        # Save config
         config_service.write_config(stream["config_path"], config)
-        return {"success": True}
+
+        # Restart if requested
+        message = "Configuration saved successfully!"
+        if action == "save_restart":
+            docker_service.restart_container(stream["container_name"])
+            message = "Configuration saved and container restarting..."
+
+        return HTMLResponse(
+            f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-2 rounded">'
+            f'{message}'
+            f'</div>'
+        )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to write config: {str(e)}")
+        return HTMLResponse(
+            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+            f'Error: {str(e)}'
+            f'</div>',
+            status_code=500
+        )
