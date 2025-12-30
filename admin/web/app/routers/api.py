@@ -172,7 +172,9 @@ async def update_config(
     telegram_channel: str = Form(""),
 ):
     """Update stream configuration."""
+    import traceback
     try:
+        print(f"DEBUG: Received config update for {stream_id}, action={action}")
         # Get stream info
         stream = stream_service.get_stream(stream_id)
         if not stream:
@@ -224,6 +226,8 @@ async def update_config(
         )
 
     except Exception as e:
+        print(f"ERROR in update_config: {str(e)}")
+        traceback.print_exc()
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
             f'Error: {str(e)}'
