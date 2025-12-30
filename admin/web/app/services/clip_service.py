@@ -99,15 +99,18 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         has_thumbnail = True
         if is_video:
             thumb_path = clip_file.with_suffix('.jpg')
-            
-            # For visit clips, create composite thumbnail if arrival and departure exist
+
+            # For visit clips, use arrival thumbnail if it exists
             if clip_type == 'visit' and not thumb_path.exists():
                 arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
-                departure_thumb = date_path / f"falcon_{time_str}_departure.jpg"
-                
-                if arrival_thumb.exists() and departure_thumb.exists():
-                    create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
-            
+                if arrival_thumb.exists():
+                    # Symlink or copy the arrival thumbnail
+                    try:
+                        import shutil
+                        shutil.copy2(arrival_thumb, thumb_path)
+                    except Exception:
+                        pass
+
             has_thumbnail = thumb_path.exists()
 
         clips.append({
