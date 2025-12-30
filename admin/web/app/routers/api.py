@@ -173,28 +173,6 @@ async def update_config(
 ):
     """Update stream configuration."""
     try:
-        # Build config dict
-        config = {
-            "stream_name": stream_name,
-            "video_source": video_source,
-            "detection_confidence": detection_confidence,
-            "frame_interval": frame_interval,
-            "timezone": timezone,
-            "exit_timeout": exit_timeout,
-            "roosting_threshold": roosting_threshold,
-            "telegram_enabled": telegram_enabled,
-            "telegram_channel": telegram_channel,
-        }
-
-        # Validate: roosting_threshold must be > exit_timeout
-        if roosting_threshold <= exit_timeout:
-            return HTMLResponse(
-                '<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-                'Error: Roosting threshold must be greater than exit timeout'
-                '</div>',
-                status_code=400
-            )
-
         # Get stream info
         stream = stream_service.get_stream(stream_id)
         if not stream:
@@ -205,8 +183,33 @@ async def update_config(
                 status_code=404
             )
 
-        # Save config
-        config_service.write_config(stream["config_path"], config)
+        # Read existing config to preserve fields not in the form
+        existing_config = config_service.read_config(stream["config_path"])
+
+        # Update only the fields from the form
+        existing_config.update({
+            "stream_name": stream_name,
+            "video_source": video_source,
+            "detection_confidence": detection_confidence,
+            "frame_interval": frame_interval,
+            "timezone": timezone,
+            "exit_timeout": exit_timeout,
+            "roosting_threshold": roosting_threshold,
+            "telegram_enabled": telegram_enabled,
+            "telegram_channel": telegram_channel,
+        })
+
+        # Validate: roosting_threshold must be > exit_timeout
+        if roosting_threshold <= exit_timeout:
+            return HTMLResponse(
+                '<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+                'Error: Roosting threshold must be greater than exit timeout'
+                '</div>',
+                status_code=400
+            )
+
+        # Save merged config
+        config_service.write_config(stream["config_path"], existing_config)
 
         # Restart if requested
         message = "Configuration saved successfully!"
