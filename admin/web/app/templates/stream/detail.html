@@ -128,22 +128,26 @@
 
                         {# Overlay with type indicator #}
                         <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                            <div class="flex items-center justify-between text-xs">
-                                <span class="flex items-center gap-1">
-                                    {% if clip.is_video %}
-                                        <span class="text-[10px] font-bold bg-white/20 px-1 rounded">VID</span>
-                                    {% else %}
-                                        <span class="text-[10px] font-bold bg-white/20 px-1 rounded">IMG</span>
-                                    {% endif %}
-                                    {{ clip.time }}
-                                </span>
-                                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium
-                                    {% if clip.type == 'arrival' %}bg-green-600
-                                    {% elif clip.type == 'departure' %}bg-red-600
-                                    {% elif clip.type == 'visit' %}bg-blue-600
-                                    {% else %}bg-zinc-600{% endif %}">
-                                    {{ clip.type }}
-                                </span>
+                            <div class="flex flex-col gap-1">
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="flex items-center gap-1">
+                                        {% if clip.is_video %}
+                                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">VID</span>
+                                        {% else %}
+                                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">IMG</span>
+                                        {% endif %}
+                                    </span>
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-medium
+                                        {% if clip.type == 'arrival' %}bg-green-600
+                                        {% elif clip.type == 'departure' %}bg-red-600
+                                        {% elif clip.type == 'visit' %}bg-blue-600
+                                        {% else %}bg-zinc-600{% endif %}">
+                                        {{ clip.type }}
+                                    </span>
+                                </div>
+                                <div class="text-[11px] text-white/90">
+                                    {{ date }} {{ clip.time }}
+                                </div>
                             </div>
                         </div>
 
