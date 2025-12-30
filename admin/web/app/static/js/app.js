@@ -188,29 +188,44 @@ window.showImage = showImage;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Update the local stream time based on timezone offset
+ * Update the local stream time based on timezone (IANA name or offset)
  */
 function updateStreamTime() {
     const streamTimeEl = document.getElementById('stream-time');
     if (!streamTimeEl) return;
 
-    // Get timezone offset from data attribute (set in template)
-    const timezoneOffset = streamTimeEl.dataset.timezone;
-    if (!timezoneOffset) return;
+    // Get timezone from data attribute (set in template)
+    const timezone = streamTimeEl.dataset.timezone;
+    if (!timezone) return;
 
-    // Parse timezone offset (e.g., "-05:00" or "+10:00")
-    const match = timezoneOffset.match(/([+-])(\d{2}):(\d{2})/);
-    if (!match) return;
+    let streamTime;
 
-    const sign = match[1] === '+' ? 1 : -1;
-    const hours = parseInt(match[2], 10);
-    const minutes = parseInt(match[3], 10);
-    const offsetMinutes = sign * (hours * 60 + minutes);
+    // Try to use IANA timezone name if browser supports it
+    if (timezone.includes('/') || timezone === 'UTC') {
+        try {
+            // Use Intl.DateTimeFormat with the stream's timezone
+            const now = new Date();
+            streamTime = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+        } catch (e) {
+            // Fallback to UTC if timezone not recognized
+            console.warn(`Timezone ${timezone} not recognized, using UTC`);
+            streamTime = new Date();
+        }
+    } else {
+        // Parse timezone offset (e.g., "-05:00" or "+10:00") - legacy support
+        const match = timezone.match(/([+-])(\d{2}):(\d{2})/);
+        if (!match) return;
 
-    // Calculate stream time
-    const now = new Date();
-    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-    const streamTime = new Date(utc + (offsetMinutes * 60000));
+        const sign = match[1] === '+' ? 1 : -1;
+        const hours = parseInt(match[2], 10);
+        const minutes = parseInt(match[3], 10);
+        const offsetMinutes = sign * (hours * 60 + minutes);
+
+        // Calculate stream time
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        streamTime = new Date(utc + (offsetMinutes * 60000));
+    }
 
     // Format as HH:MM:SS
     const hh = String(streamTime.getHours()).padStart(2, '0');

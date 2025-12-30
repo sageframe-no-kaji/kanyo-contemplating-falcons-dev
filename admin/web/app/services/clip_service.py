@@ -3,9 +3,61 @@
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 import re
-import json
 from PIL import Image, ImageDraw
+
+
+def get_stream_timezone(stream_timezone: str) -> ZoneInfo:
+    """
+    Parse stream timezone string to ZoneInfo object.
+
+    Args:
+        stream_timezone: IANA timezone name (e.g., "Australia/Sydney") or offset (e.g., "+11:00")
+
+    Returns:
+        ZoneInfo object for the stream's timezone
+    """
+    # Handle IANA timezone names
+    if "/" in stream_timezone or stream_timezone in ("UTC", "GMT"):
+        try:
+            return ZoneInfo(stream_timezone)
+        except Exception:
+            return ZoneInfo("UTC")
+
+    # Handle offset format (legacy) - just use UTC for admin
+    # The detection system will handle proper offset parsing
+    return ZoneInfo("UTC")
+
+
+def get_stream_today(stream_timezone: str) -> str:
+    """
+    Get today's date in the stream's timezone.
+
+    Args:
+        stream_timezone: IANA timezone name (e.g., "Australia/Sydney")
+
+    Returns:
+        Date string in YYYY-MM-DD format for stream's local "today"
+    """
+    tz = get_stream_timezone(stream_timezone)
+    return datetime.now(tz).strftime("%Y-%m-%d")
+
+
+def get_stream_date_offset(stream_timezone: str, offset_days: int) -> str:
+    """
+    Get date relative to stream's local timezone.
+
+    Args:
+        stream_timezone: IANA timezone name
+        offset_days: Days offset (0=today, 1=yesterday, -1=tomorrow)
+
+    Returns:
+        Date string in YYYY-MM-DD format
+    """
+    tz = get_stream_timezone(stream_timezone)
+    target_date = datetime.now(tz) - timedelta(days=offset_days)
+    return target_date.strftime("%Y-%m-%d")
 
 
 def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path: Path) -> bool:
@@ -33,7 +85,7 @@ def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path
         composite = arrival.copy()
 
         # Create mask for diagonal split (lower-left to upper-right)
-        mask = Image.new('L', (width, height), 0)
+        mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
 
         # Fill lower-right triangle (for departure)
@@ -44,10 +96,10 @@ def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path
 
         # Draw diagonal line from lower-left to upper-right
         draw = ImageDraw.Draw(composite)
-        draw.line([(0, height), (width, 0)], fill='white', width=4)
+        draw.line([(0, height), (width, 0)], fill="white", width=4)
 
         # Save composite
-        composite.save(output_path, 'JPEG', quality=85)
+        composite.save(output_path, "JPEG", quality=85)
         return True
 
     except Exception as e:
@@ -73,7 +125,7 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         return []
 
     # Pattern: falcon_HHMMSS_type.ext
-    pattern = re.compile(r'falcon_(\d{6})_(\w+)\.(\w+)$')
+    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(\w+)$")
 
     for clip_file in sorted(date_path.iterdir(), reverse=True):
         if not clip_file.is_file():
@@ -92,21 +144,21 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         time = f"{hour}:{minute}:{second}"
 
         # Determine if video or image
-        is_video = ext.lower() in ['mp4', 'avi', 'mov', 'mkv']
+        is_video = ext.lower() in ["mp4", "avi", "mov", "mkv"]
 
         # Check if thumbnail exists for videos
         has_thumbnail = True
         if is_video:
-            thumb_path = clip_file.with_suffix('.jpg')
+            thumb_path = clip_file.with_suffix(".jpg")
 
             # For visit clips, create composite thumbnail from arrival + nearest departure
-            if clip_type == 'visit' and not thumb_path.exists():
+            if clip_type == "visit" and not thumb_path.exists():
                 arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
 
                 # Find departure thumbnail - it may be at a later time
                 departure_thumb = None
                 for dep_file in sorted(date_path.glob(f"falcon_*_departure.jpg")):
-                    dep_time_str = dep_file.name.split('_')[1]
+                    dep_time_str = dep_file.name.split("_")[1]
                     if dep_time_str >= time_str:  # Find first departure >= arrival time
                         departure_thumb = dep_file
                         break
@@ -116,14 +168,16 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
 
             has_thumbnail = thumb_path.exists()
 
-        clips.append({
-            "filename": clip_file.name,
-            "time": time,
-            "type": clip_type,
-            "is_video": is_video,
-            "has_thumbnail": has_thumbnail,
-            "size_bytes": clip_file.stat().st_size,
-        })
+        clips.append(
+            {
+                "filename": clip_file.name,
+                "time": time,
+                "type": clip_type,
+                "is_video": is_video,
+                "has_thumbnail": has_thumbnail,
+                "size_bytes": clip_file.stat().st_size,
+            }
+        )
 
     return clips
 
@@ -210,7 +264,7 @@ def get_last_event(clips_path: str) -> Optional[dict]:
             continue
 
         # Pattern: falcon_HHMMSS_type.ext
-        pattern = re.compile(r'falcon_(\d{6})_(\w+)\.(\w+)$')
+        pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(\w+)$")
 
         for file in date_path.iterdir():
             match = pattern.match(file.name)

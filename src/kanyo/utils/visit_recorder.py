@@ -319,9 +319,7 @@ class VisitRecorder:
             logger.error(f"FFmpeg stdin error: {e}")
             return False
 
-    def log_event(
-        self, event_type: str, timestamp: datetime, metadata: dict | None = None
-    ) -> None:
+    def log_event(self, event_type: str, timestamp: datetime, metadata: dict | None = None) -> None:
         """
         Log an event with its offset in the recording.
 

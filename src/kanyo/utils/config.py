@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -107,18 +108,71 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> None:
                 cfg[key] = _cast(value, default)
 
 
-def _parse_timezone(tz_str: str) -> timezone:
-    """Parse timezone string like '+10:00' or '-05:00' into timezone object."""
-    if not tz_str or tz_str == "+00:00":
-        return timezone.utc
+# Mapping of legacy offset strings to IANA timezone names
+OFFSET_TO_TZ = {
+    "+11:00": "Australia/Sydney",  # NSW (handles DST)
+    "+10:00": "Australia/Brisbane",  # Queensland (no DST)
+    "+09:30": "Australia/Adelaide",
+    "+08:00": "Asia/Singapore",
+    "-05:00": "America/New_York",  # Eastern Time (handles DST)
+    "-06:00": "America/Chicago",  # Central Time
+    "-07:00": "America/Denver",  # Mountain Time
+    "-08:00": "America/Los_Angeles",  # Pacific Time
+    "-10:00": "Pacific/Honolulu",  # Hawaii (no DST)
+    "+00:00": "UTC",
+}
 
-    # Parse ±HH:MM format
-    sign = 1 if tz_str[0] == "+" else -1
-    parts = tz_str[1:].split(":")
-    hours = int(parts[0])
-    minutes = int(parts[1]) if len(parts) > 1 else 0
-    offset = timedelta(hours=sign * hours, minutes=sign * minutes)
-    return timezone(offset)
+
+def _parse_timezone(tz_str: str) -> ZoneInfo | timezone:
+    """
+    Parse timezone string into ZoneInfo or timezone object.
+
+    Supports:
+    - IANA timezone names: "Australia/Sydney", "America/New_York"
+    - Legacy offset format: "+11:00", "-05:00" (auto-maps to IANA when possible)
+
+    Args:
+        tz_str: Timezone string from config
+
+    Returns:
+        ZoneInfo object (IANA) or timezone object (offset-only)
+    """
+    if not tz_str or tz_str == "UTC" or tz_str == "+00:00":
+        return ZoneInfo("UTC")
+
+    # Try parsing as IANA timezone name first
+    if "/" in tz_str or tz_str in ("UTC", "GMT"):
+        try:
+            return ZoneInfo(tz_str)
+        except Exception as e:
+            logger.warning(f"Invalid IANA timezone '{tz_str}': {e}")
+            return timezone.utc
+
+    # Check if it's a legacy offset format that maps to IANA
+    if tz_str in OFFSET_TO_TZ:
+        iana_name = OFFSET_TO_TZ[tz_str]
+        logger.info(f"Mapping legacy timezone '{tz_str}' to IANA timezone '{iana_name}'")
+        return ZoneInfo(iana_name)
+
+    # Fall back to parsing as ±HH:MM offset format
+    if tz_str.startswith(("+", "-")):
+        try:
+            sign = 1 if tz_str[0] == "+" else -1
+            parts = tz_str[1:].split(":")
+            hours = int(parts[0])
+            minutes = int(parts[1]) if len(parts) > 1 else 0
+            offset = timedelta(hours=sign * hours, minutes=sign * minutes)
+            logger.warning(
+                f"Using offset-only timezone '{tz_str}'. "
+                f"Consider using IANA timezone name for proper DST handling."
+            )
+            return timezone(offset)
+        except Exception as e:
+            logger.warning(f"Invalid timezone offset '{tz_str}': {e}")
+            return timezone.utc
+
+    logger.warning(f"Unrecognized timezone format '{tz_str}', using UTC")
+    return timezone.utc
 
 
 def get_now_tz(config: dict[str, Any]) -> datetime:

@@ -58,12 +58,8 @@ class NotificationManager:
 
         # Load credentials - token from env (secret), channel/topic from config or env
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        self.telegram_channel = (
-            config.get("telegram_channel") or os.getenv("TELEGRAM_CHANNEL", "")
-        )
-        self.ntfy_admin_topic = (
-            config.get("ntfy_topic") or os.getenv("NTFY_ADMIN_TOPIC", "")
-        )
+        self.telegram_channel = config.get("telegram_channel") or os.getenv("TELEGRAM_CHANNEL", "")
+        self.ntfy_admin_topic = config.get("ntfy_topic") or os.getenv("NTFY_ADMIN_TOPIC", "")
 
         # Validate Telegram configuration
         if self.telegram_enabled:
@@ -117,7 +113,7 @@ class NotificationManager:
 
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
-        caption = f"🦅 Falcon arrived at {ts_str}"
+        caption = f"🦅 Falcon arrived at {ts_str} (stream local)"
 
         return self._send_telegram_photo(caption, thumbnail_path)
 
@@ -146,9 +142,9 @@ class NotificationManager:
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
         if visit_duration_str:
-            caption = f"👋 Falcon departed at {ts_str} (visit: {visit_duration_str})"
+            caption = f"👋 Falcon departed at {ts_str} (visit: {visit_duration_str}, stream local)"
         else:
-            caption = f"👋 Falcon departed at {ts_str}"
+            caption = f"👋 Falcon departed at {ts_str} (stream local)"
 
         # Always send departure (no cooldown check)
         success = self._send_telegram_photo(caption, thumbnail_path)

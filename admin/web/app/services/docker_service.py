@@ -142,7 +142,7 @@ def get_logs(container_name: str, lines: int = 100) -> str:
     try:
         container = client.containers.get(container_name)
         logs = container.logs(tail=lines, timestamps=True)
-        return logs.decode('utf-8')
+        return logs.decode("utf-8")
     except NotFound:
         return f"Container {container_name} not found"
     except Exception as e:

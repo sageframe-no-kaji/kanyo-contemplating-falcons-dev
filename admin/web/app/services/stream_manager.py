@@ -53,7 +53,7 @@ def validate_stream_id(stream_id: str) -> tuple[bool, str]:
     """Validate stream ID format."""
     if not stream_id:
         return False, "Stream ID is required"
-    if not re.match(r'^[a-z][a-z0-9_-]*$', stream_id):
+    if not re.match(r"^[a-z][a-z0-9_-]*$", stream_id):
         return False, "Stream ID must start with lowercase letter, contain only a-z, 0-9, _, -"
     if len(stream_id) > 32:
         return False, "Stream ID must be 32 characters or less"
@@ -135,6 +135,7 @@ def _cleanup(stream_dir: Path):
     """Remove stream directory on failure."""
     if stream_dir.exists():
         import shutil
+
         shutil.rmtree(stream_dir)
 
 
@@ -173,11 +174,17 @@ def _add_to_detection_compose(stream_id: str) -> tuple[bool, str]:
         new_volumes = []
         for vol in new_service.get("volumes", []):
             if "/config.yaml" in vol:
-                new_volumes.append(f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/config.yaml:/app/config.yaml:ro")
+                new_volumes.append(
+                    f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/config.yaml:/app/config.yaml:ro"
+                )
             elif "/clips" in vol:
-                new_volumes.append(f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/clips:/app/clips")
+                new_volumes.append(
+                    f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/clips:/app/clips"
+                )
             elif "/logs" in vol:
-                new_volumes.append(f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/logs:/app/logs")
+                new_volumes.append(
+                    f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/logs:/app/logs"
+                )
             else:
                 new_volumes.append(vol)
 
@@ -288,7 +295,11 @@ def get_available_streams() -> list[str]:
     existing = []
     if SERVICES_BASE.exists():
         for d in SERVICES_BASE.iterdir():
-            if d.is_dir() and d.name.startswith("kanyo-") and d.name not in ["kanyo-admin", "kanyo-nvidia", "kanyo-code"]:
+            if (
+                d.is_dir()
+                and d.name.startswith("kanyo-")
+                and d.name not in ["kanyo-admin", "kanyo-nvidia", "kanyo-code"]
+            ):
                 stream_id = d.name.replace("kanyo-", "")
                 existing.append(stream_id)
     return existing

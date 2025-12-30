@@ -15,7 +15,7 @@ def read_config(config_path: str) -> dict:
     Returns:
         Config dictionary
     """
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
 
@@ -27,7 +27,7 @@ def write_config(config_path: str, config: dict) -> None:
         config_path: Path to config.yaml file
         config: Configuration dictionary
     """
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
 
 

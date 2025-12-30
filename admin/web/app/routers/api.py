@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
-from datetime import datetime, timedelta
 
 from app.services import stream_service, docker_service, config_service, clip_service
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
@@ -71,9 +70,7 @@ async def restart_stream(stream_id: str):
     stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
 
     return templates.TemplateResponse(
-        "components/stream_card.html",
-        {"request": {}, "stream": stream},
-        media_type="text/html"
+        "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
     )
 
 
@@ -103,9 +100,7 @@ async def stop_stream(stream_id: str):
     stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
 
     return templates.TemplateResponse(
-        "components/stream_card.html",
-        {"request": {}, "stream": stream},
-        media_type="text/html"
+        "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
     )
 
 
@@ -135,35 +130,33 @@ async def start_stream(stream_id: str):
     stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
 
     return templates.TemplateResponse(
-        "components/stream_card.html",
-        {"request": {}, "stream": stream},
-        media_type="text/html"
+        "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
     )
 
 
 @router.get("/streams/{stream_id}/clips", response_class=HTMLResponse)
 async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
-    """Get clips for a specific date offset (0=today, 1=yesterday, etc.)."""
+    """Get clips for a specific date offset (0=today, 1=yesterday, etc.) in stream's timezone."""
     stream = stream_service.get_stream(stream_id)
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    # Calculate the date
-    target_date = datetime.now() - timedelta(days=offset)
-    date_str = target_date.strftime("%Y-%m-%d")
+    # Calculate the date using STREAM timezone, not server timezone
+    stream_tz = stream.get("timezone", "UTC")
+    date_str = clip_service.get_stream_date_offset(stream_tz, offset)
 
     # Get clips for that date
     clips = clip_service.list_clips(stream["clips_path"], date_str)
 
     # Filter to only show videos (skip still images)
-    clips = [c for c in clips if c['is_video']]
+    clips = [c for c in clips if c["is_video"]]
 
     # Render clips grid HTML
     if not clips:
         return '<p class="text-zinc-400">No clips for this date</p>'
 
     # Render the clips grid (same as detail page)
-    html = '''
+    html = """
     <!-- Legend -->
     <div class="flex gap-4 mb-4 text-xs">
         <span class="flex items-center gap-1">
@@ -178,17 +171,17 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
     </div>
 
     <div class="grid grid-cols-3 gap-3">
-    '''
+    """
 
     for clip in clips[:12]:
-        thumb_name = clip['filename'].rsplit('.', 1)[0] + '.jpg'
+        thumb_name = clip["filename"].rsplit(".", 1)[0] + ".jpg"
         clip_type_color = {
-            'arrival': 'bg-green-600',
-            'departure': 'bg-red-600',
-            'visit': 'bg-blue-600'
-        }.get(clip['type'], 'bg-zinc-600')
+            "arrival": "bg-green-600",
+            "departure": "bg-red-600",
+            "visit": "bg-blue-600",
+        }.get(clip["type"], "bg-zinc-600")
 
-        html += f'''
+        html += f"""
         <div class="aspect-video bg-zinc-900 rounded overflow-hidden relative group cursor-pointer"
              onclick="playClip('/clips/{stream_id}/{date_str}/{clip['filename']}', '{clip['type']} at {clip['time']}')">
             <img src="/clips/{stream_id}/{date_str}/{thumb_name}"
@@ -212,9 +205,9 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
             </div>
             <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/30"><span class="text-4xl">▶</span></div>
         </div>
-        '''
+        """
 
-    html += '</div>'
+    html += "</div>"
     return html
 
 
@@ -229,9 +222,9 @@ async def get_logs(stream_id: str, lines: int = 100, level: str = None):
 
     # Filter by level if specified
     if level:
-        log_lines = logs.split('\n')
+        log_lines = logs.split("\n")
         filtered_lines = [line for line in log_lines if level.upper() in line]
-        logs = '\n'.join(filtered_lines)
+        logs = "\n".join(filtered_lines)
 
     return {"logs": logs}
 
@@ -257,34 +250,36 @@ async def update_config(
         if not stream:
             return HTMLResponse(
                 f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-                f'Error: Stream {stream_id} not found'
-                f'</div>',
-                status_code=404
+                f"Error: Stream {stream_id} not found"
+                f"</div>",
+                status_code=404,
             )
 
         # Read existing config to preserve fields not in the form
         existing_config = config_service.read_config(stream["config_path"])
 
         # Update only the fields from the form
-        existing_config.update({
-            "stream_name": stream_name,
-            "video_source": video_source,
-            "detection_confidence": detection_confidence,
-            "frame_interval": frame_interval,
-            "timezone": timezone,
-            "exit_timeout": exit_timeout,
-            "roosting_threshold": roosting_threshold,
-            "telegram_enabled": telegram_enabled,
-            "telegram_channel": telegram_channel,
-        })
+        existing_config.update(
+            {
+                "stream_name": stream_name,
+                "video_source": video_source,
+                "detection_confidence": detection_confidence,
+                "frame_interval": frame_interval,
+                "timezone": timezone,
+                "exit_timeout": exit_timeout,
+                "roosting_threshold": roosting_threshold,
+                "telegram_enabled": telegram_enabled,
+                "telegram_channel": telegram_channel,
+            }
+        )
 
         # Validate: roosting_threshold must be > exit_timeout
         if roosting_threshold <= exit_timeout:
             return HTMLResponse(
                 '<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-                'Error: Roosting threshold must be greater than exit timeout'
-                '</div>',
-                status_code=400
+                "Error: Roosting threshold must be greater than exit timeout"
+                "</div>",
+                status_code=400,
             )
 
         # Save merged config
@@ -298,16 +293,16 @@ async def update_config(
 
         return HTMLResponse(
             f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-2 rounded">'
-            f'{message}'
-            f'</div>'
+            f"{message}"
+            f"</div>"
         )
 
     except Exception as e:
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-            f'Error: {str(e)}'
-            f'</div>',
-            status_code=500
+            f"Error: {str(e)}"
+            f"</div>",
+            status_code=500,
         )
 
 
@@ -326,9 +321,9 @@ async def create_new_stream(
     if not valid:
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
-            f'Error: {error}'
-            f'</div>',
-            status_code=400
+            f"Error: {error}"
+            f"</div>",
+            status_code=400,
         )
 
     success, message = create_stream(
@@ -348,16 +343,16 @@ async def create_new_stream(
             f'<button hx-post="/api/admin/restart" '
             f'        hx-swap="outerHTML" '
             f'        class="bg-amber-600 hover:bg-amber-500 px-4 py-2 rounded font-medium text-white">'
-            f'    ↻ Restart Admin Now'
-            f'</button>'
-            f'</div>'
+            f"    ↻ Restart Admin Now"
+            f"</button>"
+            f"</div>"
         )
     else:
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
-            f'Error: {message}'
-            f'</div>',
-            status_code=400
+            f"Error: {message}"
+            f"</div>",
+            status_code=400,
         )
 
 
@@ -372,13 +367,13 @@ async def restart_admin():
             '<p class="font-medium">↻ Restarting admin container...</p>'
             '<p class="text-sm mt-1">This page will be unavailable for a few seconds. '
             '<a href="/" class="underline">Click here</a> to return to the overview once it\'s back.</p>'
-            '</div>'
+            "</div>"
         )
     else:
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-            f'Error restarting: {message}<br>'
+            f"Error restarting: {message}<br>"
             f'<span class="text-sm">Manual restart: <code>docker restart kanyo-admin-web</code></span>'
-            f'</div>',
-            status_code=500
+            f"</div>",
+            status_code=500,
         )

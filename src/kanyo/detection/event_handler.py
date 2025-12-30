@@ -60,7 +60,7 @@ class FalconEventHandler:
             metadata: Additional event data (duration, counts, etc.)
         """
         if event_type == FalconEvent.ARRIVED:
-            logger.event(f"🦅 FALCON ARRIVED at {timestamp.strftime('%I:%M:%S %p')}")
+            logger.event(f"🦅 FALCON ARRIVED at {timestamp.strftime('%I:%M:%S %p')} (stream local)")
 
             # Send arrival notification
             if self.notifications:
@@ -80,7 +80,7 @@ class FalconEventHandler:
 
             logger.event(
                 f"🦅 FALCON DEPARTED at {timestamp.strftime('%I:%M:%S %p')} "
-                f"({duration_str} visit)"
+                f"({duration_str} visit, stream local)"
             )
 
             # Send departure notification

@@ -53,7 +53,7 @@
                     <h2 class="text-xl font-semibold">Media Viewer</h2>
                     <div class="flex items-center gap-3">
                         <div class="text-sm text-zinc-400">
-                            <div class="text-xs text-zinc-500">Local Stream Time</div>
+                            <div class="text-xs text-zinc-500">Stream Local Time ({{ stream.timezone or 'UTC' }})</div>
                             <div id="stream-time" data-timezone="{{ stream.timezone or '-05:00' }}" class="font-mono text-zinc-200">--:--:--</div>
                         </div>
                         <button id="live-btn"

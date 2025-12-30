@@ -31,7 +31,7 @@ def discover_streams() -> list[dict]:
 
         try:
             # Read config
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 config = yaml.safe_load(f)
 
             stream_id = stream_dir.name

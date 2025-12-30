@@ -5,7 +5,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 import socket
-from datetime import datetime
 
 from app.services import stream_service, docker_service, clip_service, config_service
 
@@ -29,7 +28,9 @@ async def overview(request: Request):
         stream["uptime"] = status.get("uptime", "")
 
         # Get clip info
-        stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"], stream["id"])
+        stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(
+            stream["clips_path"], stream["id"]
+        )
         stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
         stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
 
@@ -42,16 +43,19 @@ async def overview(request: Request):
             "request": request,
             "streams": streams,
             "hostname": hostname,
-        }
+        },
     )
 
 
 @router.get("/streams/new", response_class=HTMLResponse)
 async def new_stream_page(request: Request):
     """New stream form."""
-    return templates.TemplateResponse("stream/new.html", {
-        "request": request,
-    })
+    return templates.TemplateResponse(
+        "stream/new.html",
+        {
+            "request": request,
+        },
+    )
 
 
 @router.get("/streams/{stream_id}", response_class=HTMLResponse)
@@ -66,8 +70,9 @@ async def stream_detail(request: Request, stream_id: str):
     stream["status"] = status["status"]
     stream["uptime"] = status.get("uptime", "")
 
-    # Get today's clips
-    today = datetime.now().strftime("%Y-%m-%d")
+    # Get today's clips using STREAM timezone, not server timezone
+    stream_tz = stream.get("timezone", "UTC")
+    today = clip_service.get_stream_today(stream_tz)
     clips = clip_service.list_clips(stream["clips_path"], today)
 
     # Get deduplicated events for today
@@ -81,7 +86,7 @@ async def stream_detail(request: Request, stream_id: str):
             "clips": clips,
             "events": events,
             "date": today,
-        }
+        },
     )
 
 
@@ -101,7 +106,7 @@ async def stream_config(request: Request, stream_id: str):
             "request": request,
             "stream": stream,
             "config": config,
-        }
+        },
     )
 
 
@@ -121,5 +126,5 @@ async def stream_logs(request: Request, stream_id: str):
             "request": request,
             "stream": stream,
             "logs": logs,
-        }
+        },
     )
