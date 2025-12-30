@@ -394,7 +394,7 @@ class BufferMonitor:
                 if now_time - last_heartbeat >= heartbeat_interval:
                     state = self.state_machine.state.value
                     recording = "recording" if self.visit_recorder.is_recording else "monitoring"
-                    logger.info(
+                    logger.debug(
                         f"💓 Heartbeat: {frames_processed} frames processed, "
                         f"state={state}, {recording}"
                     )

@@ -23,6 +23,18 @@
                 <span class="text-sm text-zinc-400">Level:</span>
 
                 <label class="cursor-pointer">
+                    <input type="checkbox" id="log-level-all" class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium border border-zinc-600
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-zinc-600 peer-checked:text-white peer-checked:border-zinc-500
+                                 hover:bg-zinc-600 transition">
+                        ALL
+                    </span>
+                </label>
+
+                <div class="w-px h-4 bg-zinc-600"></div>
+
+                <label class="cursor-pointer">
                     <input type="checkbox" name="log-level" value="DEBUG" class="hidden peer">
                     <span class="px-3 py-1 rounded-full text-xs font-medium
                                  bg-zinc-700 text-zinc-400
@@ -151,8 +163,8 @@
             const level = line.dataset.level;
             const text = line.textContent.toLowerCase();
 
-            // Check level filter
-            const levelMatch = selectedLevels.length === 0 || selectedLevels.includes(level);
+            // Check level filter - changed to show nothing when no tags selected
+            const levelMatch = selectedLevels.length > 0 && selectedLevels.includes(level);
 
             // Check search filter
             const searchMatch = !searchTerm || text.includes(searchTerm);
@@ -165,6 +177,26 @@
             }
         });
     }
+
+    // ALL tag toggle handler
+    const allCheckbox = document.getElementById('log-level-all');
+    const levelCheckboxes = document.querySelectorAll('input[name="log-level"]');
+
+    allCheckbox.addEventListener('change', function() {
+        levelCheckboxes.forEach(cb => {
+            cb.checked = allCheckbox.checked;
+        });
+        filterLogs();
+    });
+
+    // Update ALL checkbox state when individual checkboxes change
+    levelCheckboxes.forEach(cb => {
+        cb.addEventListener('change', function() {
+            const allChecked = Array.from(levelCheckboxes).every(checkbox => checkbox.checked);
+            allCheckbox.checked = allChecked;
+            filterLogs();
+        });
+    });
 
     // Attach to checkboxes
     document.querySelectorAll('input[name="log-level"]').forEach(cb => {
