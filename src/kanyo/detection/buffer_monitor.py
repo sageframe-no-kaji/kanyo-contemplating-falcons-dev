@@ -126,12 +126,11 @@ class BufferMonitor:
             clip_departure_after=clip_departure_after,
         )
 
-        # Event store
-        date_str = get_now_tz(self.full_config).strftime("%Y-%m-%d")
-        date_dir = Path(self.clips_dir) / date_str
-        date_dir.mkdir(parents=True, exist_ok=True)
-        events_path = date_dir / f"events_{date_str}.json"
-        self.event_store = EventStore(events_path)
+        # Event store - now determines file path based on event timestamp
+        self.event_store = EventStore(
+            clips_dir=clips_dir,
+            timezone_config=full_config,
+        )
 
         # Event handler for notifications
         self.event_handler = FalconEventHandler(

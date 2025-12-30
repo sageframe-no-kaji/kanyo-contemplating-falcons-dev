@@ -111,43 +111,109 @@ class EventStore:
     """
     Persists falcon events to JSON file.
 
-    Thread-safe append-only storage with automatic file creation.
+    Writes events to date-specific files based on event timestamp in stream's local timezone.
     """
 
-    def __init__(self, events_path: str | Path = "data/events.json"):
-        self.events_path = Path(events_path)
-        self.events_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        clips_dir: str | Path = "clips",
+        timezone_config: dict | None = None,
+    ):
+        """
+        Initialize event store.
 
-    def load(self) -> list[dict]:
+        Args:
+            clips_dir: Base clips directory (e.g., "clips")
+            timezone_config: Full config dict with timezone info for proper date calculation
+        """
+        self.clips_dir = Path(clips_dir)
+        self.timezone_config = timezone_config or {}
+
+    def _get_event_date(self, event: EventRecord | FalconVisit) -> str:
+        """
+        Get the date string for an event based on its timestamp in stream local timezone.
+
+        Args:
+            event: Event with start_time or timestamp
+
+        Returns:
+            Date string in YYYY-MM-DD format
+        """
+        from kanyo.utils.config import get_now_tz
+
+        # Get event timestamp
+        if isinstance(event, FalconVisit):
+            event_time = event.start_time
+        else:
+            event_time = event.timestamp
+
+        # If event_time is already timezone-aware and in stream timezone, use it directly
+        # Otherwise, convert using get_now_tz approach
+        if event_time.tzinfo is not None:
+            # Already timezone-aware, use its date
+            date_str = event_time.strftime("%Y-%m-%d")
+        else:
+            # Naive datetime - shouldn't happen, but handle it
+            from kanyo.utils.config import get_now_tz
+
+            now_tz = get_now_tz(self.timezone_config)
+            date_str = now_tz.strftime("%Y-%m-%d")
+
+        return date_str
+
+    def _get_events_path(self, event: EventRecord | FalconVisit) -> Path:
+        """Get the events file path for a given event."""
+        date_str = self._get_event_date(event)
+        date_dir = self.clips_dir / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
+        return date_dir / f"events_{date_str}.json"
+
+    def load(self, events_path: Path | None = None) -> list[dict]:
         """Load all events from file."""
-        if not self.events_path.exists():
+        if events_path is None:
+            # For backward compatibility - use today's file
+            from kanyo.utils.config import get_now_tz
+
+            date_str = get_now_tz(self.timezone_config).strftime("%Y-%m-%d")
+            events_path = self.clips_dir / date_str / f"events_{date_str}.json"
+
+        if not events_path.exists():
             return []
         try:
-            with open(self.events_path) as f:
+            with open(events_path) as f:
                 return json.load(f)
         except json.JSONDecodeError:
             logger.warning("Corrupted events file, starting fresh")
             return []
 
-    def save(self, events: list[dict]) -> None:
+    def save(self, events: list[dict], events_path: Path) -> None:
         """Save events to file."""
-        with open(self.events_path, "w") as f:
+        with open(events_path, "w") as f:
             json.dump(events, f, indent=2)
 
     def append(self, event: EventRecord | FalconVisit) -> None:
-        """Append a single event."""
-        events = self.load()
+        """Append a single event to the appropriate date file."""
+        events_path = self._get_events_path(event)
+        events = self.load(events_path)
         events.append(event.to_dict())
-        self.save(events)
-        logger.debug(f"Saved event: {event}")
+        self.save(events, events_path)
+        logger.debug(f"Saved event to {events_path.name}: {event}")
 
-    def get_visits(self) -> list[dict]:
+    def get_visits(self, events_path: Path | None = None) -> list[dict]:
         """Get all falcon_visit events."""
         return [
-            e for e in self.load() if e.get("event_type") == "falcon_visit" or "start_time" in e
+            e
+            for e in self.load(events_path)
+            if e.get("event_type") == "falcon_visit" or "start_time" in e
         ]
 
     def get_today_visits(self) -> list[dict]:
-        """Get visits from today."""
-        today = datetime.now().date().isoformat()
-        return [v for v in self.get_visits() if v.get("start_time", "").startswith(today)]
+        """Get visits from today (in stream's local timezone)."""
+        from kanyo.utils.config import get_now_tz
+
+        today = get_now_tz(self.timezone_config).date().isoformat()
+        date_dir = self.clips_dir / today
+        events_path = date_dir / f"events_{today}.json"
+        return [
+            v for v in self.get_visits(events_path) if v.get("start_time", "").startswith(today)
+        ]

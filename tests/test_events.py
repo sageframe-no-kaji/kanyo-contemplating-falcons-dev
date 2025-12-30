@@ -123,18 +123,18 @@ class TestEventStore:
         from kanyo.detection.events import EventStore
 
         with TemporaryDirectory() as tmpdir:
-            events_file = Path(tmpdir) / "subdir" / "events.json"
-            store = EventStore(events_path=events_file)
+            clips_dir = Path(tmpdir) / "clips"
+            store = EventStore(clips_dir=clips_dir)
 
-            assert store.events_path == events_file
-            assert events_file.parent.exists()
+            assert store.clips_dir == clips_dir
+            # Directory creation happens on append, not init
 
     def test_load_empty(self):
         """Loading non-existent file returns empty list."""
         from kanyo.detection.events import EventStore
 
         with TemporaryDirectory() as tmpdir:
-            store = EventStore(events_path=Path(tmpdir) / "events.json")
+            store = EventStore(clips_dir=Path(tmpdir) / "clips")
             events = store.load()
 
             assert events == []
@@ -142,52 +142,72 @@ class TestEventStore:
     def test_append_and_load(self):
         """Events can be appended and reloaded."""
         from kanyo.detection.events import EventStore, FalconVisit
+        from zoneinfo import ZoneInfo
 
         with TemporaryDirectory() as tmpdir:
-            events_file = Path(tmpdir) / "events.json"
-            store = EventStore(events_path=events_file)
+            clips_dir = Path(tmpdir) / "clips"
+            timezone_config = {"timezone": "Australia/Sydney"}
+            store = EventStore(clips_dir=clips_dir, timezone_config=timezone_config)
 
+            # Create timezone-aware datetime
+            tz = ZoneInfo("Australia/Sydney")
+            now = datetime.now(tz)
             visit = FalconVisit(
-                start_time=datetime.now() - timedelta(minutes=5),
-                end_time=datetime.now(),
+                start_time=now - timedelta(minutes=5),
+                end_time=now,
                 peak_confidence=0.88,
             )
             store.append(visit)
 
-            # Reload from file
-            loaded = store.load()
+            # Reload from the file created by append
+            date_str = now.strftime("%Y-%m-%d")
+            events_path = clips_dir / date_str / f"events_{date_str}.json"
+            loaded = store.load(events_path)
             assert len(loaded) == 1
             assert loaded[0]["peak_confidence"] == 0.88
 
     def test_multiple_appends(self):
         """Multiple events accumulate."""
         from kanyo.detection.events import EventStore, FalconVisit
+        from zoneinfo import ZoneInfo
 
         with TemporaryDirectory() as tmpdir:
-            store = EventStore(events_path=Path(tmpdir) / "events.json")
+            clips_dir = Path(tmpdir) / "clips"
+            timezone_config = {"timezone": "Australia/Sydney"}
+            store = EventStore(clips_dir=clips_dir, timezone_config=timezone_config)
 
+            tz = ZoneInfo("Australia/Sydney")
+            now = datetime.now(tz)
             for i in range(3):
                 visit = FalconVisit(
-                    start_time=datetime.now(),
-                    end_time=datetime.now(),
+                    start_time=now,
+                    end_time=now,
                     peak_confidence=0.5 + i * 0.1,
                 )
                 store.append(visit)
 
-            loaded = store.load()
+            # Load from the file created by appends
+            date_str = now.strftime("%Y-%m-%d")
+            events_path = clips_dir / date_str / f"events_{date_str}.json"
+            loaded = store.load(events_path)
             assert len(loaded) == 3
 
     def test_get_today_visits(self):
         """get_today_visits filters by date."""
         from kanyo.detection.events import EventStore, FalconVisit
+        from zoneinfo import ZoneInfo
 
         with TemporaryDirectory() as tmpdir:
-            store = EventStore(events_path=Path(tmpdir) / "events.json")
+            clips_dir = Path(tmpdir) / "clips"
+            tz = ZoneInfo("Australia/Sydney")
+            timezone_config = {"timezone": "Australia/Sydney", "timezone_obj": tz}
+            store = EventStore(clips_dir=clips_dir, timezone_config=timezone_config)
 
             # Today's visit
+            now = datetime.now(tz)
             today = FalconVisit(
-                start_time=datetime.now(),
-                end_time=datetime.now(),
+                start_time=now,
+                end_time=now,
             )
             store.append(today)
 
@@ -197,15 +217,21 @@ class TestEventStore:
     def test_json_file_format(self):
         """Events are stored as valid JSON."""
         from kanyo.detection.events import EventStore, FalconVisit
+        from zoneinfo import ZoneInfo
 
         with TemporaryDirectory() as tmpdir:
-            events_file = Path(tmpdir) / "events.json"
-            store = EventStore(events_path=events_file)
+            clips_dir = Path(tmpdir) / "clips"
+            timezone_config = {"timezone": "Australia/Sydney"}
+            store = EventStore(clips_dir=clips_dir, timezone_config=timezone_config)
 
-            visit = FalconVisit(start_time=datetime.now(), end_time=datetime.now())
+            tz = ZoneInfo("Australia/Sydney")
+            now = datetime.now(tz)
+            visit = FalconVisit(start_time=now, end_time=now)
             store.append(visit)
 
             # Verify file is valid JSON
+            date_str = now.strftime("%Y-%m-%d")
+            events_file = clips_dir / date_str / f"events_{date_str}.json"
             with open(events_file) as f:
                 data = json.load(f)
             assert isinstance(data, list)
