@@ -12,7 +12,12 @@
     <!-- Header -->
     <header class="mb-6">
         <h1 class="text-3xl font-bold">Logs</h1>
-        <p class="text-zinc-400 mt-2">{{ stream.name }}</p>
+        <p class="text-zinc-400 mt-2">
+            {{ stream.name }}
+            <span class="text-xs ml-2 px-2 py-0.5 bg-zinc-700 rounded">
+                Times shown in {{ stream.timezone }}
+            </span>
+        </p>
     </header>
 
     <!-- Controls -->

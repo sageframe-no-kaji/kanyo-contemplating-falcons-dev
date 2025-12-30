@@ -226,23 +226,43 @@ async def get_logs(
         since: Time range - "startup", "1h", "24h", "7d", "all"
         lines: Maximum number of lines to return
         levels: Comma-separated log levels to include
+
+    Returns:
+        HTML with log lines showing timestamps in stream's local timezone
     """
+    from zoneinfo import ZoneInfo
+
     stream = stream_service.get_stream(stream_id)
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
+    # Get stream's timezone for display
+    stream_tz_name = stream.get("timezone", "UTC")
+    try:
+        stream_tz = ZoneInfo(stream_tz_name)
+    except Exception:
+        stream_tz = ZoneInfo("UTC")
+
     # Parse levels parameter
     level_list = [l.strip() for l in levels.split(",") if l.strip()] if levels else None
 
-    # Get logs from file
+    # Get logs from file (timestamps are UTC-aware)
     logs = log_service.get_logs(stream_id, since=since, lines=lines, levels=level_list)
 
-    # Format as HTML with data attributes
+    # Format as HTML with data attributes, converting timestamps to stream local time
     html_lines = []
     for log_entry in logs:
         level = log_entry["level"]
-        raw = log_entry["raw"]
-        html_lines.append(f'<div class="log-line" data-level="{level}">{raw}</div>')
+        timestamp_utc = log_entry["timestamp"]
+
+        # Convert UTC timestamp to stream's local timezone
+        timestamp_local = timestamp_utc.astimezone(stream_tz)
+
+        # Format as: 2025-12-30 12:08:03 (stream local) | LEVEL | module | message
+        timestamp_str = timestamp_local.strftime("%Y-%m-%d %H:%M:%S")
+        formatted_line = f"{timestamp_str} (stream local) | {level:<8} | {log_entry['module']} | {log_entry['message']}"
+
+        html_lines.append(f'<div class="log-line" data-level="{level}">{formatted_line}</div>')
 
     return HTMLResponse("\n".join(html_lines))
 
