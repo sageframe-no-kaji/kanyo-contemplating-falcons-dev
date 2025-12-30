@@ -60,7 +60,7 @@ class FalconEventHandler:
             metadata: Additional event data (duration, counts, etc.)
         """
         if event_type == FalconEvent.ARRIVED:
-            logger.info(f"🦅 FALCON ARRIVED at {timestamp.strftime('%I:%M:%S %p')}")
+            logger.event(f"🦅 FALCON ARRIVED at {timestamp.strftime('%I:%M:%S %p')}")
 
             # Send arrival notification
             if self.notifications:
@@ -78,7 +78,7 @@ class FalconEventHandler:
             duration = metadata.get("visit_duration") or metadata.get("total_visit_duration", 0)
             duration_str = format_duration(duration)
 
-            logger.info(
+            logger.event(
                 f"🦅 FALCON DEPARTED at {timestamp.strftime('%I:%M:%S %p')} "
                 f"({duration_str} visit)"
             )
@@ -97,4 +97,4 @@ class FalconEventHandler:
 
         elif event_type == FalconEvent.ROOSTING:
             duration_str = format_duration(metadata.get("visit_duration", 0))
-            logger.info(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")
+            logger.event(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")

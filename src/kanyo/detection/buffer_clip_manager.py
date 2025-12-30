@@ -130,7 +130,7 @@ class BufferClipManager:
             "mp4",
         )
 
-        logger.info(f"📹 Scheduling arrival clip: {clip_path.name}")
+        logger.event(f"📹 Scheduling arrival clip: {clip_path.name}")
 
         self._executor.submit(
             self._extract_clip_from_visit,
@@ -191,8 +191,8 @@ class BufferClipManager:
             "mp4",
         )
 
-        logger.info(f"📹 Scheduling departure clip: {clip_path.name}")
-        logger.info(
+        logger.event(f"📹 Scheduling departure clip: {clip_path.name}")
+        logger.event(
             f"    Last detection at offset {last_detection_offset:.1f}s, "
             f"extracting {start_offset:.1f}s + {clip_duration}s"
         )
@@ -238,7 +238,7 @@ class BufferClipManager:
             "mp4",
         )
 
-        logger.info(f"📹 Extracting {event_name} clip from buffer: {clip_path.name}")
+        logger.event(f"📹 Extracting {event_name} clip from buffer: {clip_path.name}")
 
         self._executor.submit(
             self._extract_clip_from_buffer,
@@ -267,7 +267,7 @@ class BufferClipManager:
             )
 
             if success:
-                logger.info(f"✅ {clip_type.capitalize()} clip saved: {clip_path}")
+                logger.event(f"✅ {clip_type.capitalize()} clip saved: {clip_path}")
                 return str(clip_path)
             else:
                 logger.warning(f"Failed to create {clip_type} clip from buffer")
@@ -297,7 +297,7 @@ class BufferClipManager:
             )
 
             if success:
-                logger.info(f"✅ {clip_type.capitalize()} clip saved: {clip_path}")
+                logger.event(f"✅ {clip_type.capitalize()} clip saved: {clip_path}")
                 return str(clip_path)
             else:
                 logger.warning(f"Failed to create {clip_type} clip")
@@ -336,7 +336,7 @@ class BufferClipManager:
             "mp4",
         )
 
-        logger.info(f"📹 Creating standalone arrival clip: {clip_path.name}")
+        logger.event(f"📹 Creating standalone arrival clip: {clip_path.name}")
 
         # Create temporary recorder for the arrival clip
         temp_recorder = VisitRecorder(
@@ -421,7 +421,7 @@ class BufferClipManager:
 
         cmd.extend(["-movflags", "+faststart", str(clip_path)])
 
-        logger.info(f"📹 Starting arrival clip recording: {clip_path}")
+        logger.event(f"📹 Starting arrival clip recording: {clip_path}")
 
         try:
             stderr_log = clip_path.with_suffix(".ffmpeg.log")
@@ -442,7 +442,7 @@ class BufferClipManager:
 
         # Write lead-in frames
         if lead_in_frames:
-            logger.info(f"Writing {len(lead_in_frames)} lead-in frames to arrival clip")
+            logger.event(f"Writing {len(lead_in_frames)} lead-in frames to arrival clip")
             for buffered_frame in lead_in_frames:
                 frame = buffered_frame.decode()
                 temp_recorder._write_raw_frame(frame)

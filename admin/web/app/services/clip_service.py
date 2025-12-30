@@ -45,7 +45,7 @@ def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path
         # Draw diagonal line from lower-left to upper-right
         draw = ImageDraw.Draw(composite)
         draw.line([(0, height), (width, 0)], fill='white', width=4)
-        
+
         # Save composite
         composite.save(output_path, 'JPEG', quality=85)
         return True

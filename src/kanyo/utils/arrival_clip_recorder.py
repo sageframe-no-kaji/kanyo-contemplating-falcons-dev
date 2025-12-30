@@ -75,7 +75,7 @@ class ArrivalClipRecorder:
             self._clip_path = clip_path
             self._frames_written = 0
             self._max_frames = int(clip_duration * self.clip_manager.clip_fps)
-            logger.info(f"📹 Arrival clip will record {self._max_frames} frames ({clip_duration}s)")
+            logger.event(f"📹 Arrival clip will record {self._max_frames} frames ({clip_duration}s)")
             return True
 
         return False
@@ -122,7 +122,7 @@ class ArrivalClipRecorder:
                 except Exception as e:
                     logger.debug(f"Could not delete FFmpeg log: {e}")
 
-        logger.info(
+        logger.event(
             f"✅ Arrival clip complete: "
             f"{clip_path.name if clip_path else 'unknown'} "
             f"({self._frames_written} frames)"

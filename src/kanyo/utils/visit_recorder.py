@@ -208,7 +208,7 @@ class VisitRecorder:
 
         cmd.extend(["-movflags", "+faststart", str(self._visit_path)])
 
-        logger.info(f"📹 Starting visit recording: {self._visit_path}")
+        logger.event(f"📹 Starting visit recording: {self._visit_path}")
 
         try:
             # Write ffmpeg stderr to log file instead of pipe to prevent deadlock.
@@ -399,7 +399,7 @@ class VisitRecorder:
         self._frame_count = 0
         self._events = []
 
-        logger.info(
+        logger.event(
             f"✅ Visit recording complete: {result_path} "
             f"({visit_duration:.0f}s, {metadata['frame_count']} frames)"
         )
@@ -491,7 +491,7 @@ class VisitRecorder:
                 except Exception as e:
                     logger.debug(f"Could not delete FFmpeg log: {e}")
 
-            logger.info(f"✅ Clip extracted: {output_path}")
+            logger.event(f"✅ Clip extracted: {output_path}")
             return True
         except Exception as e:
             logger.error(f"Clip extraction failed: {e}")

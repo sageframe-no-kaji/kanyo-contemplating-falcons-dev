@@ -189,7 +189,7 @@ class NotificationManager:
                 resp = requests.post(url, data=data, files=files, timeout=10)
 
             if resp.status_code == 200:
-                logger.info(f"📧 Telegram sent: {caption}")
+                logger.event(f"📧 Telegram sent: {caption}")
                 return True
             else:
                 error_msg = resp.text[:200]

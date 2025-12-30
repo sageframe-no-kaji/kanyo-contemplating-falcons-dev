@@ -211,7 +211,7 @@ class BufferMonitor:
 
         if event_type == FalconEvent.ARRIVED:
             # Start recording the visit
-            logger.info("🦅 ARRIVAL - Starting arrival clip + visit recording")
+            logger.event("🦅 ARRIVAL - Starting arrival clip + visit recording")
 
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
@@ -234,7 +234,7 @@ class BufferMonitor:
 
         elif event_type == FalconEvent.DEPARTED:
             # Stop recording and create clips
-            logger.info("🦅 DEPARTURE - Stopping visit recording")
+            logger.event("🦅 DEPARTURE - Stopping visit recording")
 
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
@@ -251,7 +251,7 @@ class BufferMonitor:
                     self.event_store.append(visit)
 
                     duration = visit_metadata.get("duration_seconds", 0)
-                    logger.info(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
+                    logger.event(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
 
         elif event_type == FalconEvent.ROOSTING:
             # ROOSTING is notification-only, no clip creation needed

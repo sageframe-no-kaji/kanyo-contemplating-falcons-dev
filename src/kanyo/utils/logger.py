@@ -6,7 +6,14 @@ Behavior:
 - Logs to BOTH console (stderr) and file (logs/kanyo.log by default)
 - Format: "2025-12-15 10:30:00 | INFO | module_name | message"
 - Call setup_logging() once at startup, then get_logger(__name__) in each module
-- Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Log levels: DEBUG, INFO, EVENT, WARNING, ERROR, CRITICAL
+
+Custom EVENT level (25) for falcon events:
+- DEBUG (10): Heartbeats, raw detections, state checks
+- INFO (20): Startup, config, connections
+- EVENT (25): Falcon arrivals, departures, clips, notifications
+- WARNING (30): Unusual but not errors (stream hiccups)
+- ERROR (40): Actual errors
 """
 
 from __future__ import annotations
@@ -16,6 +23,22 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Custom EVENT level (between INFO and WARNING)
+# ──────────────────────────────────────────────────────────────────────────────
+EVENT = 25
+logging.addLevelName(EVENT, "EVENT")
+
+
+def _event(self, message, *args, **kwargs):
+    """Log a message at the EVENT level."""
+    if self.isEnabledFor(EVENT):
+        self.log(EVENT, message, *args, **kwargs)
+
+
+# Add event() method to Logger class
+logging.Logger.event = _event
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
