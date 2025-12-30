@@ -71,8 +71,8 @@ dashboard:
       - "5000:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${KANYO_CAM1_ROOT:-./data/harvard}:/data/harvard:ro
-      - ${KANYO_CAM2_ROOT:-./data/nsw}:/data/nsw:ro
+      - ${KANYO_CAM1_ROOT:-./data/harvard}:/data/harvard
+      - ${KANYO_CAM2_ROOT:-./data/nsw}:/data/nsw
     restart: unless-stopped
     logging:
       driver: "json-file"
