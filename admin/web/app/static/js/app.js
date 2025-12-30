@@ -184,6 +184,47 @@ window.playClip = playClip;
 window.showImage = showImage;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Local Stream Time Clock
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Update the local stream time based on timezone offset
+ */
+function updateStreamTime() {
+    const streamTimeEl = document.getElementById('stream-time');
+    if (!streamTimeEl) return;
+
+    // Get timezone offset from data attribute (set in template)
+    const timezoneOffset = streamTimeEl.dataset.timezone;
+    if (!timezoneOffset) return;
+
+    // Parse timezone offset (e.g., "-05:00" or "+10:00")
+    const match = timezoneOffset.match(/([+-])(\d{2}):(\d{2})/);
+    if (!match) return;
+
+    const sign = match[1] === '+' ? 1 : -1;
+    const hours = parseInt(match[2], 10);
+    const minutes = parseInt(match[3], 10);
+    const offsetMinutes = sign * (hours * 60 + minutes);
+
+    // Calculate stream time
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const streamTime = new Date(utc + (offsetMinutes * 60000));
+
+    // Format as HH:MM:SS
+    const hh = String(streamTime.getHours()).padStart(2, '0');
+    const mm = String(streamTime.getMinutes()).padStart(2, '0');
+    const ss = String(streamTime.getSeconds()).padStart(2, '0');
+
+    streamTimeEl.textContent = `${hh}:${mm}:${ss}`;
+}
+
+// Update stream time every second
+setInterval(updateStreamTime, 1000);
+updateStreamTime(); // Initial update
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Auto-hide success messages
 // ─────────────────────────────────────────────────────────────────────────────
 

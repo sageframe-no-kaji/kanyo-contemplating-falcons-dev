@@ -51,12 +51,18 @@
             <div class="bg-zinc-800 rounded-lg p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-xl font-semibold">Media Viewer</h2>
-                    <button id="live-btn"
-                            onclick="showLive()"
-                            class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition">
-                        <span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-                        LIVE
-                    </button>
+                    <div class="flex items-center gap-3">
+                        <div class="text-sm text-zinc-400">
+                            <div class="text-xs text-zinc-500">Local Stream Time</div>
+                            <div id="stream-time" data-timezone="{{ stream.timezone or '-05:00' }}" class="font-mono text-zinc-200">--:--:--</div>
+                        </div>
+                        <button id="live-btn"
+                                onclick="showLive()"
+                                class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition">
+                            <span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                            LIVE
+                        </button>
+                    </div>
                 </div>
 
                 <div id="media-viewer" class="aspect-video bg-zinc-900 rounded overflow-hidden relative">
