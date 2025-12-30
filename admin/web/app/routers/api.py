@@ -155,8 +155,8 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
     # Get clips for that date
     clips = clip_service.list_clips(stream["clips_path"], date_str)
 
-    # Filter to only show videos with thumbnails (skip still images and videos without thumbnails)
-    clips = [c for c in clips if c['is_video'] and c.get('has_thumbnail', True)]
+    # Filter to only show videos (skip still images)
+    clips = [c for c in clips if c['is_video']]
 
     # Render clips grid HTML
     if not clips:

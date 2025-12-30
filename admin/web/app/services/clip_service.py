@@ -5,6 +5,55 @@ from datetime import datetime, timedelta
 from typing import Optional
 import re
 import json
+from PIL import Image, ImageDraw
+
+
+def create_visit_thumbnail(arrival_path: Path, departure_path: Path, output_path: Path) -> bool:
+    """
+    Create composite thumbnail for visit clip combining arrival and departure.
+
+    Args:
+        arrival_path: Path to arrival thumbnail
+        departure_path: Path to departure thumbnail
+        output_path: Path to save composite thumbnail
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Load images
+        arrival = Image.open(arrival_path)
+        departure = Image.open(departure_path)
+
+        # Get dimensions
+        width, height = arrival.size
+
+        # Create new image
+        composite = Image.new('RGB', (width, height))
+
+        # Resize thumbnails to half size
+        half_width = width // 2
+        half_height = height // 2
+
+        # Arrival in upper left
+        arrival_small = arrival.resize((half_width, half_height))
+        composite.paste(arrival_small, (0, 0))
+
+        # Departure in lower right
+        departure_small = departure.resize((half_width, half_height))
+        composite.paste(departure_small, (half_width, half_height))
+
+        # Draw diagonal line
+        draw = ImageDraw.Draw(composite)
+        draw.line([(0, half_height), (half_width, 0)], fill='white', width=3)
+
+        # Save
+        composite.save(output_path, 'JPEG', quality=85)
+        return True
+
+    except Exception as e:
+        print(f"Error creating visit thumbnail: {e}")
+        return False
 
 
 def list_clips(clips_path: str, date: str) -> list[dict]:
@@ -50,6 +99,15 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         has_thumbnail = True
         if is_video:
             thumb_path = clip_file.with_suffix('.jpg')
+            
+            # For visit clips, create composite thumbnail if arrival and departure exist
+            if clip_type == 'visit' and not thumb_path.exists():
+                arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
+                departure_thumb = date_path / f"falcon_{time_str}_departure.jpg"
+                
+                if arrival_thumb.exists() and departure_thumb.exists():
+                    create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
+            
             has_thumbnail = thumb_path.exists()
 
         clips.append({
