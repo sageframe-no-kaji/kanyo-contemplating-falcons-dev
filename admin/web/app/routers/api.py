@@ -155,6 +155,9 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
     # Get clips for that date
     clips = clip_service.list_clips(stream["clips_path"], date_str)
 
+    # Filter to only show videos (skip still images)
+    clips = [c for c in clips if c['is_video']]
+
     # Render clips grid HTML
     if not clips:
         return '<p class="text-zinc-400">No clips for this date</p>'
@@ -178,7 +181,7 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
     '''
 
     for clip in clips[:12]:
-        thumb_name = clip['filename'].rsplit('.', 1)[0] + '.jpg' if clip['is_video'] else clip['filename']
+        thumb_name = clip['filename'].rsplit('.', 1)[0] + '.jpg'
         clip_type_color = {
             'arrival': 'bg-green-600',
             'departure': 'bg-red-600',
@@ -187,7 +190,7 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
 
         html += f'''
         <div class="aspect-video bg-zinc-900 rounded overflow-hidden relative group cursor-pointer"
-             onclick="{'playClip' if clip['is_video'] else 'showImage'}('/clips/{stream_id}/{date_str}/{clip['filename']}', '{clip['type']} at {clip['time']}')">
+             onclick="playClip('/clips/{stream_id}/{date_str}/{clip['filename']}', '{clip['type']} at {clip['time']}')">
             <img src="/clips/{stream_id}/{date_str}/{thumb_name}"
                  class="w-full h-full object-cover"
                  onerror="this.style.display='none'"
@@ -196,7 +199,7 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
                 <div class="flex flex-col gap-1">
                     <div class="flex items-center justify-between text-xs">
                         <span class="flex items-center gap-1">
-                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">{'VID' if clip['is_video'] else 'IMG'}</span>
+                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">VID</span>
                         </span>
                         <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {clip_type_color}">
                             {clip['type']}
@@ -207,7 +210,7 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
                     </div>
                 </div>
             </div>
-            {'<div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/30"><span class="text-4xl">▶</span></div>' if clip['is_video'] else ''}
+            <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/30"><span class="text-4xl">▶</span></div>
         </div>
         '''
 
