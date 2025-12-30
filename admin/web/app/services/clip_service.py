@@ -206,5 +206,5 @@ def get_today_events(clips_path: str) -> list[dict]:
             "filename": clip["filename"],
         }
 
-    # Sort by time
-    return sorted(events_by_time.values(), key=lambda x: x["time"])
+    # Sort by time (most recent first)
+    return sorted(events_by_time.values(), key=lambda x: x["time"], reverse=True)
