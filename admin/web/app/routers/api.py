@@ -1,11 +1,12 @@
 """API router for JSON endpoints."""
 
-from fastapi import APIRouter, HTTPException, Form
+from fastapi import APIRouter, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
+from datetime import datetime, timedelta
 
-from app.services import stream_service, docker_service, config_service
+from app.services import stream_service, docker_service, config_service, clip_service
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
 
 
@@ -138,6 +139,80 @@ async def start_stream(stream_id: str):
         {"request": {}, "stream": stream},
         media_type="text/html"
     )
+
+
+@router.get("/streams/{stream_id}/clips", response_class=HTMLResponse)
+async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
+    """Get clips for a specific date offset (0=today, 1=yesterday, etc.)."""
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    # Calculate the date
+    target_date = datetime.now() - timedelta(days=offset)
+    date_str = target_date.strftime("%Y-%m-%d")
+
+    # Get clips for that date
+    clips = clip_service.list_clips(stream["clips_path"], date_str)
+
+    # Render clips grid HTML
+    if not clips:
+        return '<p class="text-zinc-400">No clips for this date</p>'
+
+    # Render the clips grid (same as detail page)
+    html = '''
+    <!-- Legend -->
+    <div class="flex gap-4 mb-4 text-xs">
+        <span class="flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-green-600"></span> Arrival
+        </span>
+        <span class="flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-red-600"></span> Departure
+        </span>
+        <span class="flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-blue-600"></span> Visit
+        </span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3">
+    '''
+
+    for clip in clips[:12]:
+        thumb_name = clip['filename'].rsplit('.', 1)[0] + '.jpg' if clip['is_video'] else clip['filename']
+        clip_type_color = {
+            'arrival': 'bg-green-600',
+            'departure': 'bg-red-600',
+            'visit': 'bg-blue-600'
+        }.get(clip['type'], 'bg-zinc-600')
+
+        html += f'''
+        <div class="aspect-video bg-zinc-900 rounded overflow-hidden relative group cursor-pointer"
+             onclick="{'playClip' if clip['is_video'] else 'showImage'}('/clips/{stream_id}/{date_str}/{clip['filename']}', '{clip['type']} at {clip['time']}')">
+            <img src="/clips/{stream_id}/{date_str}/{thumb_name}"
+                 class="w-full h-full object-cover"
+                 onerror="this.style.display='none'"
+                 alt="{clip['type']} at {clip['time']}">
+            <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="flex items-center gap-1">
+                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">{'VID' if clip['is_video'] else 'IMG'}</span>
+                        </span>
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {clip_type_color}">
+                            {clip['type']}
+                        </span>
+                    </div>
+                    <div class="text-[11px] text-white/90">
+                        {date_str} {clip['time']}
+                    </div>
+                </div>
+            </div>
+            {'<div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/30"><span class="text-4xl">▶</span></div>' if clip['is_video'] else ''}
+        </div>
+        '''
+
+    html += '</div>'
+    return html
 
 
 @router.get("/streams/{stream_id}/logs")
