@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from app.services import stream_service, docker_service, config_service, clip_service
+from app.services import stream_service, docker_service, config_service, clip_service, log_service
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
 
 
@@ -212,29 +212,37 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
 
 
 @router.get("/streams/{stream_id}/logs")
-async def get_logs(stream_id: str, lines: int = 100):
-    """Get container logs formatted for display."""
+async def get_logs(
+    stream_id: str,
+    since: str = "startup",
+    lines: int = 500,
+    levels: str = "INFO,EVENT,WARNING,ERROR",
+):
+    """
+    Get logs from kanyo.log file with filtering.
+
+    Args:
+        stream_id: Stream identifier
+        since: Time range - "startup", "1h", "24h", "7d", "all"
+        lines: Maximum number of lines to return
+        levels: Comma-separated log levels to include
+    """
     stream = stream_service.get_stream(stream_id)
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    logs = docker_service.get_logs(stream["container_name"], lines)
+    # Parse levels parameter
+    level_list = [l.strip() for l in levels.split(",") if l.strip()] if levels else None
 
-    # Parse and format logs with data attributes
+    # Get logs from file
+    logs = log_service.get_logs(stream_id, since=since, lines=lines, levels=level_list)
+
+    # Format as HTML with data attributes
     html_lines = []
-    for line in logs.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-
-        # Try to extract level from log format: "timestamp | LEVEL | ..."
-        parts = line.split("|")
-        if len(parts) >= 2:
-            level = parts[1].strip()
-        else:
-            level = "UNKNOWN"
-
-        html_lines.append(f'<div class="log-line" data-level="{level}">{line}</div>')
+    for log_entry in logs:
+        level = log_entry["level"]
+        raw = log_entry["raw"]
+        html_lines.append(f'<div class="log-line" data-level="{level}">{raw}</div>')
 
     return HTMLResponse("\n".join(html_lines))
 
