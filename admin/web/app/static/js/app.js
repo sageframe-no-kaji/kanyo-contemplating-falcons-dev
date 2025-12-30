@@ -87,7 +87,7 @@ function getViewerElements() {
 function showLive() {
     const els = getViewerElements();
     if (!els.liveFrame) return;
-    
+
     // Hide clip viewers
     if (els.clipVideo) {
         els.clipVideo.classList.add('hidden');
@@ -96,7 +96,7 @@ function showLive() {
     if (els.clipImage) {
         els.clipImage.classList.add('hidden');
     }
-    
+
     // Show live
     els.liveFrame.classList.remove('hidden');
     if (els.liveBtn) {
@@ -116,7 +116,7 @@ function showLive() {
 function playClip(url, title) {
     const els = getViewerElements();
     if (!els.clipVideo) return;
-    
+
     // Hide live and image
     if (els.liveFrame) {
         els.liveFrame.classList.add('hidden');
@@ -124,12 +124,12 @@ function playClip(url, title) {
     if (els.clipImage) {
         els.clipImage.classList.add('hidden');
     }
-    
+
     // Show and play video
     els.clipVideo.src = url;
     els.clipVideo.classList.remove('hidden');
     els.clipVideo.play();
-    
+
     // Update UI
     if (els.liveBtn) {
         els.liveBtn.classList.remove('bg-red-600');
@@ -151,7 +151,7 @@ function playClip(url, title) {
 function showImage(url, title) {
     const els = getViewerElements();
     if (!els.clipImage) return;
-    
+
     // Hide live and video
     if (els.liveFrame) {
         els.liveFrame.classList.add('hidden');
@@ -160,11 +160,11 @@ function showImage(url, title) {
         els.clipVideo.classList.add('hidden');
         els.clipVideo.pause();
     }
-    
+
     // Show image
     els.clipImage.src = url;
     els.clipImage.classList.remove('hidden');
-    
+
     // Update UI
     if (els.liveBtn) {
         els.liveBtn.classList.remove('bg-red-600');

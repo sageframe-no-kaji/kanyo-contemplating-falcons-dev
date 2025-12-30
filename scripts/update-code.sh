@@ -42,7 +42,7 @@ ssh -t "${REMOTE_HOST}" "cd ${ADMIN_DIR} && sudo docker compose up -d --build da
 
 # Restart stream containers (admin already restarted by rebuild)
 echo "🔄 Restarting stream containers..."
-ssh -t "${REMOTE_HOST}" "cd ${ADMIN_DIR} && sudo docker compose restart kanyo-harvard-gpu kanyo-nsw-gpu"
+ssh -t "${REMOTE_HOST}" "cd ${ADMIN_DIR} && sudo docker compose restart harvard-gpu nsw-gpu"
 
 echo ""
 echo "✓ Code updated, configs synced, and containers restarted!"

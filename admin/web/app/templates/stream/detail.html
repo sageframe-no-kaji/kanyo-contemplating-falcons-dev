@@ -51,19 +51,19 @@
             <div class="bg-zinc-800 rounded-lg p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-xl font-semibold">Media Viewer</h2>
-                    <button id="live-btn" 
+                    <button id="live-btn"
                             onclick="showLive()"
                             class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition">
                         <span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
                         LIVE
                     </button>
                 </div>
-                
+
                 <div id="media-viewer" class="aspect-video bg-zinc-900 rounded overflow-hidden relative">
                     <!-- Default: YouTube Live -->
                     {% if stream.video_source and 'youtube.com' in stream.video_source %}
                         {% set video_id = stream.video_source.split('v=')[1].split('&')[0] %}
-                        <iframe 
+                        <iframe
                             id="live-frame"
                             src="https://www.youtube.com/embed/{{ video_id }}?autoplay=0"
                             class="w-full h-full"
@@ -76,20 +76,20 @@
                             <p>No video source configured</p>
                         </div>
                     {% endif %}
-                    
+
                     <!-- Video player (hidden by default) -->
-                    <video id="clip-video" 
-                           class="w-full h-full hidden" 
-                           controls 
+                    <video id="clip-video"
+                           class="w-full h-full hidden"
+                           controls
                            playsinline>
                     </video>
-                    
+
                     <!-- Image viewer (hidden by default) -->
-                    <img id="clip-image" 
-                         class="w-full h-full object-contain hidden" 
+                    <img id="clip-image"
+                         class="w-full h-full object-contain hidden"
                          alt="Clip image">
                 </div>
-                
+
                 <!-- Now playing indicator -->
                 <div id="now-playing" class="mt-2 text-sm text-zinc-400 hidden">
                     Now playing: <span id="now-playing-text"></span>
@@ -146,7 +146,7 @@
                                 </span>
                             </div>
                         </div>
-                        
+
                         {# Hover play icon for videos #}
                         {% if clip.is_video %}
                         <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/30">
