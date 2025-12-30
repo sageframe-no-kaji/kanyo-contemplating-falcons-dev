@@ -212,21 +212,31 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
 
 
 @router.get("/streams/{stream_id}/logs")
-async def get_logs(stream_id: str, lines: int = 100, level: str = None):
-    """Get container logs."""
+async def get_logs(stream_id: str, lines: int = 100):
+    """Get container logs formatted for display."""
     stream = stream_service.get_stream(stream_id)
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
     logs = docker_service.get_logs(stream["container_name"], lines)
 
-    # Filter by level if specified
-    if level:
-        log_lines = logs.split("\n")
-        filtered_lines = [line for line in log_lines if level.upper() in line]
-        logs = "\n".join(filtered_lines)
+    # Parse and format logs with data attributes
+    html_lines = []
+    for line in logs.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
 
-    return {"logs": logs}
+        # Try to extract level from log format: "timestamp | LEVEL | ..."
+        parts = line.split("|")
+        if len(parts) >= 2:
+            level = parts[1].strip()
+        else:
+            level = "UNKNOWN"
+
+        html_lines.append(f'<div class="log-line" data-level="{level}">{line}</div>')
+
+    return HTMLResponse("\n".join(html_lines))
 
 
 @router.put("/streams/{stream_id}/config")

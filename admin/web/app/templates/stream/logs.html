@@ -18,18 +18,59 @@
     <!-- Controls -->
     <div class="bg-zinc-800 rounded-lg p-4 mb-4">
         <div class="flex items-center gap-4">
-            <!-- Level Filter -->
+            <!-- Level Filter (Multi-Select Tags) -->
             <div class="flex items-center gap-2">
-                <label class="text-sm font-medium">Level:</label>
-                <select id="log-level"
-                        class="bg-zinc-700 border border-zinc-600 rounded px-3 py-1 text-sm focus:outline-none focus:border-zinc-500">
-                    <option value="">All</option>
-                    <option value="DEBUG">DEBUG</option>
-                    <option value="INFO">INFO</option>
-                    <option value="EVENT">EVENT</option>
-                    <option value="WARNING">WARNING</option>
-                    <option value="ERROR">ERROR</option>
-                </select>
+                <span class="text-sm text-zinc-400">Level:</span>
+
+                <label class="cursor-pointer">
+                    <input type="checkbox" name="log-level" value="DEBUG" class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-zinc-500 peer-checked:text-white
+                                 hover:bg-zinc-600 transition">
+                        DEBUG
+                    </span>
+                </label>
+
+                <label class="cursor-pointer">
+                    <input type="checkbox" name="log-level" value="INFO" checked class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-blue-600 peer-checked:text-white
+                                 hover:bg-zinc-600 transition">
+                        INFO
+                    </span>
+                </label>
+
+                <label class="cursor-pointer">
+                    <input type="checkbox" name="log-level" value="EVENT" checked class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-green-600 peer-checked:text-white
+                                 hover:bg-zinc-600 transition">
+                        EVENT
+                    </span>
+                </label>
+
+                <label class="cursor-pointer">
+                    <input type="checkbox" name="log-level" value="WARNING" checked class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-amber-600 peer-checked:text-white
+                                 hover:bg-zinc-600 transition">
+                        WARNING
+                    </span>
+                </label>
+
+                <label class="cursor-pointer">
+                    <input type="checkbox" name="log-level" value="ERROR" checked class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-red-600 peer-checked:text-white
+                                 hover:bg-zinc-600 transition">
+                        ERROR
+                    </span>
+                </label>
             </div>
 
             <!-- Search -->
@@ -69,7 +110,21 @@
 
     <!-- Log Output -->
     <div class="bg-zinc-900 rounded-lg p-4 overflow-auto" style="max-height: 70vh;">
-        <pre id="log-output" class="text-sm font-mono">{{ logs }}</pre>
+        <div id="log-output" class="text-sm font-mono space-y-0.5">
+            {% if logs %}
+                {% for line in logs.split('\n') %}
+                    {% if line.strip() %}
+                        {% set parts = line.split('|') %}
+                        {% if parts|length >= 2 %}
+                            {% set level = parts[1].strip() %}
+                            <div class="log-line" data-level="{{ level }}">{{ line }}</div>
+                        {% else %}
+                            <div class="log-line" data-level="UNKNOWN">{{ line }}</div>
+                        {% endif %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        </div>
     </div>
 </div>
 
@@ -81,18 +136,46 @@
 </style>
 
 <script>
-    // Simple log filtering
-    const searchInput = document.getElementById('log-search');
-    const levelSelect = document.getElementById('log-level');
-
-    function filterLogs() {
-        const searchTerm = searchInput.value.toLowerCase();
-        const level = levelSelect.value;
-        // Filter implementation would go here
-        // This is a placeholder - real filtering would need to work with the log content
+    // Log filtering by multiple levels
+    function getSelectedLevels() {
+        const checkboxes = document.querySelectorAll('input[name="log-level"]:checked');
+        return Array.from(checkboxes).map(cb => cb.value);
     }
 
+    function filterLogs() {
+        const selectedLevels = getSelectedLevels();
+        const searchTerm = document.getElementById('log-search').value.toLowerCase();
+        const logLines = document.querySelectorAll('.log-line');
+
+        logLines.forEach(line => {
+            const level = line.dataset.level;
+            const text = line.textContent.toLowerCase();
+
+            // Check level filter
+            const levelMatch = selectedLevels.length === 0 || selectedLevels.includes(level);
+
+            // Check search filter
+            const searchMatch = !searchTerm || text.includes(searchTerm);
+
+            // Show if both match
+            if (levelMatch && searchMatch) {
+                line.classList.remove('hidden');
+            } else {
+                line.classList.add('hidden');
+            }
+        });
+    }
+
+    // Attach to checkboxes
+    document.querySelectorAll('input[name="log-level"]').forEach(cb => {
+        cb.addEventListener('change', filterLogs);
+    });
+
+    // Attach to search
+    const searchInput = document.getElementById('log-search');
     searchInput?.addEventListener('input', filterLogs);
-    levelSelect?.addEventListener('change', filterLogs);
+
+    // Initial filter on load
+    filterLogs();
 </script>
 {% endblock %}
