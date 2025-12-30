@@ -69,3 +69,23 @@ async def serve_clip(stream_id: str, date: str, filename: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path)
+
+
+@app.get("/data/{stream_id}/{path:path}")
+async def serve_data_file(stream_id: str, path: str):
+    """Serve any file from stream's data directory."""
+    file_path = settings.DATA_PATH / stream_id / path
+
+    # Security: ensure path stays within stream directory
+    try:
+        file_path.resolve().relative_to((settings.DATA_PATH / stream_id).resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=400, detail="Not a file")
+
+    return FileResponse(file_path)

@@ -33,7 +33,7 @@
         <div class="bg-zinc-800 rounded-lg p-4">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-lg font-semibold">{{ breadcrumbs[-1].name }}</h2>
-                <a href="/clips/{{ stream.id }}/{{ current_path }}"
+                <a href="/data/{{ stream.id }}/{{ current_path }}"
                    download
                    class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm transition">
                     Download
@@ -80,14 +80,14 @@
                                     <span class="text-lg">📁</span> {{ item.name }}
                                 </a>
                             {% elif item.name.endswith('.jpg') or item.name.endswith('.png') or item.name.endswith('.jpeg') %}
-                                <a href="#"
-                                   onclick="showImage('/clips/{{ stream.id }}/{{ item.path }}', '{{ item.name }}'); return false;"
+                                <a href="/data/{{ stream.id }}/{{ item.path }}"
+                                   target="_blank"
                                    class="flex items-center gap-2 text-green-400 hover:text-green-300">
                                     <span class="text-lg">🖼️</span> {{ item.name }}
                                 </a>
                             {% elif item.name.endswith('.mp4') or item.name.endswith('.avi') or item.name.endswith('.mov') %}
-                                <a href="#"
-                                   onclick="playClip('/clips/{{ stream.id }}/{{ item.path }}', '{{ item.name }}'); return false;"
+                                <a href="/data/{{ stream.id }}/{{ item.path }}"
+                                   target="_blank"
                                    class="flex items-center gap-2 text-purple-400 hover:text-purple-300">
                                     <span class="text-lg">🎬</span> {{ item.name }}
                                 </a>
@@ -97,7 +97,7 @@
                                     <span class="text-lg">📄</span> {{ item.name }}
                                 </a>
                             {% else %}
-                                <a href="/clips/{{ stream.id }}/{{ item.path }}"
+                                <a href="/data/{{ stream.id }}/{{ item.path }}"
                                    download
                                    class="flex items-center gap-2 text-zinc-300 hover:text-white">
                                     <span class="text-lg">📄</span> {{ item.name }}
