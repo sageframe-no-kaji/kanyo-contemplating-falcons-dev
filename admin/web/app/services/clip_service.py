@@ -46,11 +46,18 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         # Determine if video or image
         is_video = ext.lower() in ['mp4', 'avi', 'mov', 'mkv']
 
+        # Check if thumbnail exists for videos
+        has_thumbnail = True
+        if is_video:
+            thumb_path = clip_file.with_suffix('.jpg')
+            has_thumbnail = thumb_path.exists()
+
         clips.append({
             "filename": clip_file.name,
             "time": time,
             "type": clip_type,
             "is_video": is_video,
+            "has_thumbnail": has_thumbnail,
             "size_bytes": clip_file.stat().st_size,
         })
 
