@@ -19,14 +19,14 @@ def verify_auth(credentials: HTTPBasicCredentials = Depends(security)):
     """Verify basic authentication credentials."""
     admin_user = os.getenv("ADMIN_USERNAME", "admin")
     admin_pass = os.getenv("ADMIN_PASSWORD")
-    
+
     if not admin_pass:
         # No password set - allow access (dev mode)
         return
-    
+
     is_user_ok = secrets.compare_digest(credentials.username, admin_user)
     is_pass_ok = secrets.compare_digest(credentials.password, admin_pass)
-    
+
     if not (is_user_ok and is_pass_ok):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
