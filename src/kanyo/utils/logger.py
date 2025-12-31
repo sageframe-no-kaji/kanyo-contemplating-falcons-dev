@@ -70,8 +70,14 @@ class UTCFormatter(logging.Formatter):
 def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) -> None:
     """Initialize root logger with console + file handlers (UTC timestamps). Safe to call multiple times."""
     global _initialized
+
+    root = logging.getLogger()
+
+    # ALWAYS update level (even if handlers already exist)
+    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+
     if _initialized:
-        return
+        return  # Don't add duplicate handlers, but level is already updated above
 
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,8 +90,6 @@ def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) 
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
 
-    root = logging.getLogger()
-    root.setLevel(getattr(logging, level.upper(), logging.INFO))
     root.addHandler(console)
     root.addHandler(file_handler)
 
