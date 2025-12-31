@@ -1,6 +1,9 @@
 config.local.yaml
 config.yaml
 
+# Internal Development
+/Agent-Tasks/
+
 # Docker - user-specific production config
 docker-compose.yml
 

@@ -192,6 +192,9 @@ class BufferClipManager:
         )
 
         logger.event(f"📹 Scheduling departure clip: {clip_path.name}")
+        logger.debug(f"Visit started: {recording_start}")
+        logger.debug(f"Last detection: {visit_end}")
+        logger.debug(f"Calculated offset: {last_detection_offset:.1f} seconds")
         logger.event(
             f"    Last detection at offset {last_detection_offset:.1f}s, "
             f"extracting {start_offset:.1f}s + {clip_duration}s"

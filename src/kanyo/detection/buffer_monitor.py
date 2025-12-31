@@ -185,6 +185,11 @@ class BufferMonitor:
             detections = self.detector.detect_birds(frame_data, timestamp=now)
             falcon_detected = len(detections) > 0
 
+            # Debug logging for detection tracking
+            if falcon_detected:
+                logger.debug(f"Bird detected at {now}, updating last_detection_time")
+                self.last_detection_time = now
+
             # Store frame for thumbnails
             if falcon_detected:
                 self.event_handler.update_frame(frame_data)
@@ -238,6 +243,21 @@ class BufferMonitor:
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
             if visit_path and visit_metadata:
+                # Use last_detection_time from state machine instead of departure_time
+                # This ensures departure clip shows actual departure, not empty nest
+                last_detection_time = metadata.get("visit_end", event_time)
+
+                # Debug logging for clip timing
+                visit_start = metadata.get("visit_start")
+                logger.debug(f"Visit started: {visit_start}")
+                logger.debug(f"Last detection: {last_detection_time}")
+                if isinstance(visit_start, datetime) and isinstance(last_detection_time, datetime):
+                    calculated_offset = (last_detection_time - visit_start).total_seconds()
+                    logger.debug(f"Calculated offset: {calculated_offset:.1f} seconds")
+
+                # Update visit_metadata with actual last_detection time
+                visit_metadata["visit_end"] = last_detection_time
+
                 # Create departure clip
                 self.clip_manager.create_departure_clip(visit_metadata)
 

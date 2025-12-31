@@ -1,6 +1,3 @@
-Here's the updated README.md:
-
-```markdown
 # Kanyo (観鷹)
 **Contemplating Falcons**
 
@@ -217,4 +214,3 @@ MIT
 - Claudia Goldin - For the inspiration
 - Memorial Hall Falcon Cam - For the falcons
 - Anthropic - For Claude (development assistant)
-```
