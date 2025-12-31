@@ -449,7 +449,7 @@ class BufferClipManager:
                 ]
             )
 
-        cmd.extend(["-movflags", "+faststart", str(clip_path)])
+        cmd.extend(["-movflags", "+faststart", "-f", "mp4", str(clip_path)])
 
         logger.event(f"📹 Starting arrival clip recording: {clip_path}")
 

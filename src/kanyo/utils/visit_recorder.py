@@ -231,7 +231,7 @@ class VisitRecorder:
                 ]
             )
 
-        cmd.extend(["-movflags", "+faststart", str(self._visit_path)])
+        cmd.extend(["-movflags", "+faststart", "-f", "mp4", str(self._visit_path)])
 
         logger.event(f"📹 Starting visit recording: {self._visit_path}")
 
