@@ -317,9 +317,9 @@ class BufferMonitor:
                 frames_processed += 1
                 current_time = time.time()
 
-                # Detect if we just recovered from an outage
+                # Detect if we just recovered from an outage (skip during init)
                 time_since_last_frame = current_time - last_frame_time
-                if time_since_last_frame > 10:  # More than 10s gap = outage
+                if initialization_complete and time_since_last_frame > 10:
                     outage_duration = time_since_last_frame
                     self.state_machine.add_outage(outage_duration)
                     logger.info(f"⚠️  Stream outage detected: {outage_duration:.1f}s")
