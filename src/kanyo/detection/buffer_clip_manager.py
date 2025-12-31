@@ -332,12 +332,14 @@ class BufferClipManager:
         """
         from kanyo.utils.visit_recorder import VisitRecorder
 
-        clip_path = get_output_path(
+        # Create clip path with .tmp extension while recording
+        final_clip_path = get_output_path(
             str(self.clips_dir),
             arrival_time,
             "arrival",
             "mp4",
         )
+        clip_path = final_clip_path.with_suffix(".mp4.tmp")
 
         logger.event(f"📹 Creating standalone arrival clip: {clip_path.name}")
 
@@ -351,6 +353,7 @@ class BufferClipManager:
         # Manually initialize recording (can't use start_recording() because it
         # overwrites _visit_path with get_output_path(..., "visit", ...)
         temp_recorder._visit_path = clip_path
+        temp_recorder._final_path = final_clip_path
         temp_recorder._visit_path.parent.mkdir(parents=True, exist_ok=True)
         temp_recorder._visit_start = arrival_time
         temp_recorder._recording_start = arrival_time - timedelta(

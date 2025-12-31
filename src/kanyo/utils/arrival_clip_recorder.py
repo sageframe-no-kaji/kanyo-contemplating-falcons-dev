@@ -113,7 +113,11 @@ class ArrivalClipRecorder:
             return
 
         clip_path = self._clip_path
-        self._recorder.stop_recording(stop_time)
+        final_path, _ = self._recorder.stop_recording(stop_time)
+
+        # Use the final path from stop_recording (which handles .tmp rename)
+        if final_path:
+            clip_path = final_path
 
         # Delete FFmpeg log file after successful recording
         if clip_path:

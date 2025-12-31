@@ -80,7 +80,8 @@ class VisitRecorder:
 
         # Recording state
         self._process: subprocess.Popen | None = None
-        self._visit_path: Path | None = None
+        self._visit_path: Path | None = None  # Temporary path (.tmp)
+        self._final_path: Path | None = None  # Final path (.mp4)
         self._visit_start: datetime | None = None
         self._recording_start: datetime | None = None
         self._frame_count: int = 0
@@ -128,13 +129,14 @@ class VisitRecorder:
             logger.warning("Already recording - stopping previous recording")
             self.stop_recording(datetime.now())
 
-        # Generate output path
-        self._visit_path = get_output_path(
+        # Generate output path with .tmp extension while recording
+        self._final_path = get_output_path(
             str(self.clips_dir),
             arrival_time,
             "visit",
             "mp4",
         )
+        self._visit_path = self._final_path.with_suffix(".mp4.tmp")
         self._visit_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._visit_start = arrival_time
@@ -407,6 +409,17 @@ class VisitRecorder:
         }
 
         result_path = self._visit_path
+        final_path = self._final_path
+
+        # Rename from .tmp to .mp4 to make it visible
+        if result_path and final_path and result_path.exists():
+            try:
+                result_path.rename(final_path)
+                result_path = final_path
+                # Update metadata with final path
+                metadata["visit_file"] = str(final_path)
+            except Exception as e:
+                logger.error(f"Failed to rename {result_path} to {final_path}: {e}")
 
         # Delete FFmpeg log file after successful recording
         if result_path:
