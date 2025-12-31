@@ -274,6 +274,7 @@ async def update_config(
     stream_name: str = Form(...),
     video_source: str = Form(...),
     detection_confidence: float = Form(...),
+    detection_confidence_ir: str = Form(""),
     frame_interval: int = Form(...),
     timezone: str = Form(...),
     exit_timeout: int = Form(...),
@@ -297,19 +298,26 @@ async def update_config(
         existing_config = config_service.read_config(stream["config_path"])
 
         # Update only the fields from the form
-        existing_config.update(
-            {
-                "stream_name": stream_name,
-                "video_source": video_source,
-                "detection_confidence": detection_confidence,
-                "frame_interval": frame_interval,
-                "timezone": timezone,
-                "exit_timeout": exit_timeout,
-                "roosting_threshold": roosting_threshold,
-                "telegram_enabled": telegram_enabled,
-                "telegram_channel": telegram_channel,
-            }
-        )
+        updated_fields = {
+            "stream_name": stream_name,
+            "video_source": video_source,
+            "detection_confidence": detection_confidence,
+            "frame_interval": frame_interval,
+            "timezone": timezone,
+            "exit_timeout": exit_timeout,
+            "roosting_threshold": roosting_threshold,
+            "telegram_enabled": telegram_enabled,
+            "telegram_channel": telegram_channel,
+        }
+
+        # Handle optional detection_confidence_ir
+        if detection_confidence_ir:
+            updated_fields["detection_confidence_ir"] = float(detection_confidence_ir)
+        elif "detection_confidence_ir" in existing_config:
+            # Remove if cleared
+            del existing_config["detection_confidence_ir"]
+
+        existing_config.update(updated_fields)
 
         # Validate: roosting_threshold must be > exit_timeout
         if roosting_threshold <= exit_timeout:

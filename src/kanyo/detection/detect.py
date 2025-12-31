@@ -38,6 +38,16 @@ ANIMAL_CLASS_IDS = {
 }
 
 
+def is_ir_mode(frame) -> bool:
+    """Detect if frame is infrared/night vision (grayscale).
+
+    IR frames have R ≈ G ≈ B for all pixels since they're essentially grayscale.
+    """
+    g, r = frame[:, :, 1], frame[:, :, 2]
+    diff = np.abs(r.astype(int) - g.astype(int)).mean()
+    return diff < 5
+
+
 @dataclass
 class Detection:
     """A single object detection result."""
@@ -74,6 +84,7 @@ class FalconDetector:
         self,
         model_path: str | Path = "models/yolov8n.pt",
         confidence_threshold: float = 0.5,
+        confidence_threshold_ir: float | None = None,
         target_classes: list[int] | None = None,
         detect_any_animal: bool = True,
         animal_classes: list[int] | None = None,
@@ -84,6 +95,7 @@ class FalconDetector:
         Args:
             model_path: Path to YOLO model (auto-downloads if missing)
             confidence_threshold: Minimum confidence for detections
+            confidence_threshold_ir: Optional lower threshold for IR/night mode
             target_classes: Class IDs to detect (default: [14] for birds)
             detect_any_animal: If True, detect any animal (for falcon cams where
                                the model may misclassify falcons as cats/dogs)
@@ -91,6 +103,7 @@ class FalconDetector:
         """
         self.model_path = Path(model_path)
         self.confidence_threshold = confidence_threshold
+        self.confidence_threshold_ir = confidence_threshold_ir
         self.detect_any_animal = detect_any_animal
 
         # Use provided animal_classes or fall back to ANIMAL_CLASS_IDS keys
@@ -130,9 +143,16 @@ class FalconDetector:
         """
         timestamp = timestamp or datetime.now()
 
+        # Determine effective threshold based on IR mode
+        ir_mode = is_ir_mode(frame)
+        if ir_mode and self.confidence_threshold_ir is not None:
+            effective_threshold = self.confidence_threshold_ir
+        else:
+            effective_threshold = self.confidence_threshold
+
         results = self.model(
             frame,
-            conf=self.confidence_threshold,
+            conf=effective_threshold,
             verbose=False,
         )
 
@@ -178,11 +198,17 @@ class FalconDetector:
 
         if detections:
             max_confidence = max(d.confidence for d in detections)
-            logger.debug(f"Falcon detected: confidence={max_confidence:.3f}")
-        else:
+            mode_str = "IR" if ir_mode else "DAY"
             logger.debug(
-                f"No falcon detected (checked {total_checked} detections, "
-                f"targets={self.target_classes})"
+                f"[{mode_str}] Falcon detected: confidence={max_confidence:.3f} "
+                f"(threshold={effective_threshold:.2f})"
+            )
+        else:
+            mode_str = "IR" if ir_mode else "DAY"
+            logger.debug(
+                f"[{mode_str}] No falcon detected "
+                f"(checked {total_checked} detections, "
+                f"threshold={effective_threshold:.2f})"
             )
 
         return detections

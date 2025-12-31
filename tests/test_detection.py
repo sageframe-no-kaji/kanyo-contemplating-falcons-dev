@@ -43,6 +43,45 @@ class TestImports:
         assert EventStore is not None
 
 
+class TestIRModeDetection:
+    """Tests for IR/night mode detection."""
+
+    def test_is_ir_mode_with_grayscale_frame(self):
+        """Grayscale/IR frames are detected correctly."""
+        from kanyo.detection.detect import is_ir_mode
+
+        # Create grayscale frame (R=G=B)
+        grayscale_frame = np.ones((480, 640, 3), dtype=np.uint8) * 128
+        assert is_ir_mode(grayscale_frame)
+
+    def test_is_ir_mode_with_color_frame(self):
+        """Color/daytime frames are detected correctly."""
+        from kanyo.detection.detect import is_ir_mode
+
+        # Create color frame with R != G != B
+        color_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        color_frame[:, :, 0] = 100  # Blue
+        color_frame[:, :, 1] = 150  # Green
+        color_frame[:, :, 2] = 200  # Red
+        assert not is_ir_mode(color_frame)
+
+    def test_is_ir_mode_boundary(self):
+        """IR detection threshold is correct."""
+        from kanyo.detection.detect import is_ir_mode
+
+        # Frame with diff=4.9 (just below threshold)
+        near_grayscale = np.zeros((480, 640, 3), dtype=np.uint8)
+        near_grayscale[:, :, 1] = 100  # G
+        near_grayscale[:, :, 2] = 104  # R (diff < 5)
+        assert is_ir_mode(near_grayscale)
+
+        # Frame with diff=6 (above threshold)
+        color_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        color_frame[:, :, 1] = 100  # G
+        color_frame[:, :, 2] = 110  # R (diff > 5)
+        assert not is_ir_mode(color_frame)
+
+
 class TestFalconDetector:
     """Tests for FalconDetector class."""
 
@@ -53,6 +92,14 @@ class TestFalconDetector:
         detector = FalconDetector(confidence_threshold=0.7)
         assert detector.confidence_threshold == 0.7
         assert detector._model is None  # Lazy loading
+
+    def test_instantiation_with_ir_threshold(self):
+        """FalconDetector accepts IR threshold parameter."""
+        from kanyo.detection.detect import FalconDetector
+
+        detector = FalconDetector(confidence_threshold=0.5, confidence_threshold_ir=0.25)
+        assert detector.confidence_threshold == 0.5
+        assert detector.confidence_threshold_ir == 0.25
 
     def test_model_path_default(self):
         """Default model path is set."""

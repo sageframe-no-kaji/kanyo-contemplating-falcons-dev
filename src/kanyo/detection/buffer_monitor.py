@@ -54,6 +54,7 @@ class BufferMonitor:
         self,
         stream_url: str = DEFAULT_STREAM_URL,
         confidence_threshold: float = 0.5,
+        confidence_threshold_ir: float | None = None,
         exit_timeout_seconds: int = 120,
         process_interval_frames: int = 30,
         detect_any_animal: bool = True,
@@ -95,6 +96,7 @@ class BufferMonitor:
         # Detector
         self.detector = FalconDetector(
             confidence_threshold=confidence_threshold,
+            confidence_threshold_ir=confidence_threshold_ir,
             detect_any_animal=detect_any_animal,
             animal_classes=animal_classes,
         )
@@ -508,6 +510,7 @@ def main():
         monitor = BufferMonitor(
             stream_url=config.get("video_source", DEFAULT_STREAM_URL),
             confidence_threshold=config.get("detection_confidence", 0.5),
+            confidence_threshold_ir=config.get("detection_confidence_ir"),
             exit_timeout_seconds=config.get("exit_timeout", 300),
             process_interval_frames=config.get("frame_interval", 30),
             detect_any_animal=config.get("detect_any_animal", True),

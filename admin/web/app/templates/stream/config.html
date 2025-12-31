@@ -61,6 +61,21 @@
                     </div>
 
                     <div>
+                        <label class="block text-sm font-medium mb-2">Detection Confidence (IR/Night)</label>
+                        <input type="number"
+                               name="detection_confidence_ir"
+                               value="{{ config.detection_confidence_ir or '' }}"
+                               step="0.01"
+                               min="0"
+                               max="1"
+                               placeholder="Leave empty to use day threshold"
+                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                        <small class="text-xs text-zinc-400 mt-1 block">Lower threshold for infrared/night footage (optional)</small>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
                         <label class="block text-sm font-medium mb-2">Frame Interval</label>
                         <input type="number"
                                name="frame_interval"
@@ -68,14 +83,14 @@
                                min="1"
                                class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                     </div>
-                </div>
 
-                <div>
-                    <label class="block text-sm font-medium mb-2">Timezone</label>
-                    <input type="text"
-                           name="timezone"
-                           value="{{ config.timezone }}"
-                           class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Timezone</label>
+                        <input type="text"
+                               name="timezone"
+                               value="{{ config.timezone }}"
+                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                    </div>
                 </div>
             </div>
         </section>

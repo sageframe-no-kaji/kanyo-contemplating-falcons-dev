@@ -27,6 +27,7 @@ DEFAULTS: dict[str, Any] = {
     # Stream & Detection
     "video_source": "",  # YouTube URL (required)
     "detection_confidence": 0.5,  # 0.0–1.0
+    "detection_confidence_ir": None,  # Optional lower threshold for IR/night mode
     "detection_interval": 60,  # seconds between notification checks
     "frame_interval": 30,  # process every Nth frame (30 = 2fps at 60fps)
     "model_path": "models/yolov8n.pt",  # YOLOv8 weights
@@ -196,6 +197,14 @@ def _validate(cfg: dict[str, Any]) -> None:
     conf = cfg.get("detection_confidence", 0.5)
     if not 0.0 <= conf <= 1.0:
         raise ValueError("detection_confidence must be between 0.0 and 1.0")
+
+    # IR confidence range (optional)
+    conf_ir = cfg.get("detection_confidence_ir")
+    if conf_ir is not None:
+        if not isinstance(conf_ir, (int, float)):
+            raise ValueError("detection_confidence_ir must be a number")
+        if not 0.0 <= conf_ir <= 1.0:
+            raise ValueError("detection_confidence_ir must be between 0.0 and 1.0")
 
     # Timing constraint validations
     exit_timeout = cfg.get("exit_timeout", 90)

@@ -12,6 +12,7 @@ video_source: "https://youtube.com/watch?v=YOUR_STREAM_ID"
 
 # Detection
 detection_confidence: 0.3      # 0.0-1.0 (required)
+detection_confidence_ir: 0.25  # IR/night mode threshold (optional, lower for grayscale)
 frame_interval: 3              # >= 1 (required)
 model_path: "models/yolov8n.pt"
 detect_any_animal: true
