@@ -21,6 +21,9 @@ timezone: "UTC"                # IANA timezone name (e.g., "Australia/Sydney", "
 exit_timeout: 90               # Seconds absent before departure (same for all states)
 roosting_threshold: 1800       # 30 min - transition to roosting (notification only)
 
+# Notifications
+notify_on_startup: false       # Send notification if bird detected at startup
+
 # Clip Extraction
 clips_dir: "clips"
 clip_arrival_before: 15
@@ -35,5 +38,5 @@ telegram_channel: ""
 notification_cooldown_minutes: 5
 
 # Logging
-log_level: "INFO"
+log_level: "DEBUG"        # DEBUG, INFO, WARNING, ERROR
 log_file: "logs/kanyo.log"

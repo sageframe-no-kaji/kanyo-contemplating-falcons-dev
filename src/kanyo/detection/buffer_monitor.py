@@ -10,7 +10,6 @@ import os
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
 from datetime import datetime  # noqa: E402
-from pathlib import Path  # noqa: E402
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
@@ -71,6 +70,8 @@ class BufferMonitor:
         clips_dir: str = "clips",
         # State machine settings
         roosting_threshold: int = 1800,
+        # Notification settings
+        notify_on_startup: bool = True,
         # Runtime settings
         max_runtime_seconds: int | None = None,
         full_config: dict | None = None,
@@ -78,6 +79,7 @@ class BufferMonitor:
         self.stream_url = stream_url
         self.exit_timeout = exit_timeout_seconds
         self.process_interval = process_interval_frames
+        self.notify_on_startup = notify_on_startup
         self.clip_fps = clip_fps
         self.clip_crf = clip_crf
         self.clips_dir = clips_dir
@@ -334,6 +336,9 @@ class BufferMonitor:
                         now = get_now_tz(self.full_config)
                         self.state_machine.initialize_state(falcon_detected, now)
 
+                        # Reset frame time to prevent false outage detection
+                        last_frame_time = current_time
+
                         state_name = self.state_machine.state.value
                         if falcon_detected:
                             max_conf = max(d.confidence for d in initial_detections)
@@ -361,10 +366,11 @@ class BufferMonitor:
                                 frame_size=self._frame_size or (1280, 720),
                             )
 
-                            # Send startup arrival notification WITH photo
-                            self.event_handler.handle_event(
-                                FalconEvent.ARRIVED, now, {"state": state_name}
-                            )
+                            # Send startup arrival notification WITH photo (if enabled)
+                            if self.notify_on_startup:
+                                self.event_handler.handle_event(
+                                    FalconEvent.ARRIVED, now, {"state": state_name}
+                                )
                         else:
                             logger.info(f"📊 Initial state: {state_name.upper()} (no birds)")
 
@@ -515,6 +521,7 @@ def main():
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
             roosting_threshold=config.get("roosting_threshold", 1800),
+            notify_on_startup=config.get("notify_on_startup", True),
             max_runtime_seconds=config.get("max_runtime_seconds"),
             full_config=config,
         )

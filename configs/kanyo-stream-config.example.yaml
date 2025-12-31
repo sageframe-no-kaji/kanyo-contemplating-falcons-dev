@@ -45,6 +45,9 @@ detect_any_animal: true
 exit_timeout: 90               # Seconds absent before departure (same for all states)
 roosting_threshold: 1800       # 30 min - transition to roosting (notification only)
 
+# Notifications
+notify_on_startup: false       # Send notification if bird detected at startup
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Detection Classes (COCO IDs)
@@ -130,8 +133,8 @@ clip_hardware_encoding: true
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
-
-log_level: "INFO"             # DEBUG | INFO | WARNING | ERROR | CRITICAL
+# Log set to debug beecause GUI allows easy filtering
+log_level: "DEBUG"             # DEBUG | INFO | WARNING | ERROR | CRITICAL
 
 
 # ─────────────────────────────────────────────────────────────────────────────
