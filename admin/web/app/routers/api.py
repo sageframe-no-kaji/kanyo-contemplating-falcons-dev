@@ -1,7 +1,7 @@
 """API router for JSON endpoints."""
 
 from fastapi import APIRouter, HTTPException, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
@@ -260,7 +260,14 @@ async def get_logs(
 
         # Format as: 2025-12-30 12:08:03 (stream local) | LEVEL | module | message
         timestamp_str = timestamp_local.strftime("%Y-%m-%d %H:%M:%S")
-        formatted_line = f"{timestamp_str} (stream local) | {level:<8} | {log_entry['module']} | {log_entry['message']}"
+
+        # Wrap level in span for highlighting
+        level_padded = f"{level:<8}"
+        formatted_line = (
+            f'{timestamp_str} (stream local) | '
+            f'<span class="log-level">{level_padded}</span> | '
+            f'{log_entry["module"]} | {log_entry["message"]}'
+        )
 
         html_lines.append(f'<div class="log-line" data-level="{level}">{formatted_line}</div>')
 
@@ -268,7 +275,9 @@ async def get_logs(
 
 
 @router.put("/streams/{stream_id}/config")
+@router.post("/streams/{stream_id}/config")
 async def update_config(
+    request: Request,
     stream_id: str,
     action: str = Form("save"),
     stream_name: str = Form(...),
@@ -337,19 +346,31 @@ async def update_config(
             docker_service.restart_container(stream["container_name"])
             message = "Configuration saved and container restarting..."
 
-        return HTMLResponse(
-            f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-2 rounded">'
-            f"{message}"
-            f"</div>"
-        )
+        # Check if this is an HTMX request
+        if request.headers.get("HX-Request"):
+            # HTMX request - return HTML fragment
+            return HTMLResponse(
+                f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-2 rounded">'
+                f"{message}"
+                f"</div>"
+            )
+        else:
+            # Regular form POST - redirect back to config page
+            return RedirectResponse(
+                url=f"/streams/{stream_id}/config",
+                status_code=303
+            )
 
     except Exception as e:
-        return HTMLResponse(
-            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-            f"Error: {str(e)}"
-            f"</div>",
-            status_code=500,
-        )
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+                f"Error: {str(e)}"
+                f"</div>",
+                status_code=500,
+            )
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/streams")

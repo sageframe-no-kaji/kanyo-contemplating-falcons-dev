@@ -17,6 +17,7 @@
 
     <!-- Configuration Form -->
     <form id="config-form"
+          method="POST"
           hx-put="/api/streams/{{ stream.id }}/config"
           hx-target="#save-feedback"
           hx-swap="innerHTML"
