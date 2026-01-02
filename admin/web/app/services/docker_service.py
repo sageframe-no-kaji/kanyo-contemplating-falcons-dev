@@ -70,13 +70,23 @@ def restart_container(container_name: str) -> bool:
     """
     client = _get_docker_client()
     if not client:
+        print(f"[DOCKER] Failed to get Docker client for restart of {container_name}")
         return False
 
     try:
         container = client.containers.get(container_name)
+        print(f"[DOCKER] Found container {container_name}, restarting...")
         container.restart()
+        print(f"[DOCKER] Successfully restarted {container_name}")
         return True
-    except (NotFound, APIError):
+    except NotFound:
+        print(f"[DOCKER] Container not found: {container_name}")
+        return False
+    except APIError as e:
+        print(f"[DOCKER] API error restarting {container_name}: {e}")
+        return False
+    except Exception as e:
+        print(f"[DOCKER] Unexpected error restarting {container_name}: {e}")
         return False
 
 
