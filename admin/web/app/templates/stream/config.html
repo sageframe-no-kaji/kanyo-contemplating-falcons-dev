@@ -24,8 +24,8 @@
           hx-encoding="multipart/form-data"
           class="space-y-6">
 
-        <!-- Feedback Message -->
-        <div id="save-feedback"></div>
+        <!-- Feedback Message (fixed position at top) -->
+        <div id="save-feedback" class="mb-4"></div>
 
         <!-- Stream & Detection Section -->
         <section class="bg-zinc-800 rounded-lg p-6">
@@ -87,10 +87,24 @@
 
                     <div>
                         <label class="block text-sm font-medium mb-2">Timezone</label>
-                        <input type="text"
-                               name="timezone"
-                               value="{{ config.timezone }}"
-                               class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                        <select name="timezone"
+                                class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
+                            <option value="UTC" {% if config.timezone == 'UTC' %}selected{% endif %}>UTC (GMT+0)</option>
+                            <option value="America/New_York" {% if config.timezone == 'America/New_York' %}selected{% endif %}>US Eastern (GMT-5)</option>
+                            <option value="America/Chicago" {% if config.timezone == 'America/Chicago' %}selected{% endif %}>US Central (GMT-6)</option>
+                            <option value="America/Denver" {% if config.timezone == 'America/Denver' %}selected{% endif %}>US Mountain (GMT-7)</option>
+                            <option value="America/Los_Angeles" {% if config.timezone == 'America/Los_Angeles' %}selected{% endif %}>US Pacific (GMT-8)</option>
+                            <option value="Europe/London" {% if config.timezone == 'Europe/London' %}selected{% endif %}>London (GMT+0)</option>
+                            <option value="Europe/Paris" {% if config.timezone == 'Europe/Paris' %}selected{% endif %}>Central Europe (GMT+1)</option>
+                            <option value="Australia/Sydney" {% if config.timezone == 'Australia/Sydney' %}selected{% endif %}>Sydney (GMT+11)</option>
+                            <option value="Australia/Melbourne" {% if config.timezone == 'Australia/Melbourne' %}selected{% endif %}>Melbourne (GMT+11)</option>
+                            <option value="Australia/Brisbane" {% if config.timezone == 'Australia/Brisbane' %}selected{% endif %}>Brisbane (GMT+10)</option>
+                            <option value="Australia/Perth" {% if config.timezone == 'Australia/Perth' %}selected{% endif %}>Perth (GMT+8)</option>
+                            <option value="Pacific/Auckland" {% if config.timezone == 'Pacific/Auckland' %}selected{% endif %}>Auckland (GMT+13)</option>
+                            <option value="Asia/Tokyo" {% if config.timezone == 'Asia/Tokyo' %}selected{% endif %}>Tokyo (GMT+9)</option>
+                            <option value="Asia/Singapore" {% if config.timezone == 'Asia/Singapore' %}selected{% endif %}>Singapore (GMT+8)</option>
+                        </select>
+                        <p class="text-xs text-zinc-400 mt-1">Used for clip timestamps and log display</p>
                     </div>
                 </div>
             </div>
@@ -174,4 +188,14 @@
         </div>
     </form>
 </div>
+
+<script>
+// Debug HTMX events
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    console.log('HTMX swap completed:', evt.detail);
+});
+document.body.addEventListener('htmx:responseError', function(evt) {
+    console.error('HTMX error:', evt.detail);
+});
+</script>
 {% endblock %}

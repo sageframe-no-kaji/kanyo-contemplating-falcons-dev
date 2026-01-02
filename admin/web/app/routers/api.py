@@ -353,11 +353,12 @@ async def update_config(
 
         # Check if this is an HTMX request
         if request.headers.get("HX-Request"):
-            # HTMX request - return HTML fragment
+            # HTMX request - return HTML fragment with auto-dismiss
             return HTMLResponse(
-                f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-2 rounded">'
-                f"{message}"
+                f'<div class="bg-green-600/20 border-2 border-green-600 text-green-400 px-4 py-3 rounded font-medium">'
+                f'✓ {message}'
                 f"</div>"
+                f'<script>setTimeout(() => {{ document.getElementById("save-feedback").innerHTML = ""; }}, 5000);</script>'
             )
         else:
             # Regular form POST - redirect back to config page
