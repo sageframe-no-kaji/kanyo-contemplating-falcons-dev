@@ -343,8 +343,13 @@ async def update_config(
         # Restart if requested
         message = "Configuration saved successfully!"
         if action == "save_restart":
-            docker_service.restart_container(stream["container_name"])
-            message = "Configuration saved and container restarting..."
+            print(f"[CONFIG] Restarting container: {stream['container_name']}")
+            success = docker_service.restart_container(stream["container_name"])
+            if success:
+                message = "Configuration saved and container restarting..."
+            else:
+                message = "Configuration saved but container restart failed!"
+                print(f"[CONFIG] Failed to restart {stream['container_name']}")
 
         # Check if this is an HTMX request
         if request.headers.get("HX-Request"):
