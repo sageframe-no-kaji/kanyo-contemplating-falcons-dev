@@ -24,6 +24,7 @@ roosting_threshold: 1800       # 30 min - transition to roosting (notification o
 
 # Notifications
 notify_on_startup: false       # Send notification if bird detected at startup
+record_arrival_on_startup: false  # Record arrival clip on startup (visit always records for departure)
 
 # Clip Extraction
 clips_dir: "clips"

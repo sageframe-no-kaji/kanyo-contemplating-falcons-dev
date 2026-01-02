@@ -11,9 +11,27 @@
 
     <!-- Header -->
     <header class="mb-6">
-        <h1 class="text-3xl font-bold">Files</h1>
-        <p class="text-zinc-400 mt-2">Browse stream data directory</p>
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold">Files</h1>
+                <p class="text-zinc-400 mt-2">Browse stream data directory</p>
+            </div>
+            <button
+                id="cleanup-btn"
+                hx-post="/api/streams/{{ stream.id }}/cleanup-tmp"
+                hx-swap="none"
+                class="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm font-medium transition flex items-center gap-2"
+            >
+                <span>🗑️</span>
+                <span>Cleanup Temp Files</span>
+            </button>
+        </div>
     </header>
+
+    <!-- Success message (hidden by default) -->
+    <div id="cleanup-success" class="hidden bg-green-600/20 border border-green-600 text-green-400 px-4 py-3 rounded mb-4">
+        <span id="cleanup-message"></span>
+    </div>
 
     <!-- Breadcrumbs -->
     <nav class="flex items-center gap-2 text-sm text-zinc-400 mb-6">
@@ -137,4 +155,30 @@
         </div>
     {% endif %}
 </div>
+
+<script>
+// Handle cleanup button response
+document.body.addEventListener('htmx:afterRequest', function(event) {
+    if (event.detail.pathInfo.requestPath.includes('cleanup-tmp')) {
+        const response = JSON.parse(event.detail.xhr.responseText);
+        const messageDiv = document.getElementById('cleanup-message');
+        const successDiv = document.getElementById('cleanup-success');
+
+        if (response.success) {
+            messageDiv.textContent = response.message;
+            successDiv.classList.remove('hidden');
+
+            // Hide after 5 seconds
+            setTimeout(() => {
+                successDiv.classList.add('hidden');
+            }, 5000);
+
+            // Refresh page after 1 second to show updated file list
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+    }
+});
+</script>
 {% endblock %}

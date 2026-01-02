@@ -5,7 +5,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from app.services import stream_service, docker_service, config_service, clip_service, log_service
+from app.services import (
+    stream_service,
+    docker_service,
+    config_service,
+    clip_service,
+    log_service,
+    file_service,
+)
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
 
 
@@ -246,11 +253,7 @@ async def get_logs(
         stream_tz = ZoneInfo("UTC")
 
     # Parse levels parameter
-    level_list = (
-        [level.strip() for level in levels.split(",") if level.strip()]
-        if levels
-        else None
-    )
+    level_list = [level.strip() for level in levels.split(",") if level.strip()] if levels else None
 
     # Get logs from file (timestamps are UTC-aware)
     logs = log_service.get_logs(
@@ -455,3 +458,25 @@ async def restart_admin():
             f"</div>",
             status_code=500,
         )
+
+
+@router.post("/streams/{stream_id}/cleanup-tmp")
+async def cleanup_temp_files(stream_id: str):
+    """Clean up temporary files (.tmp and .ffmpeg.log) for a stream."""
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    # Run cleanup
+    result = file_service.cleanup_temp_files(stream_id)
+
+    # Format bytes for display
+    mb_freed = result["bytes_freed"] / (1024 * 1024)
+
+    return {
+        "success": True,
+        "files_deleted": result["files_deleted"],
+        "bytes_freed": result["bytes_freed"],
+        "mb_freed": round(mb_freed, 2),
+        "message": f"Deleted {result['files_deleted']} temp files, freed {mb_freed:.2f} MB",
+    }

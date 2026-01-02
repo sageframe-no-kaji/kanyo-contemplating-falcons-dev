@@ -73,6 +73,7 @@ class BufferMonitor:
         roosting_threshold: int = 1800,
         # Notification settings
         notify_on_startup: bool = True,
+        record_arrival_on_startup: bool = False,
         # Runtime settings
         max_runtime_seconds: int | None = None,
         full_config: dict | None = None,
@@ -81,6 +82,7 @@ class BufferMonitor:
         self.exit_timeout = exit_timeout_seconds
         self.process_interval = process_interval_frames
         self.notify_on_startup = notify_on_startup
+        self.record_arrival_on_startup = record_arrival_on_startup
         self.clip_fps = clip_fps
         self.clip_crf = clip_crf
         self.clips_dir = clips_dir
@@ -354,14 +356,22 @@ class BufferMonitor:
                                 now, self.visit_recorder.lead_in_seconds
                             )
 
-                            # Start arrival clip recorder (short duration, completes automatically)
-                            self.arrival_clip_recorder.start_recording(
-                                arrival_time=now,
-                                lead_in_frames=lead_in_frames,
-                                frame_size=self._frame_size or (1280, 720),
-                            )
+                            # Start arrival clip recorder only if enabled (short duration)
+                            if self.record_arrival_on_startup:
+                                self.arrival_clip_recorder.start_recording(
+                                    arrival_time=now,
+                                    lead_in_frames=lead_in_frames,
+                                    frame_size=self._frame_size or (1280, 720),
+                                )
+                                logger.info(
+                                    "📹 Recording startup arrival clip (record_arrival_on_startup=true)"
+                                )
+                            else:
+                                logger.info(
+                                    "⏭️  Skipping startup arrival clip (record_arrival_on_startup=false)"
+                                )
 
-                            # Start long-term visit recording (with same lead-in frames)
+                            # Start long-term visit recording (ALWAYS - needed for departure clips)
                             self.visit_recorder.start_recording(
                                 arrival_time=now,
                                 lead_in_frames=lead_in_frames,
