@@ -5,15 +5,12 @@ Tests for log service (file-based log reading).
 import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-
-import pytest
-
-# Import from admin web app
 import sys
 
+# Import from admin web app
 sys.path.insert(0, str(Path(__file__).parent.parent / "admin" / "web"))
 
-from app.services import log_service
+from app.services import log_service  # noqa: E402
 
 
 class TestParseLogLine:
@@ -94,9 +91,12 @@ class TestFindLastStartup:
 
     def test_find_startup_with_alternative_markers(self):
         """Find startup using alternative startup markers."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".log"
+        ) as f:
             f.write(
-                "2025-12-30 11:00:00 UTC | INFO     | kanyo | Starting Buffer-Based Falcon Monitoring\n"
+                "2025-12-30 11:00:00 UTC | INFO     | kanyo | "
+                "Starting Buffer-Based Falcon Monitoring\n"
             )
             log_path = Path(f.name)
 
@@ -146,7 +146,6 @@ class TestGetLogs:
                 f.write(f"{ts} UTC | INFO     | kanyo | Log {i}\n")
 
         # Mock the log path
-        original_get_logs = log_service.get_logs
 
         def mock_get_logs(stream_id, since="startup", lines=500, levels=None):
             # Override path to use our temp file
@@ -276,3 +275,133 @@ class TestTimeZoneCorrectness:
         else:
             # Log is in the future (shouldn't happen in real scenario)
             assert False
+
+
+class TestShowContext:
+    """Test show_context feature for EVENT logs with DEBUG context."""
+
+    def test_show_context_includes_debug_lines_around_events(self):
+        """When show_context=True, include DEBUG lines before/after EVENT logs."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
+            # Write logs with DEBUG lines surrounding an EVENT
+            f.write("2025-12-30 12:00:00 UTC | DEBUG    | kanyo | Detection check 1\n")
+            f.write("2025-12-30 12:00:01 UTC | DEBUG    | kanyo | Detection check 2\n")
+            f.write("2025-12-30 12:00:02 UTC | DEBUG    | kanyo | Detection check 3\n")
+            f.write("2025-12-30 12:00:03 UTC | EVENT    | kanyo | Falcon detected - arrival\n")
+            f.write("2025-12-30 12:00:04 UTC | DEBUG    | kanyo | Detection check 4\n")
+            f.write("2025-12-30 12:00:05 UTC | DEBUG    | kanyo | Detection check 5\n")
+            f.write("2025-12-30 12:00:06 UTC | DEBUG    | kanyo | Detection check 6\n")
+            f.write("2025-12-30 12:00:07 UTC | INFO     | kanyo | Some other log\n")
+            log_path = Path(f.name)
+
+        # Create mock data directory structure
+        data_dir = Path(tempfile.mkdtemp())
+        stream_dir = data_dir / "test-stream"
+        logs_dir = stream_dir / "logs"
+        logs_dir.mkdir(parents=True)
+
+        # Move log file to expected location
+        target_log = logs_dir / "kanyo.log"
+        log_path.rename(target_log)
+
+        try:
+            # Mock the DATA_PATH
+            log_service.Path = lambda x: data_dir / x.replace("/data/", "")
+
+            # Get logs with show_context=True and EVENT level
+            logs = log_service.get_logs(
+                "test-stream",
+                since="all",
+                lines=500,
+                levels=["EVENT"],
+                show_context=True,
+            )
+
+            # Should include EVENT + 3 DEBUG before + 3 DEBUG after = 7 lines
+            assert len(logs) == 7
+
+            # Verify we got the right lines (sorted chronologically)
+            assert logs[0]["level"] == "DEBUG"
+            assert "check 1" in logs[0]["message"]
+            assert logs[3]["level"] == "EVENT"
+            assert "arrival" in logs[3]["message"]
+            assert logs[6]["level"] == "DEBUG"
+            assert "check 6" in logs[6]["message"]
+
+        finally:
+            # Cleanup
+            import shutil
+
+            shutil.rmtree(data_dir)
+
+    def test_show_context_false_only_shows_requested_levels(self):
+        """When show_context=False, only show requested log levels."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
+            f.write("2025-12-30 12:00:00 UTC | DEBUG    | kanyo | Debug line 1\n")
+            f.write("2025-12-30 12:00:01 UTC | EVENT    | kanyo | Event line\n")
+            f.write("2025-12-30 12:00:02 UTC | DEBUG    | kanyo | Debug line 2\n")
+            f.write("2025-12-30 12:00:03 UTC | INFO     | kanyo | Info line\n")
+            log_path = Path(f.name)
+
+        data_dir = Path(tempfile.mkdtemp())
+        stream_dir = data_dir / "test-stream"
+        logs_dir = stream_dir / "logs"
+        logs_dir.mkdir(parents=True)
+        target_log = logs_dir / "kanyo.log"
+        log_path.rename(target_log)
+
+        try:
+            log_service.Path = lambda x: data_dir / x.replace("/data/", "")
+
+            # Get only EVENT logs without context
+            logs = log_service.get_logs(
+                "test-stream", since="all", lines=500, levels=["EVENT"], show_context=False
+            )
+
+            # Should only get the EVENT line
+            assert len(logs) == 1
+            assert logs[0]["level"] == "EVENT"
+
+        finally:
+            import shutil
+
+            shutil.rmtree(data_dir)
+
+    def test_show_context_with_multiple_events(self):
+        """Context should be added for each EVENT independently."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
+            f.write("2025-12-30 12:00:00 UTC | DEBUG    | kanyo | Before event 1 - line 1\n")
+            f.write("2025-12-30 12:00:01 UTC | EVENT    | kanyo | Event 1\n")
+            f.write("2025-12-30 12:00:02 UTC | DEBUG    | kanyo | After event 1 - line 1\n")
+            f.write("2025-12-30 12:00:03 UTC | INFO     | kanyo | Info between events\n")
+            f.write("2025-12-30 12:00:04 UTC | DEBUG    | kanyo | Before event 2 - line 1\n")
+            f.write("2025-12-30 12:00:05 UTC | EVENT    | kanyo | Event 2\n")
+            f.write("2025-12-30 12:00:06 UTC | DEBUG    | kanyo | After event 2 - line 1\n")
+            log_path = Path(f.name)
+
+        data_dir = Path(tempfile.mkdtemp())
+        stream_dir = data_dir / "test-stream"
+        logs_dir = stream_dir / "logs"
+        logs_dir.mkdir(parents=True)
+        target_log = logs_dir / "kanyo.log"
+        log_path.rename(target_log)
+
+        try:
+            log_service.Path = lambda x: data_dir / x.replace("/data/", "")
+
+            logs = log_service.get_logs(
+                "test-stream", since="all", lines=500, levels=["EVENT", "INFO"], show_context=True
+            )
+
+            # Should include: 2 EVENTs + 1 INFO + context DEBUG lines
+            # Both events get their context
+            event_count = sum(1 for log in logs if log["level"] == "EVENT")
+            debug_count = sum(1 for log in logs if log["level"] == "DEBUG")
+
+            assert event_count == 2
+            assert debug_count >= 2  # At least some DEBUG context lines
+
+        finally:
+            import shutil
+
+            shutil.rmtree(data_dir)

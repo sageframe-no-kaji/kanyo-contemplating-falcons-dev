@@ -105,6 +105,21 @@
                 </label>
             </div>
 
+            <div class="w-px h-6 bg-zinc-600"></div>
+
+            <!-- Show Context Option -->
+            <div class="flex items-center gap-2">
+                <label class="cursor-pointer flex items-center gap-2">
+                    <input type="checkbox" id="log-show-context" class="hidden peer">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium border border-zinc-600
+                                 bg-zinc-700 text-zinc-400
+                                 peer-checked:bg-purple-600 peer-checked:text-white peer-checked:border-purple-500
+                                 hover:bg-zinc-600 transition">
+                        📊 Show Detection Context
+                    </span>
+                </label>
+            </div>
+
             <!-- Search -->
             <div class="flex-1">
                 <input type="text"
@@ -163,31 +178,31 @@
     #log-output {
         color: #e4e4e7;
     }
-    
+
     /* Color-code log levels to match tag colors */
     .log-line[data-level="DEBUG"] {
         color: #a1a1aa; /* zinc-400 - muted gray */
     }
-    
+
     .log-line[data-level="INFO"] {
         color: #93c5fd; /* blue-300 */
     }
-    
+
     .log-line[data-level="EVENT"] {
         color: #86efac; /* green-300 */
         font-weight: 500;
     }
-    
+
     .log-line[data-level="WARNING"] {
         color: #fbbf24; /* amber-400 */
     }
-    
+
     .log-line[data-level="ERROR"],
     .log-line[data-level="CRITICAL"] {
         color: #fca5a5; /* red-300 */
         font-weight: 500;
     }
-    
+
     /* Highlight the level text with background */
     .log-line[data-level="DEBUG"] .log-level {
         background-color: #52525b; /* zinc-600 */
@@ -195,14 +210,14 @@
         padding: 0.125rem 0.375rem;
         border-radius: 0.25rem;
     }
-    
+
     .log-line[data-level="INFO"] .log-level {
         background-color: #2563eb; /* blue-600 */
         color: #ffffff;
         padding: 0.125rem 0.375rem;
         border-radius: 0.25rem;
     }
-    
+
     .log-line[data-level="EVENT"] .log-level {
         background-color: #16a34a; /* green-600 */
         color: #ffffff;
@@ -210,14 +225,14 @@
         border-radius: 0.25rem;
         font-weight: 600;
     }
-    
+
     .log-line[data-level="WARNING"] .log-level {
         background-color: #d97706; /* amber-600 */
         color: #ffffff;
         padding: 0.125rem 0.375rem;
         border-radius: 0.25rem;
     }
-    
+
     .log-line[data-level="ERROR"] .log-level,
     .log-line[data-level="CRITICAL"] .log-level {
         background-color: #dc2626; /* red-600 */
@@ -226,7 +241,7 @@
         border-radius: 0.25rem;
         font-weight: 600;
     }
-    
+
     /* Add left border indicator for important levels */
     .log-line[data-level="EVENT"]::before {
         content: '';
@@ -237,7 +252,7 @@
         margin-right: 0.5em;
         vertical-align: middle;
     }
-    
+
     .log-line[data-level="ERROR"]::before,
     .log-line[data-level="CRITICAL"]::before {
         content: '';
@@ -248,7 +263,7 @@
         margin-right: 0.5em;
         vertical-align: middle;
     }
-    
+
     .log-line[data-level="WARNING"]::before {
         content: '';
         display: inline-block;
@@ -268,9 +283,10 @@
         const since = document.getElementById('log-since').value;
         const selectedLevels = getSelectedLevels();
         const levels = selectedLevels.join(',');
+        const showContext = document.getElementById('log-show-context').checked;
 
         try {
-            const url = `/api/streams/${streamId}/logs?since=${since}&levels=${levels}&lines=500`;
+            const url = `/api/streams/${streamId}/logs?since=${since}&levels=${levels}&lines=500&show_context=${showContext}`;
             const response = await fetch(url);
 
             if (response.ok) {
@@ -332,6 +348,9 @@
 
     // Attach to time range selector
     document.getElementById('log-since').addEventListener('change', refreshLogs);
+
+    // Attach to show context checkbox
+    document.getElementById('log-show-context').addEventListener('change', refreshLogs);
 
     // Attach to search (client-side only)
     const searchInput = document.getElementById('log-search');

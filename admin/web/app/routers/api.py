@@ -217,6 +217,7 @@ async def get_logs(
     since: str = "startup",
     lines: int = 500,
     levels: str = "INFO,EVENT,WARNING,ERROR",
+    show_context: bool = False,
 ):
     """
     Get logs from kanyo.log file with filtering.
@@ -226,6 +227,7 @@ async def get_logs(
         since: Time range - "startup", "1h", "24h", "7d", "all"
         lines: Maximum number of lines to return
         levels: Comma-separated log levels to include
+        show_context: If True, show 3 DEBUG lines before/after EVENT logs
 
     Returns:
         HTML with log lines showing timestamps in stream's local timezone
@@ -244,10 +246,16 @@ async def get_logs(
         stream_tz = ZoneInfo("UTC")
 
     # Parse levels parameter
-    level_list = [l.strip() for l in levels.split(",") if l.strip()] if levels else None
+    level_list = (
+        [level.strip() for level in levels.split(",") if level.strip()]
+        if levels
+        else None
+    )
 
     # Get logs from file (timestamps are UTC-aware)
-    logs = log_service.get_logs(stream_id, since=since, lines=lines, levels=level_list)
+    logs = log_service.get_logs(
+        stream_id, since=since, lines=lines, levels=level_list, show_context=show_context
+    )
 
     # Format as HTML with data attributes, converting timestamps to stream local time
     html_lines = []
@@ -264,7 +272,7 @@ async def get_logs(
         # Wrap level in span for highlighting
         level_padded = f"{level:<8}"
         formatted_line = (
-            f'{timestamp_str} (stream local) | '
+            f"{timestamp_str} (stream local) | "
             f'<span class="log-level">{level_padded}</span> | '
             f'{log_entry["module"]} | {log_entry["message"]}'
         )
@@ -356,16 +364,13 @@ async def update_config(
             # HTMX request - return HTML fragment with auto-dismiss
             return HTMLResponse(
                 f'<div class="bg-green-600/20 border-2 border-green-600 text-green-400 px-4 py-3 rounded font-medium">'
-                f'✓ {message}'
+                f"✓ {message}"
                 f"</div>"
                 f'<script>setTimeout(() => {{ document.getElementById("save-feedback").innerHTML = ""; }}, 5000);</script>'
             )
         else:
             # Regular form POST - redirect back to config page
-            return RedirectResponse(
-                url=f"/streams/{stream_id}/config",
-                status_code=303
-            )
+            return RedirectResponse(url=f"/streams/{stream_id}/config", status_code=303)
 
     except Exception as e:
         if request.headers.get("HX-Request"):
