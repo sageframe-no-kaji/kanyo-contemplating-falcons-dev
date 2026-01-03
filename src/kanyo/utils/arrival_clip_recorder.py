@@ -73,7 +73,7 @@ class ArrivalClipRecorder:
         if recorder:
             self._recorder = recorder
             self._clip_path = clip_path
-            self._frames_written = 0
+            self._frames_written = len(lead_in_frames) if lead_in_frames else 0
             self._max_frames = int(clip_duration * self.clip_manager.clip_fps)
             logger.event(
                 f"📹 Arrival clip will record {self._max_frames} frames ({clip_duration}s)"
