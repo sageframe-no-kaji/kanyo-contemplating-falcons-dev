@@ -216,6 +216,11 @@ class FalconStateMachine:
         self.roosting_start = None
         self.cumulative_outage = 0.0
 
+    def reset_to_absent(self) -> None:
+        \"\"\"Force reset to ABSENT state (used when arrival confirmation fails).\"\"\"
+        self._reset_state()
+        logger.info(\"🔄 State machine reset to ABSENT (arrival not confirmed)\")
+
     def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> None:
         """
         Initialize state based on startup detection.

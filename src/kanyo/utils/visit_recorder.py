@@ -532,3 +532,19 @@ class VisitRecorder:
         except Exception as e:
             logger.error(f"Clip extraction failed: {e}")
             return False
+    def rename_to_final(self) -> Path | None:
+        \"\"\"Rename .tmp file to final name. Returns final path.\"\"\"
+        if self._visit_path and self._visit_path.exists() and self._final_path:
+            try:
+                self._visit_path.rename(self._final_path)
+                logger.debug(f\"Renamed {self._visit_path.name} to {self._final_path.name}\")
+                self._visit_path = self._final_path
+                return self._final_path
+            except Exception as e:
+                logger.error(f\"Failed to rename visit file: {e}\")
+                return None
+        return None
+
+    def get_temp_path(self) -> Path | None:
+        \"\"\"Return current .tmp file path for deletion.\"\"\"
+        return self._visit_path if self._visit_path and self._visit_path.suffix == \".tmp\" else None

@@ -10,6 +10,7 @@ import os
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
 from datetime import datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
@@ -158,7 +159,16 @@ class BufferMonitor:
 
         # Arrival clip recorder (short-duration, parallel to visit recorder)
         self.arrival_clip_recorder = ArrivalClipRecorder(self.clip_manager)
+        # Arrival confirmation state
+        self.arrival_pending = False
+        self.arrival_pending_start: datetime | None = None
+        self.arrival_detection_count = 0
+        self.arrival_frame_count = 0
+        self.pending_snapshot_path: Path | None = None
 
+        # Load arrival confirmation config
+        self.arrival_confirmation_seconds = full_config.get(\"arrival_confirmation_seconds\", 10)
+        self.arrival_confirmation_ratio = full_config.get(\"arrival_confirmation_ratio\", 0.3)
         logger.info("BufferMonitor initialized (no tee mode)")
 
     def process_frame(self, frame_data, frame_number: int) -> None:
@@ -191,6 +201,23 @@ class BufferMonitor:
             detections = self.detector.detect_birds(frame_data, timestamp=now)
             falcon_detected = len(detections) > 0
 
+            # Arrival confirmation logic
+            if self.arrival_pending:
+                self.arrival_frame_count += 1
+                if falcon_detected:
+                    self.arrival_detection_count += 1
+
+                elapsed = (now - self.arrival_pending_start).total_seconds()
+                if elapsed >= self.arrival_confirmation_seconds:
+                    ratio = self.arrival_detection_count / self.arrival_frame_count
+
+                    if ratio >= self.arrival_confirmation_ratio:
+                        # SUCCESS
+                        self._confirm_arrival()
+                    else:
+                        # FAILURE
+                        self._cancel_arrival(ratio)
+
             # Debug logging for detection tracking
             if falcon_detected:
                 logger.debug(f"Bird detected at {now}, updating last_detection_time")
@@ -205,7 +232,10 @@ class BufferMonitor:
 
             # Handle events
             for event_type, event_time, metadata in events:
-                self.event_handler.handle_event(event_type, event_time, metadata)
+                # For arrival confirmation, don't notify immediately
+                # Skip notification for ARRIVED events (will notify after confirmation)
+                if event_type != FalconEvent.ARRIVED:
+                    self.event_handler.handle_event(event_type, event_time, metadata)
                 self._handle_event(event_type, event_time, metadata)
 
         except Exception as e:
@@ -220,8 +250,27 @@ class BufferMonitor:
         """Handle detection events for recording and clips."""
 
         if event_type == FalconEvent.ARRIVED:
-            # Start recording the visit
-            logger.event("🦅 ARRIVAL - Starting arrival clip + visit recording")
+            # Start arrival confirmation - don't notify yet
+            logger.event("🦅 FALCON ARRIVED at %s (stream local) - pending confirmation" % event_time.strftime("%I:%M:%S %p"))
+
+            # Set pending state
+            self.arrival_pending = True
+            self.arrival_pending_start = event_time
+            self.arrival_detection_count = 1
+            self.arrival_frame_count = 1
+
+            # Save snapshot with temp=True
+            if self.event_handler.last_frame is not None:
+                from kanyo.utils.output import save_thumbnail
+
+                snapshot_path = save_thumbnail(
+                    self.event_handler.last_frame,
+                    self.clips_dir,
+                    event_time,
+                    "arrival",
+                    temp=True
+                )
+                self.pending_snapshot_path = Path(snapshot_path)
 
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
@@ -242,7 +291,16 @@ class BufferMonitor:
                 frame_size=self._frame_size or (1280, 720),
             )
 
+            # Do NOT call event_handler.handle_event() yet - wait for confirmation
+
         elif event_type == FalconEvent.DEPARTED:
+            # Check if departure during pending confirmation
+            if self.arrival_pending:
+                # Bird left before confirmation - treat as failed confirmation
+                ratio = self.arrival_detection_count / max(self.arrival_frame_count, 1)
+                self._cancel_arrival(ratio)
+                return  # Do not process departure normally
+
             # Stop recording and create clips
             logger.event("🦅 DEPARTURE - Stopping visit recording")
 
@@ -286,6 +344,67 @@ class BufferMonitor:
                     event_time,
                     metadata,
                 )
+
+    def _confirm_arrival(self) -> None:
+        """Confirm arrival after passing detection threshold."""
+        ratio = self.arrival_detection_count / self.arrival_frame_count
+        logger.event(
+            f"✅ ARRIVAL CONFIRMED - detection ratio: {ratio:.1%} "
+            f"({self.arrival_detection_count}/{self.arrival_frame_count} frames)"
+        )
+
+        # Rename pending snapshot from .jpg.tmp to .jpg
+        if self.pending_snapshot_path and self.pending_snapshot_path.exists():
+            final_path = self.pending_snapshot_path.with_suffix('')
+            self.pending_snapshot_path.rename(final_path)
+            logger.debug(f"Renamed snapshot: {final_path}")
+
+        # Rename arrival clip from .tmp to final
+        self.arrival_clip_recorder.rename_to_final()
+
+        # Rename visit recording from .tmp to final
+        self.visit_recorder.rename_to_final()
+
+        # NOW send notification and handle event
+        self.event_handler.handle_event(
+            FalconEvent.ARRIVED,
+            self.arrival_pending_start,
+            {}
+        )
+
+        # Reset pending state
+        self.arrival_pending = False
+        self.arrival_pending_start = None
+        self.arrival_detection_count = 0
+        self.arrival_frame_count = 0
+        self.pending_snapshot_path = None
+
+    def _cancel_arrival(self, ratio: float) -> None:
+        """Cancel arrival - insufficient detections or early departure."""
+        logger.warning(
+            f"⚠️  ARRIVAL CANCELLED - detection ratio: {ratio:.1%} "
+            f"({self.arrival_detection_count}/{self.arrival_frame_count} frames, "
+            f"threshold: {self.arrival_confirmation_ratio:.1%})"
+        )
+
+        # Keep .tmp files for debugging (do not delete)
+        if self.pending_snapshot_path:
+            logger.debug(f"Kept temp snapshot: {self.pending_snapshot_path}")
+
+        # Stop recordings WITHOUT renaming (keeps .tmp extension)
+        now = datetime.now()
+        self.arrival_clip_recorder.stop_recording(now)
+        self.visit_recorder.stop_recording(now)  # Ignore return value
+
+        # Reset state machine to ABSENT
+        self.state_machine.reset_to_absent()
+
+        # Reset pending state
+        self.arrival_pending = False
+        self.arrival_pending_start = None
+        self.arrival_detection_count = 0
+        self.arrival_frame_count = 0
+        self.pending_snapshot_path = None
 
     def run(self) -> None:
         """Main monitoring loop."""

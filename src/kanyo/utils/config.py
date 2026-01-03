@@ -35,6 +35,9 @@ DEFAULTS: dict[str, Any] = {
     "exit_timeout": 300,  # 5 min - seconds before falcon "left" during visit
     "animal_classes": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],  # COCO animal IDs
     "timezone": "+00:00",  # GMT offset (e.g., -05:00 for NY, +10:00 for Sydney)
+    # Arrival Confirmation
+    "arrival_confirmation_seconds": 10,  # Time window to confirm arrival
+    "arrival_confirmation_ratio": 0.3,  # Fraction of frames that must detect
     # Output & Storage
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
@@ -205,6 +208,15 @@ def _validate(cfg: dict[str, Any]) -> None:
             raise ValueError("detection_confidence_ir must be a number")
         if not 0.0 <= conf_ir <= 1.0:
             raise ValueError("detection_confidence_ir must be between 0.0 and 1.0")
+
+    # Arrival confirmation validation
+    conf_seconds = cfg.get("arrival_confirmation_seconds", 10)
+    if conf_seconds <= 0:
+        raise ValueError("arrival_confirmation_seconds must be positive")
+
+    conf_ratio = cfg.get("arrival_confirmation_ratio", 0.3)
+    if not 0.0 <= conf_ratio <= 1.0:
+        raise ValueError("arrival_confirmation_ratio must be between 0.0 and 1.0")
 
     # Timing constraint validations
     exit_timeout = cfg.get("exit_timeout", 90)
