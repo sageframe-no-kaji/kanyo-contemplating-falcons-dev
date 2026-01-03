@@ -12,6 +12,7 @@ from app.services import (
     clip_service,
     log_service,
     file_service,
+    system_service,
 )
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
 
@@ -210,7 +211,10 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
                     </div>
                 </div>
             </div>
-            <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/30"><span class="text-4xl">▶</span></div>
+            <div class="absolute inset-0 flex items-center justify-center opacity-0 "
+                 "group-hover:opacity-100 transition bg-black/30">
+                <span class="text-4xl">▶</span>
+            </div>
         </div>
         """
 
@@ -366,10 +370,13 @@ async def update_config(
         if request.headers.get("HX-Request"):
             # HTMX request - return HTML fragment with auto-dismiss
             return HTMLResponse(
-                f'<div class="bg-green-600/20 border-2 border-green-600 text-green-400 px-4 py-3 rounded font-medium">'
+                f'<div class="bg-green-600/20 border-2 border-green-600 text-green-400 '
+                f'px-4 py-3 rounded font-medium">'
                 f"✓ {message}"
                 f"</div>"
-                f'<script>setTimeout(() => {{ document.getElementById("save-feedback").innerHTML = ""; }}, 5000);</script>'
+                f'<script>setTimeout(() => {{ '
+                f'document.getElementById("save-feedback").innerHTML = ""; '
+                f'}}, 5000);</script>'
             )
         else:
             # Regular form POST - redirect back to config page
@@ -418,12 +425,15 @@ async def create_new_stream(
 
     if success:
         return HTMLResponse(
-            f'<div class="bg-green-600/20 border border-green-600 text-green-400 px-4 py-3 rounded mb-4">'
+            f'<div class="bg-green-600/20 border border-green-600 text-green-400 '
+            f'px-4 py-3 rounded mb-4">'
             f'<p class="font-medium mb-2">✓ {message}</p>'
-            f'<p class="text-sm mb-3">The detection container is now running. Restart the admin to see the new stream in the overview.</p>'
+            f'<p class="text-sm mb-3">The detection container is now running. '
+            f'Restart the admin to see the new stream in the overview.</p>'
             f'<button hx-post="/api/admin/restart" '
             f'        hx-swap="outerHTML" '
-            f'        class="bg-amber-600 hover:bg-amber-500 px-4 py-2 rounded font-medium text-white">'
+            f'        class="bg-amber-600 hover:bg-amber-500 px-4 py-2 rounded '
+            f'font-medium text-white">'
             f"    ↻ Restart Admin Now"
             f"</button>"
             f"</div>"
@@ -502,3 +512,12 @@ async def cleanup_log_files(stream_id: str):
         "mb_freed": round(mb_freed, 2),
         "message": f"Deleted {result['files_deleted']} log files, freed {mb_freed:.2f} MB",
     }
+
+
+@router.get("/system/status")
+async def get_system_status():
+    """Get system monitoring stats (CPU, memory, disk, GPU, Docker) as HTML."""
+    stats = system_service.get_system_stats()
+    return templates.TemplateResponse(
+        "components/system_status.html", {"request": {}, "stats": stats}, media_type="text/html"
+    )

@@ -1,0 +1,118 @@
+<!-- System Status Component -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- CPU -->
+    <div class="bg-zinc-900 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-zinc-400">CPU</h3>
+            <span class="text-2xl">🖥️</span>
+        </div>
+        {% if stats.cpu_error %}
+            <p class="text-red-400 text-sm">{{ stats.cpu_error }}</p>
+        {% else %}
+            <div class="text-2xl font-bold mb-1">{{ stats.cpu_percent }}%</div>
+            <div class="text-xs text-zinc-500">{{ stats.cpu_count }} cores</div>
+            <div class="mt-2 bg-zinc-800 rounded-full h-2">
+                <div class="bg-blue-500 rounded-full h-2" style="width: {{ stats.cpu_percent }}%"></div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Memory -->
+    <div class="bg-zinc-900 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-zinc-400">Memory</h3>
+            <span class="text-2xl">💾</span>
+        </div>
+        {% if stats.memory_error %}
+            <p class="text-red-400 text-sm">{{ stats.memory_error }}</p>
+        {% else %}
+            <div class="text-2xl font-bold mb-1">{{ stats.memory_percent }}%</div>
+            <div class="text-xs text-zinc-500">{{ stats.memory_used_gb }} / {{ stats.memory_total_gb }} GB</div>
+            <div class="mt-2 bg-zinc-800 rounded-full h-2">
+                <div class="bg-green-500 rounded-full h-2" style="width: {{ stats.memory_percent }}%"></div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Disk -->
+    <div class="bg-zinc-900 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-zinc-400">Storage</h3>
+            <span class="text-2xl">💿</span>
+        </div>
+        {% if stats.disk_error %}
+            <p class="text-red-400 text-sm">{{ stats.disk_error }}</p>
+        {% else %}
+            <div class="text-2xl font-bold mb-1">{{ stats.disk_percent }}%</div>
+            <div class="text-xs text-zinc-500">{{ stats.disk_free_gb }} GB free</div>
+            <div class="mt-2 bg-zinc-800 rounded-full h-2">
+                {% if stats.disk_percent > 90 %}
+                    <div class="bg-red-500 rounded-full h-2" style="width: {{ stats.disk_percent }}%"></div>
+                {% elif stats.disk_percent > 75 %}
+                    <div class="bg-yellow-500 rounded-full h-2" style="width: {{ stats.disk_percent }}%"></div>
+                {% else %}
+                    <div class="bg-purple-500 rounded-full h-2" style="width: {{ stats.disk_percent }}%"></div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- GPU or Docker -->
+    <div class="bg-zinc-900 rounded-lg p-4">
+        {% if stats.gpu_name %}
+            <!-- GPU Info -->
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-medium text-zinc-400">GPU</h3>
+                <span class="text-2xl">🎮</span>
+            </div>
+            <div class="text-lg font-bold mb-1 truncate" title="{{ stats.gpu_name }}">{{ stats.gpu_name }}</div>
+            <div class="text-xs text-zinc-500">{{ stats.gpu_memory_used_mb }} / {{ stats.gpu_memory_total_mb }} MB</div>
+            <div class="mt-2 bg-zinc-800 rounded-full h-2">
+                <div class="bg-orange-500 rounded-full h-2" style="width: {{ stats.gpu_memory_percent }}%"></div>
+            </div>
+        {% elif stats.docker_containers_running is defined %}
+            <!-- Docker Info (if no GPU) -->
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-medium text-zinc-400">Containers</h3>
+                <span class="text-2xl">🐳</span>
+            </div>
+            <div class="text-2xl font-bold mb-1">{{ stats.docker_containers_running }}</div>
+            <div class="text-xs text-zinc-500">{{ stats.docker_containers_total }} total</div>
+            <div class="mt-2 text-xs text-green-400">
+                {{ stats.docker_containers_running }} running
+            </div>
+        {% else %}
+            <!-- Fallback -->
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-medium text-zinc-400">System</h3>
+                <span class="text-2xl">⚙️</span>
+            </div>
+            <div class="text-sm text-zinc-500">
+                {% if stats.gpu_error %}
+                    No GPU detected
+                {% elif stats.gpu_available == false %}
+                    No GPU available
+                {% else %}
+                    System OK
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Additional row for Docker when GPU is present -->
+{% if stats.gpu_name and stats.docker_containers_running is defined %}
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+    <div class="bg-zinc-900 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-medium text-zinc-400">Containers</h3>
+            <span class="text-2xl">🐳</span>
+        </div>
+        <div class="text-2xl font-bold mb-1">{{ stats.docker_containers_running }}</div>
+        <div class="text-xs text-zinc-500">{{ stats.docker_containers_total }} total</div>
+        <div class="mt-2 text-xs text-green-400">
+            {{ stats.docker_containers_running }} running
+        </div>
+    </div>
+</div>
+{% endif %}
