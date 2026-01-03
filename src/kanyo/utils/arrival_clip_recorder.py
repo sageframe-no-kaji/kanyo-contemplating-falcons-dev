@@ -141,13 +141,13 @@ class ArrivalClipRecorder:
         self._max_frames = 0
 
     def rename_to_final(self) -> Path | None:
-        \"\"\"Rename .tmp file to final name. Returns final path.\"\"\"
+        """Rename .tmp file to final name. Returns final path."""
         if self._recorder:
             return self._recorder.rename_to_final()
         return None
 
     def get_temp_path(self) -> Path | None:
-        \"\"\"Return current .tmp file path for deletion.\"\"\"
+        """Return current .tmp file path for deletion."""
         if self._recorder:
             return self._recorder.get_temp_path()
         return None

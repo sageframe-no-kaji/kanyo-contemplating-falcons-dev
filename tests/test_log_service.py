@@ -91,9 +91,7 @@ class TestFindLastStartup:
 
     def test_find_startup_with_alternative_markers(self):
         """Find startup using alternative startup markers."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".log"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
             f.write(
                 "2025-12-30 11:00:00 UTC | INFO     | kanyo | "
                 "Starting Buffer-Based Falcon Monitoring\n"

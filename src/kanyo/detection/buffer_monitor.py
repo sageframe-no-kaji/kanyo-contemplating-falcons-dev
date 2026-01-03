@@ -167,8 +167,12 @@ class BufferMonitor:
         self.pending_snapshot_path: Path | None = None
 
         # Load arrival confirmation config
-        self.arrival_confirmation_seconds = full_config.get(\"arrival_confirmation_seconds\", 10)
-        self.arrival_confirmation_ratio = full_config.get(\"arrival_confirmation_ratio\", 0.3)
+        self.arrival_confirmation_seconds = (
+            full_config.get("arrival_confirmation_seconds", 10) if full_config else 10
+        )
+        self.arrival_confirmation_ratio = (
+            full_config.get("arrival_confirmation_ratio", 0.3) if full_config else 0.3
+        )
         logger.info("BufferMonitor initialized (no tee mode)")
 
     def process_frame(self, frame_data, frame_number: int) -> None:
@@ -202,7 +206,7 @@ class BufferMonitor:
             falcon_detected = len(detections) > 0
 
             # Arrival confirmation logic
-            if self.arrival_pending:
+            if self.arrival_pending and self.arrival_pending_start is not None:
                 self.arrival_frame_count += 1
                 if falcon_detected:
                     self.arrival_detection_count += 1
@@ -251,7 +255,10 @@ class BufferMonitor:
 
         if event_type == FalconEvent.ARRIVED:
             # Start arrival confirmation - don't notify yet
-            logger.event("🦅 FALCON ARRIVED at %s (stream local) - pending confirmation" % event_time.strftime("%I:%M:%S %p"))
+            logger.event(
+                "🦅 FALCON ARRIVED at %s (stream local) - pending confirmation"
+                % event_time.strftime("%I:%M:%S %p")
+            )
 
             # Set pending state
             self.arrival_pending = True
@@ -264,11 +271,7 @@ class BufferMonitor:
                 from kanyo.utils.output import save_thumbnail
 
                 snapshot_path = save_thumbnail(
-                    self.event_handler.last_frame,
-                    self.clips_dir,
-                    event_time,
-                    "arrival",
-                    temp=True
+                    self.event_handler.last_frame, self.clips_dir, event_time, "arrival", temp=True
                 )
                 self.pending_snapshot_path = Path(snapshot_path)
 
@@ -355,7 +358,7 @@ class BufferMonitor:
 
         # Rename pending snapshot from .jpg.tmp to .jpg
         if self.pending_snapshot_path and self.pending_snapshot_path.exists():
-            final_path = self.pending_snapshot_path.with_suffix('')
+            final_path = self.pending_snapshot_path.with_suffix("")
             self.pending_snapshot_path.rename(final_path)
             logger.debug(f"Renamed snapshot: {final_path}")
 
@@ -366,11 +369,10 @@ class BufferMonitor:
         self.visit_recorder.rename_to_final()
 
         # NOW send notification and handle event
-        self.event_handler.handle_event(
-            FalconEvent.ARRIVED,
-            self.arrival_pending_start,
-            {}
-        )
+        if self.arrival_pending_start is not None:
+            self.event_handler.handle_event(
+                FalconEvent.ARRIVED, self.arrival_pending_start, {}
+            )
 
         # Reset pending state
         self.arrival_pending = False

@@ -34,8 +34,10 @@ def get_output_path(base_dir: str, timestamp: datetime, event_type: str, extensi
     return date_dir / filename
 
 
-def save_thumbnail(frame_data, base_dir: str, timestamp: datetime, event_type: str, temp: bool = False) -> str:
-    \"\"\"
+def save_thumbnail(
+    frame_data, base_dir: str, timestamp: datetime, event_type: str, temp: bool = False
+) -> str:
+    """
     Save frame as timestamped thumbnail.
 
     Args:
@@ -47,12 +49,12 @@ def save_thumbnail(frame_data, base_dir: str, timestamp: datetime, event_type: s
 
     Returns:
         String path to saved thumbnail
-    \"\"\"
-    path = get_output_path(base_dir, timestamp, event_type, \"jpg\")
+    """
+    path = get_output_path(base_dir, timestamp, event_type, "jpg")
 
     # Add .tmp suffix if temp mode
     if temp:
-        path = path.with_suffix(\".jpg.tmp\")
+        path = path.with_suffix(".jpg.tmp")
 
     cv2.imwrite(str(path), frame_data)
     logger.debug(f"Saved thumbnail: {path}")
