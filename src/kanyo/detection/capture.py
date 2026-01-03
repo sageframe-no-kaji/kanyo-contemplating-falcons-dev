@@ -64,6 +64,8 @@ class StreamCapture:
         self.reconnect_delay = reconnect_delay
         self._cap: cv2.VideoCapture | None = None
         self._frame_count = 0
+        self._ytdlp_fallback_used = False
+        self.ytdlp_opts: dict = {}
 
         if use_tee:
             logger.warning("use_tee is deprecated - buffer mode is now default")
@@ -73,16 +75,25 @@ class StreamCapture:
         Resolve YouTube URL to direct stream URL via yt-dlp.
 
         Returns the direct HLS/DASH URL that OpenCV can read.
+        Handles 'Precondition check failed' errors with automatic fallback.
         """
         logger.info(f"Resolving stream URL: {self.stream_url}")
+
+        # Build command with optional extractor args for fallback client
+        cmd = [
+            "yt-dlp",
+            "-f",
+            f"best[height<={self.max_height}]",
+            "-g",
+            self.stream_url,
+        ]
+
+        # Add extractor args if fallback mode is active
+        if "extractor_args" in self.ytdlp_opts:
+            cmd.extend(["--extractor-args", "youtube:player_client=android_creator"])
+
         result = subprocess.run(
-            [
-                "yt-dlp",
-                "-f",
-                f"best[height<={self.max_height}]",
-                "-g",
-                self.stream_url,
-            ],
+            cmd,
             capture_output=True,
             text=True,
         )
@@ -99,6 +110,7 @@ class StreamCapture:
         Connect to the video stream.
 
         Returns True if connection successful.
+        Implements automatic recovery for YouTube API changes.
         """
         try:
             is_youtube = "youtube.com" in self.stream_url or "youtu.be" in self.stream_url
@@ -115,7 +127,34 @@ class StreamCapture:
                 return False
 
             logger.info("✅ Connected to stream")
+            # Reset fallback flag on successful connection
+            self._ytdlp_fallback_used = False
             return True
+
+        except RuntimeError as e:
+            error_message = str(e)
+
+            # Handle YouTube "Precondition check failed" with fallback client
+            if "Precondition check failed" in error_message:
+                if not self._ytdlp_fallback_used:
+                    self._ytdlp_fallback_used = True
+                    logger.warning(
+                        "YouTube precondition failed; retrying with alternate yt-dlp client"
+                    )
+
+                    self.ytdlp_opts["extractor_args"] = {
+                        "youtube": {"player_client": ["android_creator"]}
+                    }
+
+                    return self.connect()
+                else:
+                    # Fallback also failed, enter cooldown
+                    logger.error("YouTube stream still failing after fallback; entering cooldown")
+                    time.sleep(300)  # 5 minutes
+                    return False
+
+            logger.error(f"Connection failed: {e}")
+            return False
 
         except Exception as e:
             logger.error(f"Connection failed: {e}")

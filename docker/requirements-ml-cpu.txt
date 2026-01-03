@@ -1,6 +1,9 @@
 # ML detection backend - Pure CPU only (no GPU acceleration)
 # Install AFTER requirements-base.txt to avoid dependency resolution chaos
 
+# YouTube stream resolution (explicitly pinned for build-time stability)
+yt-dlp>=2024.12.01
+
 # PyTorch CPU-only (extra-index-url to supplement PyPI with CPU-only wheels)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.5.1

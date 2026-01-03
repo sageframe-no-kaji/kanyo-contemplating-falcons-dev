@@ -205,6 +205,34 @@ mypy src/kanyo/
 
 ---
 
+## YouTube Stream Recovery
+
+### How Kanyo Handles YouTube API Changes
+
+YouTube frequently changes their API, which can break stream capture. Kanyo handles this automatically:
+
+1. **Build-time protection**: yt-dlp is upgraded at container build time
+2. **Runtime fallback**: If YouTube returns "Precondition check failed", Kanyo switches to an alternate API client (`android_creator`) and retries once
+3. **Cooldown on failure**: If fallback also fails, Kanyo waits 5 minutes before retrying to avoid rate limiting
+
+### Log Messages
+
+| Message | Meaning |
+|---------|---------|
+| `YouTube precondition failed; retrying with alternate yt-dlp client` | Normal recovery, trying fallback |
+| `YouTube stream still failing after fallback; entering cooldown` | Both methods failed, waiting 5 min |
+| `✅ Connected to stream` | Recovery complete |
+
+### If Streams Stay Down
+
+If streams fail persistently after multiple cooldown cycles:
+
+1. Check if the YouTube stream is actually live
+2. Rebuild the container to get latest yt-dlp: `docker compose build --no-cache`
+3. Check yt-dlp GitHub issues for known YouTube breakages
+
+---
+
 ## License
 
 MIT

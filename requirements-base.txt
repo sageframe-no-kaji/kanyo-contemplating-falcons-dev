@@ -7,7 +7,7 @@ loguru==0.7.2                  # Structured logging
 python-dateutil>=2.8.0         # Date parsing utilities
 
 # Video processing (lightweight)
-yt-dlp==2023.11.16             # YouTube stream download
+yt-dlp>=2024.12.01             # YouTube stream download (pinned for API compatibility)
 
 # Notifications
 requests==2.31.0               # HTTP requests for ntfy/Telegram

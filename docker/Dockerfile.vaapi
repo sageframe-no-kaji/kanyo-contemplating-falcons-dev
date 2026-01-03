@@ -48,6 +48,9 @@ RUN pip install --no-cache-dir -r requirements-base.txt
 COPY --chown=app:app docker/requirements-ml-vaapi.txt .
 RUN pip install --no-cache-dir -r requirements-ml-vaapi.txt
 
+# Upgrade yt-dlp at build time to get latest YouTube API fixes
+RUN pip install --upgrade yt-dlp
+
 # Set YOLO cache directory BEFORE downloading model
 ENV YOLO_CONFIG_DIR=/app/.config
 ENV YOLO_CACHE_DIR=/app/.config
