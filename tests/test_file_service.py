@@ -43,8 +43,8 @@ class TestCleanupTempFiles:
             assert not tmp_file2.exists()
             assert mp4_file.exists()  # Should still exist
 
-    def test_cleanup_deletes_ffmpeg_log_files(self):
-        """Should delete .ffmpeg.log files."""
+    def test_cleanup_preserves_log_files(self):
+        """Should NOT delete .ffmpeg.log files (only .tmp files)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)
             stream_dir = data_dir / "test-stream" / "clips" / "2026-01-02"
@@ -53,20 +53,23 @@ class TestCleanupTempFiles:
             # Create test files
             log_file1 = stream_dir / "visit_123.mp4.ffmpeg.log"
             log_file2 = stream_dir / "arrival_456.mp4.ffmpeg.log"
+            tmp_file = stream_dir / "incomplete.mp4.tmp"
             mp4_file = stream_dir / "complete_789.mp4"
 
             log_file1.write_bytes(b"x" * 500)
             log_file2.write_bytes(b"x" * 700)
+            tmp_file.write_bytes(b"x" * 2000)
             mp4_file.write_bytes(b"x" * 5000)
 
             # Run cleanup
             result = file_service.cleanup_temp_files("test-stream", str(data_dir))
 
-            # Verify results
-            assert result["files_deleted"] == 2
-            assert result["bytes_freed"] == 1200
-            assert not log_file1.exists()
-            assert not log_file2.exists()
+            # Only tmp file should be deleted, logs preserved
+            assert result["files_deleted"] == 1
+            assert result["bytes_freed"] == 2000
+            assert log_file1.exists()  # Should still exist
+            assert log_file2.exists()  # Should still exist
+            assert not tmp_file.exists()
             assert mp4_file.exists()
 
     def test_cleanup_handles_nested_directories(self):
@@ -94,12 +97,12 @@ class TestCleanupTempFiles:
             # Run cleanup
             result = file_service.cleanup_temp_files("test-stream", str(data_dir))
 
-            # Verify all temp files deleted
-            assert result["files_deleted"] == 3
-            assert result["bytes_freed"] == 3500
+            # Only tmp files deleted
+            assert result["files_deleted"] == 2
+            assert result["bytes_freed"] == 3000
             assert not tmp1.exists()
             assert not tmp2.exists()
-            assert not log1.exists()
+            assert log1.exists()  # Log should be preserved
 
     def test_cleanup_empty_directory(self):
         """Should handle empty clips directory gracefully."""
@@ -141,3 +144,62 @@ class TestCleanupTempFiles:
             assert jpg_file.exists()
             assert txt_file.exists()
             assert not tmp_file.exists()
+
+
+class TestCleanupLogFiles:
+    """Test log file cleanup functionality."""
+
+    def test_cleanup_deletes_log_files(self):
+        """Should delete .ffmpeg.log files."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            stream_dir = data_dir / "test-stream" / "clips" / "2026-01-02"
+            stream_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create test files
+            log_file1 = stream_dir / "visit_123.mp4.ffmpeg.log"
+            log_file2 = stream_dir / "arrival_456.mp4.ffmpeg.log"
+            mp4_file = stream_dir / "complete_789.mp4"
+            tmp_file = stream_dir / "incomplete.mp4.tmp"
+
+            log_file1.write_bytes(b"x" * 500)
+            log_file2.write_bytes(b"x" * 700)
+            mp4_file.write_bytes(b"x" * 5000)
+            tmp_file.write_bytes(b"x" * 2000)
+
+            # Run log cleanup
+            result = file_service.cleanup_log_files("test-stream", str(data_dir))
+
+            # Only log files should be deleted
+            assert result["files_deleted"] == 2
+            assert result["bytes_freed"] == 1200
+            assert not log_file1.exists()
+            assert not log_file2.exists()
+            assert mp4_file.exists()
+            assert tmp_file.exists()  # Temp file preserved
+
+    def test_cleanup_logs_nested_directories(self):
+        """Should find and delete log files in nested directories."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            stream_dir = data_dir / "test-stream" / "clips"
+            stream_dir.mkdir(parents=True, exist_ok=True)
+
+            day1 = stream_dir / "2026-01-01"
+            day2 = stream_dir / "2026-01-02"
+            day1.mkdir()
+            day2.mkdir()
+
+            log1 = day1 / "visit_1.mp4.ffmpeg.log"
+            log2 = day2 / "visit_2.mp4.ffmpeg.log"
+
+            log1.write_bytes(b"x" * 500)
+            log2.write_bytes(b"x" * 700)
+
+            # Run cleanup
+            result = file_service.cleanup_log_files("test-stream", str(data_dir))
+
+            assert result["files_deleted"] == 2
+            assert result["bytes_freed"] == 1200
+            assert not log1.exists()
+            assert not log2.exists()

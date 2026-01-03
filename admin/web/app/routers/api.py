@@ -462,7 +462,7 @@ async def restart_admin():
 
 @router.post("/streams/{stream_id}/cleanup-tmp")
 async def cleanup_temp_files(stream_id: str):
-    """Clean up temporary files (.tmp and .ffmpeg.log) for a stream."""
+    """Clean up incomplete recording files (.tmp) for a stream."""
     stream = stream_service.get_stream(stream_id)
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
@@ -479,4 +479,26 @@ async def cleanup_temp_files(stream_id: str):
         "bytes_freed": result["bytes_freed"],
         "mb_freed": round(mb_freed, 2),
         "message": f"Deleted {result['files_deleted']} temp files, freed {mb_freed:.2f} MB",
+    }
+
+
+@router.post("/streams/{stream_id}/cleanup-logs")
+async def cleanup_log_files(stream_id: str):
+    """Clean up FFmpeg log files (.ffmpeg.log) for a stream."""
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    # Run cleanup
+    result = file_service.cleanup_log_files(stream_id)
+
+    # Format bytes for display
+    mb_freed = result["bytes_freed"] / (1024 * 1024)
+
+    return {
+        "success": True,
+        "files_deleted": result["files_deleted"],
+        "bytes_freed": result["bytes_freed"],
+        "mb_freed": round(mb_freed, 2),
+        "message": f"Deleted {result['files_deleted']} log files, freed {mb_freed:.2f} MB",
     }

@@ -16,15 +16,26 @@
                 <h1 class="text-3xl font-bold">Files</h1>
                 <p class="text-zinc-400 mt-2">Browse stream data directory</p>
             </div>
-            <button
-                id="cleanup-btn"
-                hx-post="/api/streams/{{ stream.id }}/cleanup-tmp"
-                hx-swap="none"
-                class="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm font-medium transition flex items-center gap-2"
-            >
-                <span>🗑️</span>
-                <span>Cleanup Temp Files</span>
-            </button>
+            <div class="flex items-center gap-3">
+                <button
+                    id="cleanup-tmp-btn"
+                    hx-post="/api/streams/{{ stream.id }}/cleanup-tmp"
+                    hx-swap="none"
+                    class="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm font-medium transition flex items-center gap-2"
+                >
+                    <span>🗑️</span>
+                    <span>Cleanup Temp Files</span>
+                </button>
+                <button
+                    id="cleanup-logs-btn"
+                    hx-post="/api/streams/{{ stream.id }}/cleanup-logs"
+                    hx-swap="none"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm font-medium transition flex items-center gap-2"
+                >
+                    <span>📋</span>
+                    <span>Cleanup Log Files</span>
+                </button>
+            </div>
         </div>
     </header>
 
@@ -157,9 +168,10 @@
 </div>
 
 <script>
-// Handle cleanup button response
+// Handle cleanup button responses
 document.body.addEventListener('htmx:afterRequest', function(event) {
-    if (event.detail.pathInfo.requestPath.includes('cleanup-tmp')) {
+    if (event.detail.pathInfo.requestPath.includes('cleanup-tmp') ||
+        event.detail.pathInfo.requestPath.includes('cleanup-logs')) {
         const response = JSON.parse(event.detail.xhr.responseText);
         const messageDiv = document.getElementById('cleanup-message');
         const successDiv = document.getElementById('cleanup-success');
