@@ -124,8 +124,9 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
     if not date_path.exists():
         return []
 
-    # Pattern: falcon_HHMMSS_type.ext
-    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(\w+)$")
+    # Pattern: falcon_HHMMSS_type.ext (only completed media files)
+    # Exclude .tmp (in-progress) and .log files
+    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(mp4|jpg|jpeg|avi|mov|mkv|png)$")
 
     for clip_file in sorted(date_path.iterdir(), reverse=True):
         if not clip_file.is_file():
@@ -212,8 +213,9 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
         dates_to_check.add(current.strftime("%Y-%m-%d"))
         current += timedelta(days=1)
 
-    # Pattern: falcon_HHMMSS_type.ext
-    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(\w+)$")
+    # Pattern: falcon_HHMMSS_type.ext (only completed media files)
+    # Exclude .tmp (in-progress) and .log files
+    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(mp4|jpg|jpeg|avi|mov|mkv|png)$")
 
     for date_str in sorted(dates_to_check):
         date_path = clips_dir / date_str
