@@ -108,20 +108,21 @@
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-xl font-semibold">Recent Clips</h2>
                     <div class="flex gap-1">
-                        {% set today = date %}
-                        {% for i in range(5) %}
-                            {% set day_offset = i %}
-                            {% set day_date = (today | string).split('-') %}
-                            {# Calculate date - will be done in Python below #}
+                        {% set time_ranges = [
+                            (24, "24h"),
+                            (48, "2 Days"),
+                            (72, "3 Days"),
+                            (96, "4 Days"),
+                            (120, "5 Days")
+                        ] %}
+                        {% for hours, label in time_ranges %}
                             <button
-                                hx-get="/api/streams/{{ stream.id }}/clips?offset={{ day_offset }}"
+                                hx-get="/api/streams/{{ stream.id }}/clips?hours={{ hours }}"
                                 hx-target="#clips-grid"
                                 hx-swap="innerHTML"
-                                class="px-2 py-1 text-xs rounded transition {% if i == 0 %}bg-zinc-600 text-white{% else %}bg-zinc-700 hover:bg-zinc-600 text-zinc-400{% endif %}"
+                                class="px-2 py-1 text-xs rounded transition {% if loop.first %}bg-zinc-600 text-white{% else %}bg-zinc-700 hover:bg-zinc-600 text-zinc-400{% endif %}"
                                 onclick="document.querySelectorAll('#clips-grid').forEach(el => el.parentElement.querySelectorAll('button').forEach(btn => btn.classList.remove('bg-zinc-600', 'text-white'))); this.classList.add('bg-zinc-600', 'text-white');">
-                                {% if i == 0 %}Today
-                                {% elif i == 1 %}Yesterday
-                                {% else %}{{ i }}d ago{% endif %}
+                                {{ label }}
                             </button>
                         {% endfor %}
                     </div>

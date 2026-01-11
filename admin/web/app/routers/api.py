@@ -143,25 +143,22 @@ async def start_stream(stream_id: str):
 
 
 @router.get("/streams/{stream_id}/clips", response_class=HTMLResponse)
-async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
-    """Get clips for a specific date offset (0=today, 1=yesterday, etc.) in stream's timezone."""
+async def get_clips_for_date(request: Request, stream_id: str, hours: int = 24):
+    """Get clips from the last N hours (relative time, not calendar days)."""
     stream = stream_service.get_stream(stream_id)
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    # Calculate the date using STREAM timezone, not server timezone
+    # Get clips from last N hours using stream's timezone
     stream_tz = stream.get("timezone", "UTC")
-    date_str = clip_service.get_stream_date_offset(stream_tz, offset)
-
-    # Get clips for that date
-    clips = clip_service.list_clips(stream["clips_path"], date_str)
+    clips = clip_service.list_clips_since(stream["clips_path"], stream_tz, hours)
 
     # Filter to only show videos (skip still images)
     clips = [c for c in clips if c["is_video"]]
 
     # Render clips grid HTML
     if not clips:
-        return '<p class="text-zinc-400">No clips for this date</p>'
+        return '<p class="text-zinc-400">No clips in the last ' + str(hours) + " hours</p>"
 
     # Render the clips grid (same as detail page)
     html = """
@@ -183,6 +180,7 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
 
     for clip in clips[:12]:
         thumb_name = clip["filename"].rsplit(".", 1)[0] + ".jpg"
+        date_str = clip["date"]
         clip_type_color = {
             "arrival": "bg-green-600",
             "departure": "bg-red-600",
