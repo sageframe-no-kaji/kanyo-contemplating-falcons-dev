@@ -216,21 +216,21 @@
                 </nav>
             </div>
 
-            <!-- Today's Events -->
+            <!-- Recent Events -->
             <div class="bg-zinc-800 rounded-lg p-4">
-                <h3 class="font-semibold mb-3">Today's Events</h3>
+                <h3 class="font-semibold mb-3">Last 24 Hours</h3>
                 {% if events %}
                 <div class="space-y-2 max-h-96 overflow-y-auto">
                     {% for event in events %}
                     <div class="text-sm hover:bg-zinc-700 rounded px-2 py-1 -mx-2 cursor-pointer transition"
-                         onclick="playClip('/clips/{{ stream.id }}/{{ date }}/{{ event.filename }}', '{{ event.type }} at {{ event.time }}')">
+                         onclick="playClip('/clips/{{ stream.id }}/{{ event.date }}/{{ event.filename }}', '{{ event.type }} at {{ event.time }}')">
                         <span class="text-zinc-400">{{ event.time }}</span>
                         <span class="text-white ml-2">{{ event.type }}</span>
                     </div>
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-zinc-500 text-sm">No events today</p>
+                <p class="text-zinc-500 text-sm">No events in the last 24 hours</p>
                 {% endif %}
             </div>
         </div>

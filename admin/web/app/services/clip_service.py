@@ -406,17 +406,18 @@ def get_last_event(clips_path: str) -> Optional[dict]:
     }
 
 
-def get_today_events(clips_path: str) -> list[dict]:
-    """Get today's events from clips, deduplicated by timestamp.
+def get_recent_events(clips_path: str, stream_timezone: str, hours: int = 24) -> list[dict]:
+    """Get events from the last N hours, deduplicated by timestamp.
 
     Args:
         clips_path: Path to clips directory
+        stream_timezone: Stream's IANA timezone
+        hours: Number of hours to look back (default 24)
 
     Returns:
-        List of events with time, type, and filename
+        List of events with time, type, date, and filename
     """
-    today = datetime.now().strftime("%Y-%m-%d")
-    clips = list_clips(clips_path, today)
+    clips = list_clips_since(clips_path, stream_timezone, hours)
 
     # Group by time, prefer showing arrival/departure over visit
     events_by_time = {}
@@ -435,6 +436,7 @@ def get_today_events(clips_path: str) -> list[dict]:
             "time": time,
             "type": clip_type,
             "filename": clip["filename"],
+            "date": clip.get("date", ""),
         }
 
     # Sort by time (most recent first)

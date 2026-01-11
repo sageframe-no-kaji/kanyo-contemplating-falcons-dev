@@ -76,8 +76,8 @@ async def stream_detail(request: Request, stream_id: str):
     today = clip_service.get_stream_today(stream_tz)
     clips = clip_service.list_clips(stream["clips_path"], today)
 
-    # Get deduplicated events for today
-    events = clip_service.get_today_events(stream["clips_path"])
+    # Get deduplicated events from last 24 hours
+    events = clip_service.get_recent_events(stream["clips_path"], stream_tz)
 
     return templates.TemplateResponse(
         "stream/detail.html",
