@@ -88,6 +88,7 @@ class VisitRecorder:
         self._events: list[dict] = []
         self._frame_size: tuple[int, int] | None = None
         self._stderr_file: typing.IO | None = None
+        self._confirmed: bool = False  # Set by rename_to_final(), actual rename deferred to stop
 
         # Get encoder
         self._encoder = detect_hardware_encoder()
@@ -411,18 +412,19 @@ class VisitRecorder:
         result_path = self._visit_path
         final_path = self._final_path
 
-        # Rename from .tmp to .mp4 to make it visible
-        if result_path and final_path and result_path.exists():
+        # Only rename from .tmp to .mp4 if confirmed (not cancelled)
+        if self._confirmed and result_path and final_path and result_path.exists():
             try:
                 result_path.rename(final_path)
                 result_path = final_path
                 # Update metadata with final path
                 metadata["visit_file"] = str(final_path)
+                logger.debug(f"Renamed confirmed recording to {final_path.name}")
             except Exception as e:
                 logger.error(f"Failed to rename {result_path} to {final_path}: {e}")
 
-        # Delete FFmpeg log file after successful recording
-        if result_path:
+        # Delete FFmpeg log file after successful recording (if confirmed)
+        if self._confirmed and result_path:
             ffmpeg_log = result_path.with_suffix(".ffmpeg.log")
             if ffmpeg_log.exists():
                 try:
@@ -434,6 +436,7 @@ class VisitRecorder:
         self._process = None
         self._frame_count = 0
         self._events = []
+        self._confirmed = False
 
         logger.event(
             f"✅ Visit recording complete: {result_path} "
@@ -534,7 +537,25 @@ class VisitRecorder:
             return False
 
     def rename_to_final(self) -> Path | None:
-        """Rename .tmp file to final name. Returns final path."""
+        """
+        Mark recording as confirmed (rename when done) or rename if not recording.
+
+        If currently recording, sets _confirmed flag so file will be renamed
+        when stop_recording() is called. This avoids breaking ffmpeg's faststart
+        which needs to re-open the file after encoding completes.
+
+        If not recording, renames immediately.
+
+        Returns:
+            Final path if renamed immediately, None if deferred
+        """
+        if self.is_recording:
+            # Defer rename until stop_recording() - ffmpeg needs the .tmp file
+            self._confirmed = True
+            logger.debug("Marked recording as confirmed, will rename on stop")
+            return None
+
+        # Not recording - can rename immediately
         if self._visit_path and self._visit_path.exists() and self._final_path:
             try:
                 self._visit_path.rename(self._final_path)
