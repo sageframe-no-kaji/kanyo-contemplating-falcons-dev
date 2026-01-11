@@ -1,8 +1,8 @@
 """Tests for arrival confirmation system."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -71,32 +71,18 @@ class TestArrivalConfirmation:
         assert state_machine.last_detection is None
 
     @patch("kanyo.utils.output.cv2")
-    def test_save_thumbnail_with_temp_flag(self, mock_cv2):
-        """Test that save_thumbnail creates .jpg.tmp file when temp=True."""
+    def test_save_thumbnail(self, mock_cv2):
+        """Test that save_thumbnail creates .jpg file."""
         from kanyo.utils.output import save_thumbnail
 
         mock_frame = Mock()
         timestamp = datetime(2026, 1, 3, 10, 30, 0)
 
-        # Test with temp=True
-        result_path = save_thumbnail(mock_frame, "clips", timestamp, "arrival", temp=True)
-
-        assert result_path.endswith(".jpg.tmp")
-        assert "falcon_103000_arrival" in result_path
-
-    @patch("kanyo.utils.output.cv2")
-    def test_save_thumbnail_without_temp_flag(self, mock_cv2):
-        """Test that save_thumbnail creates .jpg file when temp=False."""
-        from kanyo.utils.output import save_thumbnail
-
-        mock_frame = Mock()
-        timestamp = datetime(2026, 1, 3, 10, 30, 0)
-
-        # Test with temp=False (default)
-        result_path = save_thumbnail(mock_frame, "clips", timestamp, "arrival", temp=False)
+        # Test normal operation
+        result_path = save_thumbnail(mock_frame, "clips", timestamp, "arrival")
 
         assert result_path.endswith(".jpg")
-        assert not result_path.endswith(".jpg.tmp")
+        assert "falcon_103000_arrival" in result_path
 
     def test_visit_recorder_rename_to_final(self, tmp_path):
         """Test that visit recorder can rename .tmp file to final."""
@@ -153,7 +139,6 @@ class TestArrivalConfirmation:
         assert monitor.arrival_pending_start is None
         assert monitor.arrival_detection_count == 0
         assert monitor.arrival_frame_count == 0
-        assert monitor.pending_snapshot_path is None
         assert monitor.arrival_confirmation_seconds == 15
         assert monitor.arrival_confirmation_ratio == 0.4
 
@@ -164,9 +149,7 @@ class TestArrivalConfirmationIntegration:
     @patch("kanyo.detection.buffer_monitor.StreamCapture")
     @patch("kanyo.detection.buffer_monitor.FalconDetector")
     @patch("kanyo.utils.output.cv2")
-    def test_successful_arrival_confirmation(
-        self, mock_cv2, mock_detector_cls, mock_capture_cls
-    ):
+    def test_successful_arrival_confirmation(self, mock_cv2, mock_detector_cls, mock_capture_cls):
         """Test that sustained detections trigger confirmation and notification."""
         from kanyo.detection.buffer_monitor import BufferMonitor
 

@@ -10,7 +10,6 @@ import os
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
 from datetime import datetime  # noqa: E402
-from pathlib import Path  # noqa: E402
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
@@ -164,7 +163,6 @@ class BufferMonitor:
         self.arrival_pending_start: datetime | None = None
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
-        self.pending_snapshot_path: Path | None = None
 
         # Load arrival confirmation config
         self.arrival_confirmation_seconds = (
@@ -266,15 +264,6 @@ class BufferMonitor:
             self.arrival_detection_count = 1
             self.arrival_frame_count = 1
 
-            # Save snapshot with temp=True
-            if self.event_handler.last_frame is not None:
-                from kanyo.utils.output import save_thumbnail
-
-                snapshot_path = save_thumbnail(
-                    self.event_handler.last_frame, self.clips_dir, event_time, "arrival", temp=True
-                )
-                self.pending_snapshot_path = Path(snapshot_path)
-
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
                 event_time, self.visit_recorder.lead_in_seconds
@@ -356,12 +345,6 @@ class BufferMonitor:
             f"({self.arrival_detection_count}/{self.arrival_frame_count} frames)"
         )
 
-        # Rename pending snapshot from .jpg.tmp to .jpg
-        if self.pending_snapshot_path and self.pending_snapshot_path.exists():
-            final_path = self.pending_snapshot_path.with_suffix("")
-            self.pending_snapshot_path.rename(final_path)
-            logger.debug(f"Renamed snapshot: {final_path}")
-
         # Rename arrival clip from .tmp to final
         self.arrival_clip_recorder.rename_to_final()
 
@@ -370,16 +353,13 @@ class BufferMonitor:
 
         # NOW send notification and handle event
         if self.arrival_pending_start is not None:
-            self.event_handler.handle_event(
-                FalconEvent.ARRIVED, self.arrival_pending_start, {}
-            )
+            self.event_handler.handle_event(FalconEvent.ARRIVED, self.arrival_pending_start, {})
 
         # Reset pending state
         self.arrival_pending = False
         self.arrival_pending_start = None
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
-        self.pending_snapshot_path = None
 
     def _cancel_arrival(self, ratio: float) -> None:
         """Cancel arrival - insufficient detections or early departure."""
@@ -388,10 +368,6 @@ class BufferMonitor:
             f"({self.arrival_detection_count}/{self.arrival_frame_count} frames, "
             f"threshold: {self.arrival_confirmation_ratio:.1%})"
         )
-
-        # Keep .tmp files for debugging (do not delete)
-        if self.pending_snapshot_path:
-            logger.debug(f"Kept temp snapshot: {self.pending_snapshot_path}")
 
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
         now = datetime.now()
@@ -406,7 +382,6 @@ class BufferMonitor:
         self.arrival_pending_start = None
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
-        self.pending_snapshot_path = None
 
     def run(self) -> None:
         """Main monitoring loop."""
@@ -485,11 +460,13 @@ class BufferMonitor:
                                     frame_size=self._frame_size or (1280, 720),
                                 )
                                 logger.info(
-                                    "📹 Recording startup arrival clip (record_arrival_on_startup=true)"
+                                    "📹 Recording startup arrival clip "
+                                    "(record_arrival_on_startup=true)"
                                 )
                             else:
                                 logger.info(
-                                    "⏭️  Skipping startup arrival clip (record_arrival_on_startup=false)"
+                                    "⏭️  Skipping startup arrival clip "
+                                    "(record_arrival_on_startup=false)"
                                 )
 
                             # Start long-term visit recording (ALWAYS - needed for departure clips)
