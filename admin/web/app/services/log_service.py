@@ -62,12 +62,13 @@ def get_logs(
                 continue
             all_lines.append(parsed)
 
-    # Apply smart DEBUG filtering
+    # Apply level filtering and optional smart DEBUG context
     if show_context:
-        # Include DEBUG lines only within ±5 lines of EVENT logs
-        all_lines = _add_debug_context(all_lines, context_lines=5)
+        # Smart filtering: show ALL non-DEBUG levels + DEBUG only near EVENTs
+        # This provides full context around events regardless of levels filter
+        all_lines = _add_debug_context(all_lines, context_lines=5, levels=None)
     elif levels:
-        # Normal filtering without context
+        # Normal filtering: only requested levels
         all_lines = [log for log in all_lines if log["level"] in levels]
 
     # Return last N lines
@@ -90,25 +91,43 @@ def _tail_file(path: Path, lines: int = 5000) -> list[str]:
             return f.readlines()[-lines:]
 
 
-def _add_debug_context(all_lines: list[dict], context_lines: int = 5) -> list[dict]:
-    """Include DEBUG lines only within ±N lines of EVENT logs."""
-    # Find indices of EVENT lines and mark context windows
-    event_indices = set()
+def _add_debug_context(
+    all_lines: list[dict], context_lines: int = 5, levels: list[str] | None = None
+) -> list[dict]:
+    """
+    Smart DEBUG filtering: keep requested non-DEBUG logs, include DEBUG only near EVENTs.
+
+    This matches event-search.sh behavior: ERROR/INFO/WARNING/EVENT shown if requested,
+    DEBUG only within ±N lines of an EVENT.
+
+    Args:
+        all_lines: All parsed log lines
+        context_lines: Number of lines before/after EVENT to include DEBUG
+        levels: Requested log levels (if None, include all non-DEBUG levels)
+    """
+    # Find indices where DEBUG should be included (±N lines around EVENTs)
+    debug_allowed_indices = set()
     for i, line in enumerate(all_lines):
         if line["level"] == "EVENT":
             for j in range(
                 max(0, i - context_lines),
                 min(len(all_lines), i + context_lines + 1),
             ):
-                event_indices.add(j)
+                debug_allowed_indices.add(j)
 
-    # Filter: keep non-DEBUG always, keep DEBUG only if near EVENT
+    # Filter based on levels and DEBUG context rules
     result = []
     for i, line in enumerate(all_lines):
-        if line["level"] != "DEBUG":
-            result.append(line)
-        elif i in event_indices:
-            result.append(line)
+        level = line["level"]
+
+        if level == "DEBUG":
+            # Include DEBUG only if within context window
+            if i in debug_allowed_indices:
+                result.append(line)
+        else:
+            # Include non-DEBUG if in requested levels (or if no levels specified)
+            if levels is None or level in levels:
+                result.append(line)
 
     return result
 
