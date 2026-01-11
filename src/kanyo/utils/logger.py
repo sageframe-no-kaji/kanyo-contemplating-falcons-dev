@@ -24,6 +24,7 @@ Smart DEBUG buffering:
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import sys
 import time
 from collections import deque
@@ -76,23 +77,42 @@ class UTCFormatter(logging.Formatter):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Smart buffered file handler - keeps DEBUG around events only
+# Smart buffered file handler - keeps DEBUG around events only + daily rotation
 # ──────────────────────────────────────────────────────────────────────────────
-class BufferedDebugHandler(logging.FileHandler):
+class BufferedDebugHandler(logging.handlers.TimedRotatingFileHandler):
     """
-    File handler with smart DEBUG buffering.
+    File handler with smart DEBUG buffering and daily rotation.
 
     - DEBUG logs are kept in a ring buffer (not written to file)
     - When EVENT/WARNING/ERROR occurs:
       1. Flush the DEBUG buffer to file (context before event)
       2. Enable DEBUG pass-through for 5 seconds (context after event)
     - INFO logs always written immediately
+    - Rotates at midnight UTC, keeps 7 days of logs
+    - Rotated files: kanyo.log.2026-01-10, kanyo.log.2026-01-09, etc.
     """
 
     def __init__(
-        self, filename, buffer_size=DEBUG_BUFFER_SIZE, capture_window=DEBUG_CAPTURE_WINDOW, **kwargs
+        self,
+        filename,
+        buffer_size=DEBUG_BUFFER_SIZE,
+        capture_window=DEBUG_CAPTURE_WINDOW,
+        backup_count=7,
+        **kwargs,
     ):
-        super().__init__(filename, **kwargs)
+        # Extract encoding for TimedRotatingFileHandler
+        encoding = kwargs.pop("encoding", "utf-8")
+
+        # Initialize timed rotating handler - rotates at midnight UTC
+        super().__init__(
+            filename,
+            when="midnight",
+            interval=1,
+            backupCount=backup_count,
+            encoding=encoding,
+            utc=True,
+        )
+
         self._debug_buffer: deque = deque(maxlen=buffer_size)
         self._capture_window = capture_window
         self._capture_until = 0.0  # Timestamp when DEBUG pass-through expires

@@ -2,11 +2,62 @@
 Log service for reading kanyo.log files from disk.
 
 Replaces docker logs with persistent file-based logging.
+Supports rotated log files (kanyo.log, kanyo.log.2026-01-10, etc.)
 """
 
+import glob
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+
+def _get_log_files(stream_id: str, since: str) -> list[Path]:
+    """
+    Get all relevant log files for the time range, oldest first.
+
+    Rotated files are named: kanyo.log.YYYY-MM-DD
+    """
+    log_dir = Path(f"/data/{stream_id}/logs")
+    main_log = log_dir / "kanyo.log"
+
+    if not log_dir.exists():
+        return []
+
+    # For short ranges, only need current file
+    if since in ("startup", "1h", "8h"):
+        return [main_log] if main_log.exists() else []
+
+    # For 24h+, include rotated files
+    now_utc = datetime.now(timezone.utc)
+    if since == "24h":
+        cutoff_date = (now_utc - timedelta(days=1)).date()
+    elif since == "3d":
+        cutoff_date = (now_utc - timedelta(days=3)).date()
+    elif since == "7d":
+        cutoff_date = (now_utc - timedelta(days=7)).date()
+    else:
+        cutoff_date = None
+
+    # Find rotated files matching pattern kanyo.log.YYYY-MM-DD
+    rotated_pattern = str(log_dir / "kanyo.log.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]")
+    rotated_files = sorted(glob.glob(rotated_pattern))
+
+    # Filter by date and build list (oldest first)
+    result = []
+    for f in rotated_files:
+        try:
+            date_str = Path(f).name.replace("kanyo.log.", "")
+            file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            if cutoff_date is None or file_date >= cutoff_date:
+                result.append(Path(f))
+        except ValueError:
+            continue
+
+    # Add current log last (most recent)
+    if main_log.exists():
+        result.append(main_log)
+
+    return result
 
 
 def get_logs(
@@ -17,7 +68,7 @@ def get_logs(
     show_context: bool = False,
 ) -> list[dict]:
     """
-    Read logs from kanyo.log file.
+    Read logs from kanyo.log files (including rotated files for longer ranges).
 
     Args:
         stream_id: Stream identifier
@@ -29,9 +80,10 @@ def get_logs(
     Returns:
         List of log line dicts with timestamp, level, module, message
     """
-    log_path = Path(f"/data/{stream_id}/logs/kanyo.log")
+    # Get all relevant log files
+    log_files = _get_log_files(stream_id, since)
 
-    if not log_path.exists():
+    if not log_files:
         return []
 
     # Calculate cutoff time (all times are UTC since logs are in UTC)
@@ -49,11 +101,19 @@ def get_logs(
     elif since == "7d":
         cutoff = now_utc - timedelta(days=7)
     elif since == "startup":
-        # Find last startup message
-        cutoff = _find_last_startup(log_path)
+        # Find last startup message in most recent file
+        main_log = log_files[-1] if log_files else None
+        cutoff = _find_last_startup(main_log) if main_log else None
 
-    # Use tail for efficiency - read last 5000 lines
-    raw_lines = _tail_file(log_path, lines=5000)
+    # Read from all relevant log files
+    raw_lines = []
+    for log_file in log_files:
+        if log_file.name == "kanyo.log":
+            # Use tail for current file (most efficient)
+            raw_lines.extend(_tail_file(log_file, lines=5000))
+        else:
+            # Read rotated files entirely (already filtered by date)
+            raw_lines.extend(_read_file(log_file))
 
     # Show context only allowed for short time ranges (up to 24h)
     # For longer ranges, too much data to process efficiently
@@ -104,6 +164,15 @@ def _tail_file(path: Path, lines: int = 5000) -> list[str]:
         # Fallback to Python if tail fails
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             return f.readlines()[-lines:]
+
+
+def _read_file(path: Path) -> list[str]:
+    """Read entire file (for rotated log files)."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return [line.rstrip("\n") for line in f]
+    except Exception:
+        return []
 
 
 def _add_debug_context(
