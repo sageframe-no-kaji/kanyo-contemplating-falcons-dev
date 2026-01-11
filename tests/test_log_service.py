@@ -315,8 +315,9 @@ class TestShowContext:
                 show_context=True,
             )
 
-            # Should include EVENT + 3 DEBUG before + 3 DEBUG after = 7 lines
-            assert len(logs) == 7
+            # Should include EVENT + 5 DEBUG before + 5 DEBUG after + INFO (non-DEBUG always included)
+            # = 1 EVENT + 3 DEBUG before + 3 DEBUG after + 1 INFO = 8 lines
+            assert len(logs) == 8
 
             # Verify we got the right lines (sorted chronologically)
             assert logs[0]["level"] == "DEBUG"
@@ -325,6 +326,8 @@ class TestShowContext:
             assert "arrival" in logs[3]["message"]
             assert logs[6]["level"] == "DEBUG"
             assert "check 6" in logs[6]["message"]
+            assert logs[7]["level"] == "INFO"
+            assert "Some other log" in logs[7]["message"]
 
         finally:
             # Cleanup

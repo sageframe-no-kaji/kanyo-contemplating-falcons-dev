@@ -4,6 +4,7 @@ Log service for reading kanyo.log files from disk.
 Replaces docker logs with persistent file-based logging.
 """
 
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def get_logs(
         since: "startup", "1h", "24h", "7d", "all"
         lines: Max lines to return
         levels: List of log levels to include (e.g., ["INFO", "ERROR"])
-        show_context: If True, include 3 DEBUG lines before/after EVENT logs
+        show_context: If True, include DEBUG lines within ±5 lines of EVENT logs
 
     Returns:
         List of log line dicts with timestamp, level, module, message
@@ -48,54 +49,68 @@ def get_logs(
         cutoff = _find_last_startup(log_path)
     # "all" = no cutoff
 
-    # Read and filter
+    # Use tail for efficiency (read last 5000 lines instead of entire file)
+    raw_lines = _tail_file(log_path, lines=5000)
+
+    # Parse and filter by time
     all_lines = []
-    with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            parsed = _parse_log_line(line)
-            if parsed:
-                # Filter by cutoff time
-                if cutoff is not None and parsed["timestamp"] < cutoff:
-                    continue
-                all_lines.append(parsed)
-
-    # If show_context is enabled, find EVENT logs and include surrounding DEBUG lines
-    if show_context and levels and "EVENT" in levels:
-        result_lines = []
-        context_window = 3
-
-        for i, log in enumerate(all_lines):
-            # Always include lines matching the requested levels
-            if log["level"] in levels:
-                result_lines.append(log)
-
-                # If this is an EVENT, add context before and after
-                if log["level"] == "EVENT":
-                    # Add 3 DEBUG lines before
-                    for j in range(max(0, i - context_window), i):
-                        prev_log = all_lines[j]
-                        if prev_log["level"] == "DEBUG" and prev_log not in result_lines:
-                            result_lines.append(prev_log)
-
-                    # Add 3 DEBUG lines after
-                    for j in range(i + 1, min(len(all_lines), i + 1 + context_window)):
-                        next_log = all_lines[j]
-                        if next_log["level"] == "DEBUG" and next_log not in result_lines:
-                            result_lines.append(next_log)
-
-        # Sort by timestamp to maintain chronological order
-        result_lines.sort(key=lambda x: x["timestamp"])
-        log_lines = result_lines
-    else:
-        # Normal filtering without context
-        log_lines = []
-        for log in all_lines:
-            if levels and log["level"] not in levels:
+    for line in raw_lines:
+        parsed = _parse_log_line(line)
+        if parsed:
+            # Filter by cutoff time
+            if cutoff is not None and parsed["timestamp"] < cutoff:
                 continue
-            log_lines.append(log)
+            all_lines.append(parsed)
+
+    # Apply smart DEBUG filtering
+    if show_context:
+        # Include DEBUG lines only within ±5 lines of EVENT logs
+        all_lines = _add_debug_context(all_lines, context_lines=5)
+    elif levels:
+        # Normal filtering without context
+        all_lines = [log for log in all_lines if log["level"] in levels]
 
     # Return last N lines
-    return log_lines[-lines:]
+    return all_lines[-lines:]
+
+
+def _tail_file(path: Path, lines: int = 5000) -> list[str]:
+    """Read last N lines efficiently using tail."""
+    try:
+        result = subprocess.run(
+            ["tail", "-n", str(lines), str(path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.splitlines()
+    except Exception:
+        # Fallback to Python if tail fails
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.readlines()[-lines:]
+
+
+def _add_debug_context(all_lines: list[dict], context_lines: int = 5) -> list[dict]:
+    """Include DEBUG lines only within ±N lines of EVENT logs."""
+    # Find indices of EVENT lines and mark context windows
+    event_indices = set()
+    for i, line in enumerate(all_lines):
+        if line["level"] == "EVENT":
+            for j in range(
+                max(0, i - context_lines),
+                min(len(all_lines), i + context_lines + 1),
+            ):
+                event_indices.add(j)
+
+    # Filter: keep non-DEBUG always, keep DEBUG only if near EVENT
+    result = []
+    for i, line in enumerate(all_lines):
+        if line["level"] != "DEBUG":
+            result.append(line)
+        elif i in event_indices:
+            result.append(line)
+
+    return result
 
 
 def _find_last_startup(log_path: Path) -> datetime:

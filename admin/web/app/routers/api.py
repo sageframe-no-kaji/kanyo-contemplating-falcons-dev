@@ -374,9 +374,9 @@ async def update_config(
                 f'px-4 py-3 rounded font-medium">'
                 f"✓ {message}"
                 f"</div>"
-                f'<script>setTimeout(() => {{ '
+                f"<script>setTimeout(() => {{ "
                 f'document.getElementById("save-feedback").innerHTML = ""; '
-                f'}}, 5000);</script>'
+                f"}}, 5000);</script>"
             )
         else:
             # Regular form POST - redirect back to config page
@@ -429,7 +429,7 @@ async def create_new_stream(
             f'px-4 py-3 rounded mb-4">'
             f'<p class="font-medium mb-2">✓ {message}</p>'
             f'<p class="text-sm mb-3">The detection container is now running. '
-            f'Restart the admin to see the new stream in the overview.</p>'
+            f"Restart the admin to see the new stream in the overview.</p>"
             f'<button hx-post="/api/admin/restart" '
             f'        hx-swap="outerHTML" '
             f'        class="bg-amber-600 hover:bg-amber-500 px-4 py-2 rounded '
