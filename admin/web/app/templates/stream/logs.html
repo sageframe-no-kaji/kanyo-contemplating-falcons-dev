@@ -153,28 +153,34 @@
         </div>
     </div>
 
-    <!-- Log Output -->
-    <div class="bg-zinc-900 rounded-lg p-4 overflow-auto relative" style="max-height: 70vh;">
-        <div id="log-output" class="text-sm font-mono space-y-0.5">
-            {% if logs %}
-                {% for line in logs.split('\n') %}
-                    {% if line.strip() %}
-                        {% set parts = line.split('|') %}
-                        {% if parts|length >= 2 %}
-                            {% set level = parts[1].strip() %}
-                            <div class="log-line" data-level="{{ level }}">{{ line }}</div>
-                        {% else %}
-                            <div class="log-line" data-level="UNKNOWN">{{ line }}</div>
-                        {% endif %}
-                    {% endif %}
-                {% endfor %}
-            {% endif %}
-        </div>
+    <!-- Log Output Container -->
+    <div class="relative bg-zinc-900 rounded-lg" style="min-height: 400px; max-height: 70vh;">
         <!-- Loading Indicator -->
-        <div id="log-loading" class="hidden absolute inset-0 bg-zinc-900/90 flex items-center justify-center rounded-lg">
+        <div id="log-loading" class="hidden absolute inset-0 bg-zinc-900/90 flex items-center justify-center rounded-lg z-10">
             <div class="text-center">
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                <div class="mt-2 text-zinc-400">Loading logs...</div>
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                <div class="mt-3 text-zinc-300 font-semibold">Loading logs...</div>
+            </div>
+        </div>
+
+        <!-- Log Output -->
+        <div class="p-4 overflow-auto h-full">
+            <div id="log-output" class="text-sm font-mono space-y-0.5">
+                {% if logs %}
+                    {% for line in logs.split('\n') %}
+                        {% if line.strip() %}
+                            {% set parts = line.split('|') %}
+                            {% if parts|length >= 2 %}
+                                {% set level = parts[1].strip() %}
+                                <div class="log-line" data-level="{{ level }}">{{ line }}</div>
+                            {% else %}
+                                <div class="log-line" data-level="UNKNOWN">{{ line }}</div>
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <div class="text-zinc-500 text-center py-8">No logs found for selected filters</div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -297,15 +303,22 @@
         const outputEl = document.getElementById('log-output');
         loadingEl.classList.remove('hidden');
 
+        console.log(`Fetching logs: since=${since}, levels=${levels}, show_context=${showContext}`);
+
         try {
             const url = `/api/streams/${streamId}/logs?since=${since}&levels=${levels}&lines=500&show_context=${showContext}`;
             const response = await fetch(url);
 
             if (response.ok) {
                 const html = await response.text();
-                outputEl.innerHTML = html;
+                if (html.trim() === '') {
+                    outputEl.innerHTML = '<div class="text-zinc-500 text-center py-8">No logs found for selected filters</div>';
+                } else {
+                    outputEl.innerHTML = html;
+                }
                 // Apply client-side search filter
                 applySearchFilter();
+                console.log(`Loaded ${outputEl.querySelectorAll('.log-line').length} log lines`);
             } else {
                 outputEl.innerHTML = '<div class="text-red-500">Failed to load logs</div>';
             }
