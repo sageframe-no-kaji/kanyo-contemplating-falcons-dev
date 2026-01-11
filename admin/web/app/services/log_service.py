@@ -69,7 +69,19 @@ def get_logs(
         all_lines = _add_debug_context(all_lines, context_lines=5, levels=None)
     elif levels:
         # Normal filtering: only requested levels
+        # Debug: count levels before filtering
+        level_counts_before = {}
+        for log in all_lines:
+            level_counts_before[log["level"]] = level_counts_before.get(log["level"], 0) + 1
+        print(f"DEBUG: Before filtering: {level_counts_before}, filtering for levels: {levels}")
+
         all_lines = [log for log in all_lines if log["level"] in levels]
+
+        # Debug: count levels after filtering
+        level_counts_after = {}
+        for log in all_lines:
+            level_counts_after[log["level"]] = level_counts_after.get(log["level"], 0) + 1
+        print(f"DEBUG: After filtering: {level_counts_after}")
 
     # Return last N lines
     return all_lines[-lines:]
