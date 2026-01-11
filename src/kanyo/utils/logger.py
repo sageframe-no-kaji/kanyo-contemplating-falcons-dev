@@ -14,12 +14,19 @@ Custom EVENT level (25) for falcon events:
 - EVENT (25): Falcon arrivals, departures, clips, notifications
 - WARNING (30): Unusual but not errors (stream hiccups)
 - ERROR (40): Actual errors
+
+Smart DEBUG buffering:
+- DEBUG logs are kept in a ring buffer (not written to file)
+- When EVENT/WARNING/ERROR occurs, buffer is flushed and DEBUG is captured for 5s
+- This keeps DEBUG context around events while eliminating spam
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -48,6 +55,10 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 DEFAULT_LEVEL = "INFO"
 DEFAULT_LOG_FILE = "logs/kanyo.log"
 
+# Smart DEBUG buffering settings
+DEBUG_BUFFER_SIZE = 150  # Keep last N DEBUG logs in memory
+DEBUG_CAPTURE_WINDOW = 5.0  # Seconds to capture DEBUG after an event
+
 _initialized = False
 
 
@@ -65,10 +76,69 @@ class UTCFormatter(logging.Formatter):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Smart buffered file handler - keeps DEBUG around events only
+# ──────────────────────────────────────────────────────────────────────────────
+class BufferedDebugHandler(logging.FileHandler):
+    """
+    File handler with smart DEBUG buffering.
+
+    - DEBUG logs are kept in a ring buffer (not written to file)
+    - When EVENT/WARNING/ERROR occurs:
+      1. Flush the DEBUG buffer to file (context before event)
+      2. Enable DEBUG pass-through for 5 seconds (context after event)
+    - INFO logs always written immediately
+    """
+
+    def __init__(
+        self, filename, buffer_size=DEBUG_BUFFER_SIZE, capture_window=DEBUG_CAPTURE_WINDOW, **kwargs
+    ):
+        super().__init__(filename, **kwargs)
+        self._debug_buffer: deque = deque(maxlen=buffer_size)
+        self._capture_window = capture_window
+        self._capture_until = 0.0  # Timestamp when DEBUG pass-through expires
+
+    def emit(self, record):
+        """Handle a log record with smart DEBUG buffering."""
+        try:
+            if record.levelno == logging.DEBUG:
+                # Check if we're in the capture window
+                if time.monotonic() < self._capture_until:
+                    # Write DEBUG directly during capture window
+                    super().emit(record)
+                else:
+                    # Buffer DEBUG log (formatted, ready to write)
+                    msg = self.format(record)
+                    self._debug_buffer.append(msg)
+            elif record.levelno >= EVENT:  # EVENT (25), WARNING, ERROR, CRITICAL
+                # Flush DEBUG buffer first (context before event)
+                self._flush_debug_buffer()
+                # Write the event
+                super().emit(record)
+                # Start capture window for DEBUG logs after this event
+                self._capture_until = time.monotonic() + self._capture_window
+            else:
+                # INFO level - write directly
+                super().emit(record)
+        except Exception:
+            self.handleError(record)
+
+    def _flush_debug_buffer(self):
+        """Write all buffered DEBUG logs to file."""
+        while self._debug_buffer:
+            msg = self._debug_buffer.popleft()
+            # Write raw formatted message (already includes newline from format)
+            self.stream.write(msg + self.terminator)
+        self.flush()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) -> None:
     """Initialize root logger with console + file handlers (UTC timestamps).
+
+    Uses BufferedDebugHandler for file output to reduce DEBUG spam while
+    preserving context around events.
 
     Safe to call multiple times.
     """
@@ -87,10 +157,12 @@ def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) 
 
     formatter = UTCFormatter(LOG_FORMAT, DATE_FORMAT)
 
+    # Console: show all log levels (including DEBUG if enabled)
     console = logging.StreamHandler(sys.stderr)
     console.setFormatter(formatter)
 
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    # File: use smart buffered handler for DEBUG logs
+    file_handler = BufferedDebugHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
 
     root.addHandler(console)
