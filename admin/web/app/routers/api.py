@@ -191,18 +191,22 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
 
         html += f"""
         <div class="aspect-video bg-zinc-900 rounded overflow-hidden relative group cursor-pointer"
-             onclick="playClip('/clips/{stream_id}/{date_str}/{clip['filename']}', '{clip['type']} at {clip['time']}')">
+             onclick="playClip('/clips/{stream_id}/{date_str}/{clip['filename']}', \
+'{clip['type']} at {clip['time']}')">
             <img src="/clips/{stream_id}/{date_str}/{thumb_name}"
                  class="w-full h-full object-cover"
                  onerror="this.style.display='none'"
                  alt="{clip['type']} at {clip['time']}">
-            <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+            <div class="absolute bottom-0 left-0 right-0 \
+bg-gradient-to-t from-black/80 to-transparent p-2">
                 <div class="flex flex-col gap-1">
                     <div class="flex items-center justify-between text-xs">
                         <span class="flex items-center gap-1">
-                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">VID</span>
+                            <span class="text-[10px] font-bold bg-white/20 px-1 rounded">\
+VID</span>
                         </span>
-                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {clip_type_color}">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium \
+{clip_type_color}">
                             {clip['type']}
                         </span>
                     </div>
@@ -211,8 +215,8 @@ async def get_clips_for_date(request: Request, stream_id: str, offset: int = 0):
                     </div>
                 </div>
             </div>
-            <div class="absolute inset-0 flex items-center justify-center opacity-0 "
-                 "group-hover:opacity-100 transition bg-black/30">
+            <div class="absolute inset-0 flex items-center justify-center opacity-0 \
+group-hover:opacity-100 transition bg-black/30">
                 <span class="text-4xl">▶</span>
             </div>
         </div>
@@ -454,18 +458,22 @@ async def restart_admin():
 
     if success:
         return HTMLResponse(
-            '<div class="bg-blue-600/20 border border-blue-600 text-blue-400 px-4 py-3 rounded">'
+            '<div class="bg-blue-600/20 border border-blue-600 '
+            'text-blue-400 px-4 py-3 rounded">'
             '<p class="font-medium">↻ Restarting admin container...</p>'
             '<p class="text-sm mt-1">This page will be unavailable for a few seconds. '
-            '<a href="/" class="underline">Click here</a> to return to the overview once it\'s back.</p>'
+            '<a href="/" class="underline">Click here</a> to return to the overview '
+            "once it's back.</p>"
             "</div>"
         )
     else:
         return HTMLResponse(
-            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
+            '<div class="bg-red-600/20 border border-red-600 '
+            'text-red-400 px-4 py-2 rounded">'
             f"Error restarting: {message}<br>"
-            f'<span class="text-sm">Manual restart: <code>docker restart kanyo-admin-web</code></span>'
-            f"</div>",
+            '<span class="text-sm">Manual restart: '
+            "<code>docker restart kanyo-admin-web</code></span>"
+            "</div>",
             status_code=500,
         )
 

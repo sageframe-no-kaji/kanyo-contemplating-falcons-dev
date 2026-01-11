@@ -1,8 +1,6 @@
 """Configuration file management service."""
 
-from pathlib import Path
 import yaml
-from typing import Optional
 
 
 def read_config(config_path: str) -> dict:

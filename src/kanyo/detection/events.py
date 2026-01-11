@@ -154,8 +154,6 @@ class EventStore:
             date_str = event_time.strftime("%Y-%m-%d")
         else:
             # Naive datetime - shouldn't happen, but handle it
-            from kanyo.utils.config import get_now_tz
-
             now_tz = get_now_tz(self.timezone_config)
             date_str = now_tz.strftime("%Y-%m-%d")
 

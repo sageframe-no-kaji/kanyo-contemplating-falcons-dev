@@ -1,7 +1,7 @@
 """Stream discovery and management service."""
 
-from pathlib import Path
 from typing import Optional
+
 import yaml
 
 from app.config import settings

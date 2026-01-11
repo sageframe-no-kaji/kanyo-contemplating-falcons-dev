@@ -1,6 +1,5 @@
 """Docker container management service."""
 
-from typing import Optional
 import docker
 from docker.errors import NotFound, APIError
 from datetime import datetime, timezone

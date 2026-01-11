@@ -68,7 +68,10 @@ class UTCFormatter(logging.Formatter):
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 def setup_logging(level: str = DEFAULT_LEVEL, log_file: str = DEFAULT_LOG_FILE) -> None:
-    """Initialize root logger with console + file handlers (UTC timestamps). Safe to call multiple times."""
+    """Initialize root logger with console + file handlers (UTC timestamps).
+
+    Safe to call multiple times.
+    """
     global _initialized
 
     root = logging.getLogger()

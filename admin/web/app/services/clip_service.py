@@ -157,7 +157,7 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
 
                 # Find departure thumbnail - it may be at a later time
                 departure_thumb = None
-                for dep_file in sorted(date_path.glob(f"falcon_*_departure.jpg")):
+                for dep_file in sorted(date_path.glob("falcon_*_departure.jpg")):
                     dep_time_str = dep_file.name.split("_")[1]
                     if dep_time_str >= time_str:  # Find first departure >= arrival time
                         departure_thumb = dep_file
@@ -197,7 +197,6 @@ def get_latest_thumbnail(clips_path: str, stream_id: str) -> Optional[str]:
     if not clips_dir.exists():
         return None
 
-    latest_jpg = None
     latest_time = 0
     latest_date = None
     latest_filename = None

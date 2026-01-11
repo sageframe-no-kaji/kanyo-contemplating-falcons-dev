@@ -1,10 +1,10 @@
 """Stream creation and management."""
 
-import yaml
 import re
 import subprocess
+
+import yaml
 from pathlib import Path
-from typing import Optional
 
 
 # Template for new stream config
@@ -172,18 +172,20 @@ def _add_to_detection_compose(stream_id: str) -> tuple[bool, str]:
 
         # Update volumes
         new_volumes = []
+        stream_upper = stream_id.upper()
         for vol in new_service.get("volumes", []):
             if "/config.yaml" in vol:
                 new_volumes.append(
-                    f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/config.yaml:/app/config.yaml:ro"
+                    f"${{KANYO_{stream_upper}_ROOT:-./data/{stream_id}}}"
+                    "/config.yaml:/app/config.yaml:ro"
                 )
             elif "/clips" in vol:
                 new_volumes.append(
-                    f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/clips:/app/clips"
+                    f"${{KANYO_{stream_upper}_ROOT:-./data/{stream_id}}}" "/clips:/app/clips"
                 )
             elif "/logs" in vol:
                 new_volumes.append(
-                    f"${{KANYO_{stream_id.upper()}_ROOT:-./data/{stream_id}}}/logs:/app/logs"
+                    f"${{KANYO_{stream_upper}_ROOT:-./data/{stream_id}}}" "/logs:/app/logs"
                 )
             else:
                 new_volumes.append(vol)
