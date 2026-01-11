@@ -161,28 +161,41 @@ class BufferClipManager:
             return False
 
         visit_end = visit_metadata.get("visit_end")  # This is last_detection time
-        recording_start = visit_metadata.get(
-            "recording_start"
-        )  # When file started (includes lead-in)
+        recording_duration = visit_metadata.get("recording_duration_seconds", 0)
 
-        if not visit_end or not recording_start:
-            logger.warning("Cannot create departure clip: missing visit_end or recording_start")
+        if not visit_end or not recording_duration:
+            logger.warning("Cannot create departure clip: missing visit_end or recording_duration")
             return False
 
         # Parse timestamps if strings
         if isinstance(visit_end, str):
             visit_end = datetime.fromisoformat(visit_end)
-        if isinstance(recording_start, str):
-            recording_start = datetime.fromisoformat(recording_start)
 
-        # Calculate offset of last detection within the recording file
-        last_detection_offset = (visit_end - recording_start).total_seconds()
+        # The last detection should be near the END of the recording.
+        # Use recording_duration to calculate the offset from the end.
+        # visit_end is when falcon was last seen, which should be near end of recording.
+        # The offset from end is typically just the confirmation window (10s default).
+        #
+        # Instead of calculating from recording_start (which may be wrong due to
+        # missing lead-in on restart), we calculate from the END of the recording.
+        # The departure happens at recording_duration, so last_detection_offset
+        # is approximately recording_duration (departure triggers recording stop).
+        last_detection_offset = recording_duration
 
         # Departure clip: centered on last detection
         # Start = last_detection - departure_before
         # Duration = departure_before + departure_after
         start_offset = max(0, last_detection_offset - self.clip_departure_before)
         clip_duration = self.clip_departure_before + self.clip_departure_after
+
+        # Ensure we don't exceed the video duration
+        if start_offset + clip_duration > recording_duration:
+            clip_duration = max(0, recording_duration - start_offset)
+            if clip_duration < 5:  # Less than 5 seconds is useless
+                logger.warning(
+                    f"Departure clip would be too short ({clip_duration:.1f}s), skipping"
+                )
+                return False
 
         clip_path = get_output_path(
             str(self.clips_dir),
@@ -192,7 +205,7 @@ class BufferClipManager:
         )
 
         logger.event(f"📹 Scheduling departure clip: {clip_path.name}")
-        logger.debug(f"Visit started: {recording_start}")
+        logger.debug(f"Recording duration: {recording_duration:.1f}s")
         logger.debug(f"Last detection: {visit_end}")
         logger.debug(f"Calculated offset: {last_detection_offset:.1f} seconds")
         logger.event(
