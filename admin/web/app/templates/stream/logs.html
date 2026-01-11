@@ -32,38 +32,14 @@
                     <option value="1h">Last hour</option>
                     <option value="8h">Last 8 hours</option>
                     <option value="24h">Last 24 hours</option>
-                    <option value="3d">Last 3 days</option>
-                    <option value="7d">Last 7 days</option>
                 </select>
             </div>
 
             <div class="w-px h-6 bg-zinc-600"></div>
 
-            <!-- Level Filter (Multi-Select Tags) -->
+            <!-- Level Filter (Always INFO/EVENT/WARNING/ERROR) -->
             <div class="flex items-center gap-2">
                 <span class="text-sm text-zinc-400">Level:</span>
-
-                <label class="cursor-pointer">
-                    <input type="checkbox" id="log-level-all" class="hidden peer">
-                    <span class="px-3 py-1 rounded-full text-xs font-medium border border-zinc-600
-                                 bg-zinc-700 text-zinc-400
-                                 peer-checked:bg-zinc-600 peer-checked:text-white peer-checked:border-zinc-500
-                                 hover:bg-zinc-600 transition">
-                        ALL
-                    </span>
-                </label>
-
-                <div class="w-px h-4 bg-zinc-600"></div>
-
-                <label class="cursor-pointer">
-                    <input type="checkbox" name="log-level" value="DEBUG" class="hidden peer">
-                    <span class="px-3 py-1 rounded-full text-xs font-medium
-                                 bg-zinc-700 text-zinc-400
-                                 peer-checked:bg-zinc-500 peer-checked:text-white
-                                 hover:bg-zinc-600 transition">
-                        DEBUG
-                    </span>
-                </label>
 
                 <label class="cursor-pointer">
                     <input type="checkbox" name="log-level" value="INFO" checked class="hidden peer">
@@ -295,8 +271,7 @@
     // Fetch logs from server with current filters
     async function refreshLogs() {
         const since = document.getElementById('log-since').value;
-        const selectedLevels = getSelectedLevels();
-        const levels = selectedLevels.join(',');
+        const levels = 'INFO,EVENT,WARNING,ERROR';  // Hardcoded default levels
         const showContext = document.getElementById('log-show-context').checked;
 
         // Show loading indicator
@@ -332,11 +307,6 @@
         }
     }
 
-    // Get selected log levels
-    function getSelectedLevels() {
-        const checkboxes = document.querySelectorAll('input[name="log-level"]:checked');
-        return Array.from(checkboxes).map(cb => cb.value);
-    }
 
     // Apply search filter to visible logs (client-side only)
     function applySearchFilter() {
@@ -354,26 +324,6 @@
             }
         });
     }
-
-    // ALL tag toggle handler
-    const allCheckbox = document.getElementById('log-level-all');
-    const levelCheckboxes = document.querySelectorAll('input[name="log-level"]');
-
-    allCheckbox.addEventListener('change', function() {
-        levelCheckboxes.forEach(cb => {
-            cb.checked = allCheckbox.checked;
-        });
-        refreshLogs();
-    });
-
-    // Update ALL checkbox state when individual checkboxes change
-    levelCheckboxes.forEach(cb => {
-        cb.addEventListener('change', function() {
-            const allChecked = Array.from(levelCheckboxes).every(checkbox => checkbox.checked);
-            allCheckbox.checked = allChecked;
-            refreshLogs();
-        });
-    });
 
     // Attach to time range selector
     document.getElementById('log-since').addEventListener('change', refreshLogs);
