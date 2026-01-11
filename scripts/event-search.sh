@@ -51,6 +51,9 @@ for cfg in "$ROOT"/kanyo-*/config.yaml; do
     awk '
       /^[[:space:]]*timezone:[[:space:]]*/ {
         gsub(/^[^:]*:[[:space:]]*/, "", $0)
+        gsub(/^"/, "", $0)
+        gsub(/".*$/, "", $0)
+        gsub(/[[:space:]]*#.*$/, "", $0)
         print $0
         exit
       }
@@ -174,10 +177,7 @@ function in_window(d,t) {
   if (!cross)
     return (d == target_date && t >= start && t <= end)
   else
-    return (
-      (d == target_date && t >= start) ||
-      (d == prev_date  && t <= end)
-    )
+    return ((d == target_date && t >= start) || (d == prev_date  && t <= end))
 }
 
 {

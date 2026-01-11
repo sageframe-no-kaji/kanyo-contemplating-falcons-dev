@@ -21,7 +21,7 @@ def get_logs(
 
     Args:
         stream_id: Stream identifier
-        since: "startup", "1h", "24h", "7d", "all"
+        since: "startup", "1h", "8h", "24h", "3d", "7d"
         lines: Max lines to return
         levels: List of log levels to include (e.g., ["INFO", "ERROR"])
         show_context: If True, include DEBUG lines within ±5 lines of EVENT logs
@@ -40,21 +40,36 @@ def get_logs(
 
     if since == "1h":
         cutoff = now_utc - timedelta(hours=1)
+    elif since == "8h":
+        cutoff = now_utc - timedelta(hours=8)
     elif since == "24h":
         cutoff = now_utc - timedelta(hours=24)
+    elif since == "3d":
+        cutoff = now_utc - timedelta(days=3)
     elif since == "7d":
         cutoff = now_utc - timedelta(days=7)
     elif since == "startup":
         # Find last startup message
         cutoff = _find_last_startup(log_path)
-    # "all" = no cutoff
 
-    # Use tail for efficiency (read last 5000 lines instead of entire file)
+    # Use tail for efficiency - read last 5000 lines
     raw_lines = _tail_file(log_path, lines=5000)
 
-    # Parse and filter by time
+    # Show context only allowed for short time ranges (up to 24h)
+    # For longer ranges, too much data to process efficiently
+    context_allowed = since in ("startup", "1h", "8h", "24h")
+    effective_show_context = show_context and context_allowed
+
+    # Determine if we need to parse DEBUG lines
+    parse_debug = effective_show_context or (levels and "DEBUG" in levels)
+
+    # Parse and filter by time (skip DEBUG unless needed for massive speedup)
     all_lines = []
     for line in raw_lines:
+        # Quick check: skip DEBUG lines unless we need them
+        if not parse_debug and " | DEBUG " in line:
+            continue
+
         parsed = _parse_log_line(line)
         if parsed:
             # Filter by cutoff time
@@ -63,25 +78,13 @@ def get_logs(
             all_lines.append(parsed)
 
     # Apply level filtering and optional smart DEBUG context
-    if show_context:
+    if effective_show_context:
         # Smart filtering: show ALL non-DEBUG levels + DEBUG only near EVENTs
         # This provides full context around events regardless of levels filter
         all_lines = _add_debug_context(all_lines, context_lines=5, levels=None)
     elif levels:
         # Normal filtering: only requested levels
-        # Debug: count levels before filtering
-        level_counts_before = {}
-        for log in all_lines:
-            level_counts_before[log["level"]] = level_counts_before.get(log["level"], 0) + 1
-        print(f"DEBUG: Before filtering: {level_counts_before}, filtering for levels: {levels}")
-
         all_lines = [log for log in all_lines if log["level"] in levels]
-
-        # Debug: count levels after filtering
-        level_counts_after = {}
-        for log in all_lines:
-            level_counts_after[log["level"]] = level_counts_after.get(log["level"], 0) + 1
-        print(f"DEBUG: After filtering: {level_counts_after}")
 
     # Return last N lines
     return all_lines[-lines:]

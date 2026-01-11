@@ -18,7 +18,7 @@ class TestParseLogLine:
 
     def test_parse_valid_log_line(self):
         """Parse a valid log line with UTC timestamp."""
-        line = "2025-12-30 12:08:03 UTC | INFO     | kanyo.detection | Detection started"
+        line = "2026-01-11 12:08:03 UTC | INFO     | kanyo.detection | Detection started"
         result = log_service._parse_log_line(line)
 
         assert result is not None
@@ -29,13 +29,13 @@ class TestParseLogLine:
 
         # Check timestamp is UTC-aware
         assert result["timestamp"].tzinfo == timezone.utc
-        assert result["timestamp"].year == 2025
-        assert result["timestamp"].month == 12
-        assert result["timestamp"].day == 30
+        assert result["timestamp"].year == 2026
+        assert result["timestamp"].month == 1
+        assert result["timestamp"].day == 11
 
     def test_parse_log_line_without_utc_marker(self):
         """Parse log line without UTC marker (backward compatibility)."""
-        line = "2025-12-30 12:08:03 | INFO     | kanyo.detection | Detection started"
+        line = "2026-01-11 12:08:03 | INFO     | kanyo.detection | Detection started"
         result = log_service._parse_log_line(line)
 
         assert result is not None
@@ -46,7 +46,7 @@ class TestParseLogLine:
         levels = ["DEBUG", "INFO", "EVENT", "WARNING", "ERROR"]
 
         for level in levels:
-            line = f"2025-12-30 12:08:03 UTC | {level:<8} | module | message"
+            line = f"2026-01-11 12:08:03 UTC | {level:<8} | module | message"
             result = log_service._parse_log_line(line)
             assert result is not None
             assert result["level"] == level
@@ -55,7 +55,7 @@ class TestParseLogLine:
         """Return None for invalid log lines."""
         invalid_lines = [
             "Not a log line",
-            "2025-12-30 | Only two parts",
+            "2026-01-11 | Only two parts",
             "Invalid timestamp | INFO | module | message",
             "",
         ]
@@ -71,18 +71,18 @@ class TestFindLastStartup:
     def test_find_last_startup_marker(self):
         """Find timestamp of last BUFFER-BASED FALCON MONITOR line."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-            f.write("2025-12-30 10:00:00 UTC | INFO     | kanyo | First startup\n")
-            f.write("2025-12-30 10:01:00 UTC | INFO     | kanyo | Some logs\n")
-            f.write("2025-12-30 12:00:00 UTC | INFO     | kanyo | BUFFER-BASED FALCON MONITOR\n")
-            f.write("2025-12-30 12:01:00 UTC | INFO     | kanyo | More logs\n")
+            f.write("2026-01-11 10:00:00 UTC | INFO     | kanyo | First startup\n")
+            f.write("2026-01-11 10:01:00 UTC | INFO     | kanyo | Some logs\n")
+            f.write("2026-01-11 12:00:00 UTC | INFO     | kanyo | BUFFER-BASED FALCON MONITOR\n")
+            f.write("2026-01-11 12:01:00 UTC | INFO     | kanyo | More logs\n")
             log_path = Path(f.name)
 
         try:
             result = log_service._find_last_startup(log_path)
 
-            assert result.year == 2025
-            assert result.month == 12
-            assert result.day == 30
+            assert result.year == 2026
+            assert result.month == 1
+            assert result.day == 11
             assert result.hour == 12
             assert result.minute == 0
             assert result.tzinfo == timezone.utc
@@ -93,7 +93,7 @@ class TestFindLastStartup:
         """Find startup using alternative startup markers."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
             f.write(
-                "2025-12-30 11:00:00 UTC | INFO     | kanyo | "
+                "2026-01-11 11:00:00 UTC | INFO     | kanyo | "
                 "Starting Buffer-Based Falcon Monitoring\n"
             )
             log_path = Path(f.name)
@@ -107,7 +107,7 @@ class TestFindLastStartup:
     def test_no_startup_marker(self):
         """Return datetime.min if no startup marker found."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-            f.write("2025-12-30 10:00:00 UTC | INFO     | kanyo | Regular log\n")
+            f.write("2026-01-11 10:00:00 UTC | INFO     | kanyo | Regular log\n")
             log_path = Path(f.name)
 
         try:
@@ -177,16 +177,16 @@ class TestGetLogs:
 
             return log_lines[-lines:]
 
-        result = mock_get_logs(self.stream_id, since="all", lines=100)
+        result = mock_get_logs(self.stream_id, since="24h", lines=100)
         assert len(result) == 5
 
     def test_get_logs_with_level_filter(self):
         """Filter logs by level."""
         with open(self.log_path, "w") as f:
-            f.write("2025-12-30 10:00:00 UTC | INFO     | kanyo | Info log\n")
-            f.write("2025-12-30 10:01:00 UTC | ERROR    | kanyo | Error log\n")
-            f.write("2025-12-30 10:02:00 UTC | DEBUG    | kanyo | Debug log\n")
-            f.write("2025-12-30 10:03:00 UTC | WARNING  | kanyo | Warning log\n")
+            f.write("2026-01-11 10:00:00 UTC | INFO     | kanyo | Info log\n")
+            f.write("2026-01-11 10:01:00 UTC | ERROR    | kanyo | Error log\n")
+            f.write("2026-01-11 10:02:00 UTC | DEBUG    | kanyo | Debug log\n")
+            f.write("2026-01-11 10:03:00 UTC | WARNING  | kanyo | Warning log\n")
 
         # Test filtering
         log_lines = []
@@ -204,7 +204,7 @@ class TestGetLogs:
         """Respect line limit."""
         with open(self.log_path, "w") as f:
             for i in range(100):
-                f.write(f"2025-12-30 10:00:{i:02d} UTC | INFO     | kanyo | Log {i}\n")
+                f.write(f"2026-01-11 10:00:{i:02d} UTC | INFO     | kanyo | Log {i}\n")
 
         log_lines = []
         with open(self.log_path, "r") as f:
@@ -282,14 +282,14 @@ class TestShowContext:
         """When show_context=True, include DEBUG lines before/after EVENT logs."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
             # Write logs with DEBUG lines surrounding an EVENT
-            f.write("2025-12-30 12:00:00 UTC | DEBUG    | kanyo | Detection check 1\n")
-            f.write("2025-12-30 12:00:01 UTC | DEBUG    | kanyo | Detection check 2\n")
-            f.write("2025-12-30 12:00:02 UTC | DEBUG    | kanyo | Detection check 3\n")
-            f.write("2025-12-30 12:00:03 UTC | EVENT    | kanyo | Falcon detected - arrival\n")
-            f.write("2025-12-30 12:00:04 UTC | DEBUG    | kanyo | Detection check 4\n")
-            f.write("2025-12-30 12:00:05 UTC | DEBUG    | kanyo | Detection check 5\n")
-            f.write("2025-12-30 12:00:06 UTC | DEBUG    | kanyo | Detection check 6\n")
-            f.write("2025-12-30 12:00:07 UTC | INFO     | kanyo | Some other log\n")
+            f.write("2026-01-11 12:00:00 UTC | DEBUG    | kanyo | Detection check 1\n")
+            f.write("2026-01-11 12:00:01 UTC | DEBUG    | kanyo | Detection check 2\n")
+            f.write("2026-01-11 12:00:02 UTC | DEBUG    | kanyo | Detection check 3\n")
+            f.write("2026-01-11 12:00:03 UTC | EVENT    | kanyo | Falcon detected - arrival\n")
+            f.write("2026-01-11 12:00:04 UTC | DEBUG    | kanyo | Detection check 4\n")
+            f.write("2026-01-11 12:00:05 UTC | DEBUG    | kanyo | Detection check 5\n")
+            f.write("2026-01-11 12:00:06 UTC | DEBUG    | kanyo | Detection check 6\n")
+            f.write("2026-01-11 12:00:07 UTC | INFO     | kanyo | Some other log\n")
             log_path = Path(f.name)
 
         # Create mock data directory structure
@@ -309,7 +309,7 @@ class TestShowContext:
             # Get logs with show_context=True and EVENT level
             logs = log_service.get_logs(
                 "test-stream",
-                since="all",
+                since="24h",
                 lines=500,
                 levels=["EVENT"],
                 show_context=True,
@@ -338,10 +338,10 @@ class TestShowContext:
     def test_show_context_false_only_shows_requested_levels(self):
         """When show_context=False, only show requested log levels."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-            f.write("2025-12-30 12:00:00 UTC | DEBUG    | kanyo | Debug line 1\n")
-            f.write("2025-12-30 12:00:01 UTC | EVENT    | kanyo | Event line\n")
-            f.write("2025-12-30 12:00:02 UTC | DEBUG    | kanyo | Debug line 2\n")
-            f.write("2025-12-30 12:00:03 UTC | INFO     | kanyo | Info line\n")
+            f.write("2026-01-11 12:00:00 UTC | DEBUG    | kanyo | Debug line 1\n")
+            f.write("2026-01-11 12:00:01 UTC | EVENT    | kanyo | Event line\n")
+            f.write("2026-01-11 12:00:02 UTC | DEBUG    | kanyo | Debug line 2\n")
+            f.write("2026-01-11 12:00:03 UTC | INFO     | kanyo | Info line\n")
             log_path = Path(f.name)
 
         data_dir = Path(tempfile.mkdtemp())
@@ -356,7 +356,7 @@ class TestShowContext:
 
             # Get only EVENT logs without context
             logs = log_service.get_logs(
-                "test-stream", since="all", lines=500, levels=["EVENT"], show_context=False
+                "test-stream", since="24h", lines=500, levels=["EVENT"], show_context=False
             )
 
             # Should only get the EVENT line
@@ -371,13 +371,13 @@ class TestShowContext:
     def test_show_context_with_multiple_events(self):
         """Context should be added for each EVENT independently."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-            f.write("2025-12-30 12:00:00 UTC | DEBUG    | kanyo | Before event 1 - line 1\n")
-            f.write("2025-12-30 12:00:01 UTC | EVENT    | kanyo | Event 1\n")
-            f.write("2025-12-30 12:00:02 UTC | DEBUG    | kanyo | After event 1 - line 1\n")
-            f.write("2025-12-30 12:00:03 UTC | INFO     | kanyo | Info between events\n")
-            f.write("2025-12-30 12:00:04 UTC | DEBUG    | kanyo | Before event 2 - line 1\n")
-            f.write("2025-12-30 12:00:05 UTC | EVENT    | kanyo | Event 2\n")
-            f.write("2025-12-30 12:00:06 UTC | DEBUG    | kanyo | After event 2 - line 1\n")
+            f.write("2026-01-11 12:00:00 UTC | DEBUG    | kanyo | Before event 1 - line 1\n")
+            f.write("2026-01-11 12:00:01 UTC | EVENT    | kanyo | Event 1\n")
+            f.write("2026-01-11 12:00:02 UTC | DEBUG    | kanyo | After event 1 - line 1\n")
+            f.write("2026-01-11 12:00:03 UTC | INFO     | kanyo | Info between events\n")
+            f.write("2026-01-11 12:00:04 UTC | DEBUG    | kanyo | Before event 2 - line 1\n")
+            f.write("2026-01-11 12:00:05 UTC | EVENT    | kanyo | Event 2\n")
+            f.write("2026-01-11 12:00:06 UTC | DEBUG    | kanyo | After event 2 - line 1\n")
             log_path = Path(f.name)
 
         data_dir = Path(tempfile.mkdtemp())
@@ -391,7 +391,7 @@ class TestShowContext:
             log_service.Path = lambda x: data_dir / x.replace("/data/", "")
 
             logs = log_service.get_logs(
-                "test-stream", since="all", lines=500, levels=["EVENT", "INFO"], show_context=True
+                "test-stream", since="24h", lines=500, levels=["EVENT", "INFO"], show_context=True
             )
 
             # Should include: 2 EVENTs + 1 INFO + context DEBUG lines

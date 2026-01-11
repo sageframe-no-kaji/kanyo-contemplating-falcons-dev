@@ -235,10 +235,10 @@ async def get_logs(
 
     Args:
         stream_id: Stream identifier
-        since: Time range - "startup", "1h", "24h", "7d", "all"
+        since: Time range - "startup", "1h", "8h", "24h", "3d", "7d"
         lines: Maximum number of lines to return
         levels: Comma-separated log levels to include
-        show_context: If True, show 3 DEBUG lines before/after EVENT logs
+        show_context: If True, show DEBUG lines within ±5 lines of EVENT logs
 
     Returns:
         HTML with log lines showing timestamps in stream's local timezone
