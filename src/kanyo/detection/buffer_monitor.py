@@ -6,6 +6,7 @@ No tee or segment files - simpler and more reliable.
 """
 
 import os
+import signal
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import time  # noqa: E402
@@ -28,6 +29,16 @@ from kanyo.utils.visit_recorder import VisitRecorder  # noqa: E402
 logger = get_logger(__name__)
 
 DEFAULT_STREAM_URL = "https://www.youtube.com/watch?v=glczTFRRAK4"
+
+# Global flag for graceful shutdown (set by SIGTERM handler)
+_shutdown_requested = False
+
+
+def _handle_sigterm(signum, frame):
+    """Handle SIGTERM for graceful Docker shutdown."""
+    global _shutdown_requested
+    logger.info("📥 Received SIGTERM - initiating graceful shutdown...")
+    _shutdown_requested = True
 
 
 class BufferMonitor:
@@ -396,6 +407,9 @@ class BufferMonitor:
         logger.info("=" * 60)
         logger.info("Press Ctrl+C to stop")
 
+        # Register SIGTERM handler for graceful Docker shutdown
+        signal.signal(signal.SIGTERM, _handle_sigterm)
+
         # Pre-load YOLO model
         logger.info("Pre-loading YOLO model...")
         _ = self.detector.model
@@ -414,6 +428,11 @@ class BufferMonitor:
 
         try:
             for frame in self.capture.frames(skip=0):
+                # Check for graceful shutdown request (SIGTERM from Docker)
+                if _shutdown_requested:
+                    logger.info("🛑 Graceful shutdown requested...")
+                    break
+
                 frames_processed += 1
                 current_time = time.time()
 
@@ -560,12 +579,21 @@ class BufferMonitor:
             logger.info("🛑 KANYO SHUTTING DOWN")
             logger.info("=" * 60)
 
-            # Stop visit recording if active
+            # Stop visit recording if active - mark as confirmed so it gets renamed
             if self.visit_recorder.is_recording:
                 now = get_now_tz(self.full_config)
+                # Mark as confirmed so stop_recording will rename from .tmp to .mp4
+                self.visit_recorder.rename_to_final()  # Sets _confirmed flag
                 visit_path, visit_metadata = self.visit_recorder.stop_recording(now)
                 if visit_path:
-                    logger.info(f"Final visit saved: {visit_path}")
+                    logger.info(f"✅ Final visit saved: {visit_path}")
+
+            # Stop arrival clip recording if active
+            if self.arrival_clip_recorder.is_recording():
+                now = get_now_tz(self.full_config)
+                self.arrival_clip_recorder.rename_to_final()  # Sets _confirmed flag
+                self.arrival_clip_recorder.stop_recording(now)
+                logger.info("✅ Final arrival clip saved")
 
             # Shutdown clip manager
             self.clip_manager.shutdown()
