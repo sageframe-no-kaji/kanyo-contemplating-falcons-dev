@@ -169,6 +169,10 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
 
             has_thumbnail = thumb_path.exists()
 
+            # Skip visit clips without thumbnails - incomplete recording (no departure)
+            if clip_type == "visit" and not has_thumbnail:
+                continue
+
         clips.append(
             {
                 "filename": clip_file.name,
@@ -272,6 +276,10 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
                         create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
 
                 has_thumbnail = thumb_path.exists()
+
+            # Skip visit clips without thumbnails - incomplete recording (no departure)
+            if clip_type == "visit" and not has_thumbnail:
+                continue
 
             clips.append(
                 {
