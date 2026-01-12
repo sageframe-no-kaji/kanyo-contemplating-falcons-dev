@@ -266,6 +266,10 @@ class FalconStateMachine:
         self.state = FalconState.ROOSTING
         self.roosting_start = timestamp
         self.last_detection = timestamp
+        # Set visit_start so departure duration is calculated correctly
+        # Use roosting_start as visit start time for startup-confirmed birds
+        if not self.visit_start:
+            self.visit_start = timestamp
         logger.info("✅ STARTUP PRESENCE CONFIRMED - now ROOSTING (no notification)")
 
     def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> FalconState:

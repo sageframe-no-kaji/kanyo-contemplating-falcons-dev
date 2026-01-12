@@ -75,7 +75,11 @@ class FalconEventHandler:
                 self.notifications.send_arrival(timestamp, thumb_path)
 
         elif event_type == FalconEvent.DEPARTED:
-            duration = metadata.get("visit_duration") or metadata.get("total_visit_duration", 0)
+            # State machine provides visit_duration_seconds or total_visit_duration
+            duration = (
+                metadata.get("visit_duration_seconds")
+                or metadata.get("total_visit_duration", 0)
+            )
             duration_str = format_duration(duration)
 
             logger.event(

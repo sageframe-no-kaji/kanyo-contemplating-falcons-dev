@@ -266,18 +266,44 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
                 # For visit clips, create composite thumbnail
                 if clip_type == "visit" and not thumb_path.exists():
                     arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
+
+                    # Find the closest departure after this visit start
+                    # Need to find the matching departure, not just any departure after this time
                     departure_thumb = None
-                    for dep_file in sorted(date_path.glob("falcon_*_departure.jpg")):
+                    closest_time_diff = float('inf')
+
+                    for dep_file in date_path.glob("falcon_*_departure.jpg"):
                         dep_time_str = dep_file.name.split("_")[1]
                         if dep_time_str >= time_str:
-                            departure_thumb = dep_file
-                            break
+                            # Calculate time difference in seconds
+                            dep_seconds = (
+                                int(dep_time_str[:2]) * 3600
+                                + int(dep_time_str[2:4]) * 60
+                                + int(dep_time_str[4:6])
+                            )
+                            visit_seconds = (
+                                int(time_str[:2]) * 3600
+                                + int(time_str[2:4]) * 60
+                                + int(time_str[4:6])
+                            )
+                            time_diff = dep_seconds - visit_seconds
+
+                            # Find closest departure (within reasonable time - max 12 hours)
+                            if 0 <= time_diff < closest_time_diff and time_diff < 43200:
+                                closest_time_diff = time_diff
+                                departure_thumb = dep_file
+
                     if arrival_thumb.exists() and departure_thumb and departure_thumb.exists():
+                        # Complete visit: create composite thumbnail
                         create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
+                    elif arrival_thumb.exists():
+                        # In-progress visit: use arrival thumbnail as fallback
+                        import shutil
+                        shutil.copy2(arrival_thumb, thumb_path)
 
                 has_thumbnail = thumb_path.exists()
 
-            # Skip visit clips without thumbnails - incomplete recording (no departure)
+            # Skip visit clips without thumbnails - incomplete/broken recording
             if clip_type == "visit" and not has_thumbnail:
                 continue
 
