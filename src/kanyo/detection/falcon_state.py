@@ -97,6 +97,12 @@ class FalconStateMachine:
             if not self.initializing:
                 events.append((FalconEvent.ARRIVED, timestamp, {"visit_start": timestamp}))
 
+        elif self.state == FalconState.PENDING_STARTUP:
+            # PENDING_STARTUP: Just update detection time
+            # Confirmation is handled by buffer_monitor based on detection ratio
+            self.last_detection = timestamp
+            self.last_absence_start = None
+
         elif self.state == FalconState.VISITING:
             # Update detection time
             self.last_detection = timestamp
@@ -142,7 +148,12 @@ class FalconStateMachine:
         if self.last_absence_start is None and self.last_detection is not None:
             self.last_absence_start = timestamp
 
-        if self.state == FalconState.VISITING:
+        if self.state == FalconState.PENDING_STARTUP:
+            # PENDING_STARTUP with absence: Falcon wasn't really there
+            # Let buffer_monitor handle confirmation failure based on ratio
+            pass
+
+        elif self.state == FalconState.VISITING:
             # Check if absence exceeds exit timeout
             if self.last_detection and self.last_absence_start:
                 absence_duration = (timestamp - self.last_absence_start).total_seconds()
@@ -221,7 +232,43 @@ class FalconStateMachine:
         self._reset_state()
         logger.info("🔄 State machine reset to ABSENT (arrival not confirmed)")
 
-    def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> None:
+    def set_pending_startup(self, timestamp: datetime) -> None:
+        """
+        Set state to PENDING_STARTUP for confirmation after startup or stream recovery.
+
+        Unlike normal arrival, confirmed startup presence does NOT trigger telegram.
+
+        Args:
+            timestamp: When falcon was first detected
+        """
+        self.state = FalconState.PENDING_STARTUP
+        self.visit_start = timestamp
+        self.last_detection = timestamp
+        self.last_absence_start = None
+        logger.info("🔄 Set to PENDING_STARTUP - awaiting confirmation...")
+
+    def confirm_startup_presence(self, timestamp: datetime) -> None:
+        """
+        Confirm falcon presence from startup/recovery.
+
+        Transitions from PENDING_STARTUP to ROOSTING without generating events.
+        Recording should have already started.
+
+        Args:
+            timestamp: Confirmation time
+        """
+        if self.state != FalconState.PENDING_STARTUP:
+            logger.warning(
+                f"confirm_startup_presence called in {self.state} state, ignoring"
+            )
+            return
+
+        self.state = FalconState.ROOSTING
+        self.roosting_start = timestamp
+        self.last_detection = timestamp
+        logger.info("✅ STARTUP PRESENCE CONFIRMED - now ROOSTING (no notification)")
+
+    def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> FalconState:
         """
         Initialize state based on startup detection.
 
@@ -231,21 +278,21 @@ class FalconStateMachine:
         Args:
             falcon_detected: Whether falcon was detected in initial frames
             timestamp: Timestamp of initialization
+
+        Returns:
+            The initial state (for buffer_monitor to know if confirmation needed)
         """
         if falcon_detected:
-            # Falcon already present - initialize to ROOSTING state
-            # (assume already there if detected at startup)
-            self.state = FalconState.ROOSTING
-            self.visit_start = timestamp
-            self.last_detection = timestamp
-            self.roosting_start = timestamp
-            logger.info("🏠 Initialized to ROOSTING state (falcon already present)")
+            # Falcon detected - go to PENDING_STARTUP for confirmation
+            # Don't immediately assume ROOSTING - could be a false positive
+            self.set_pending_startup(timestamp)
         else:
             # No falcon - stay in ABSENT
             logger.info("📭 Initialized to ABSENT state (no falcon detected)")
 
         # Exit initialization mode
         self.initializing = False
+        return self.state
 
     def get_state_info(self, current_time: datetime | None = None) -> dict:
         """

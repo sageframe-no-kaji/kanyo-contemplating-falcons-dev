@@ -90,6 +90,11 @@ class VisitRecorder:
         self._stderr_file: typing.IO | None = None
         self._confirmed: bool = False  # Set by rename_to_final(), actual rename deferred to stop
 
+        # Freeze frame handling for stream outages
+        self._last_good_frame: np.ndarray | None = None
+        self._consecutive_none_frames: int = 0
+        self._max_none_frames: int = 150  # 5s at 30fps - stop recording if exceeded
+
         # Get encoder
         self._encoder = detect_hardware_encoder()
         logger.info(f"VisitRecorder initialized with encoder: {self._encoder}")
@@ -98,6 +103,11 @@ class VisitRecorder:
     def is_recording(self) -> bool:
         """Check if currently recording."""
         return self._process is not None and self._process.poll() is None
+
+    @property
+    def stream_outage_exceeded(self) -> bool:
+        """Check if stream outage has exceeded the threshold."""
+        return self._consecutive_none_frames > self._max_none_frames
 
     @property
     def current_visit_path(self) -> Path | None:
@@ -276,18 +286,48 @@ class VisitRecorder:
 
         return self._visit_path
 
-    def write_frame(self, frame: np.ndarray) -> bool:
+    def write_frame(self, frame: np.ndarray | None) -> bool:
         """
         Write a frame to the visit recording.
 
+        Handles None frames (stream outages) by using freeze frame.
+        Returns False and sets stream_outage_exceeded if outage > 5s.
+
         Args:
-            frame: OpenCV frame (BGR numpy array)
+            frame: OpenCV frame (BGR numpy array) or None during stream outage
 
         Returns:
-            True if written successfully
+            True if written successfully, False if failed or outage exceeded
         """
         if not self.is_recording:
             return False
+
+        # Handle None frames (stream outage)
+        if frame is None:
+            self._consecutive_none_frames += 1
+
+            # Check if outage exceeded threshold
+            if self._consecutive_none_frames > self._max_none_frames:
+                logger.warning(
+                    f"⚠️ Stream outage exceeded {self._max_none_frames / self.fps:.1f}s - "
+                    "recording will be stopped"
+                )
+                return False
+
+            # Use last good frame (freeze frame) to fill gap
+            if self._last_good_frame is not None:
+                frame = self._last_good_frame
+            else:
+                # No frame to use, skip
+                return True  # Not a failure, just nothing to write yet
+        else:
+            # Good frame received
+            if self._consecutive_none_frames > 0:
+                logger.debug(
+                    f"Stream recovered after {self._consecutive_none_frames} missing frames"
+                )
+            self._consecutive_none_frames = 0
+            self._last_good_frame = frame.copy()
 
         # Update frame size if needed
         if self._frame_size is None:

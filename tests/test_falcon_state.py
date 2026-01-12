@@ -49,17 +49,37 @@ class TestInitializeState:
     """Test state initialization after startup."""
 
     def test_initialize_with_falcon_present(self):
-        """Test initialization directly to ROOSTING when falcon detected."""
+        """Test initialization to PENDING_STARTUP when falcon detected.
+
+        When falcon is detected on startup, we now use PENDING_STARTUP state
+        to require confirmation (like arrival confirmation) before transitioning
+        to ROOSTING. This prevents false positive telegram notifications on startup.
+        """
+        config = {}
+        fsm = FalconStateMachine(config)
+        timestamp = datetime.now()
+
+        returned_state = fsm.initialize_state(falcon_detected=True, timestamp=timestamp)
+
+        assert returned_state == FalconState.PENDING_STARTUP
+        assert fsm.state == FalconState.PENDING_STARTUP
+        assert fsm.initializing is False
+        assert fsm.visit_start == timestamp
+        assert fsm.last_detection == timestamp
+
+    def test_initialize_with_falcon_present_then_confirm(self):
+        """Test confirmation from PENDING_STARTUP to ROOSTING."""
         config = {}
         fsm = FalconStateMachine(config)
         timestamp = datetime.now()
 
         fsm.initialize_state(falcon_detected=True, timestamp=timestamp)
+        assert fsm.state == FalconState.PENDING_STARTUP
+
+        # Confirm startup presence
+        fsm.confirm_startup_presence(timestamp)
 
         assert fsm.state == FalconState.ROOSTING
-        assert fsm.initializing is False
-        assert fsm.visit_start == timestamp
-        assert fsm.last_detection == timestamp
         assert fsm.roosting_start == timestamp
 
     def test_initialize_with_falcon_absent(self):
@@ -254,12 +274,16 @@ class TestGetStateInfo:
         assert info["current_visit_duration"] == 30
 
     def test_state_info_roosting(self):
-        """Test state info during ROOSTING."""
+        """Test state info during ROOSTING (after confirmation)."""
         config = {"roosting_threshold": 100}
         fsm = FalconStateMachine(config)
         start_time = datetime.now()
 
+        # Initialize starts in PENDING_STARTUP
         fsm.initialize_state(falcon_detected=True, timestamp=start_time)
+        # Confirm to transition to ROOSTING
+        fsm.confirm_startup_presence(start_time)
+
         info = fsm.get_state_info()
 
         assert info["state"] == "roosting"

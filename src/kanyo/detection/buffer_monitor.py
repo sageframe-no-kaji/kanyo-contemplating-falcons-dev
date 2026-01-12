@@ -175,6 +175,12 @@ class BufferMonitor:
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
 
+        # Startup confirmation state (similar to arrival, but no telegram notification)
+        self.startup_pending = False
+        self.startup_pending_start: datetime | None = None
+        self.startup_detection_count = 0
+        self.startup_frame_count = 0
+
         # Load arrival confirmation config
         self.arrival_confirmation_seconds = (
             full_config.get("arrival_confirmation_seconds", 10) if full_config else 10
@@ -206,6 +212,18 @@ class BufferMonitor:
             if self.visit_recorder.is_recording:
                 self.visit_recorder.write_frame(frame_data)
 
+                # Check for stream outage exceeded (>5 seconds of None frames)
+                if self.visit_recorder.stream_outage_exceeded:
+                    logger.warning(
+                        "⚠️  Stream outage exceeded in process_frame - "
+                        "stopping recording and resetting state"
+                    )
+                    self.visit_recorder.stop_recording(now)
+                    self.arrival_clip_recorder.stop_recording(now)
+                    self.state_machine.reset_to_absent()
+                    self._reset_pending_states()
+                    return
+
             # If arrival clip recording is active, write frame
             if self.arrival_clip_recorder.is_recording():
                 self.arrival_clip_recorder.write_frame(frame_data, now)
@@ -213,6 +231,23 @@ class BufferMonitor:
             # Run detection
             detections = self.detector.detect_birds(frame_data, timestamp=now)
             falcon_detected = len(detections) > 0
+
+            # Startup confirmation logic (similar to arrival, but no telegram until confirmed)
+            if self.startup_pending and self.startup_pending_start is not None:
+                self.startup_frame_count += 1
+                if falcon_detected:
+                    self.startup_detection_count += 1
+
+                elapsed = (now - self.startup_pending_start).total_seconds()
+                if elapsed >= self.arrival_confirmation_seconds:
+                    ratio = self.startup_detection_count / self.startup_frame_count
+
+                    if ratio >= self.arrival_confirmation_ratio:
+                        # SUCCESS - confirm startup presence
+                        self._confirm_startup_presence()
+                    else:
+                        # FAILURE - not enough detections
+                        self._cancel_startup_presence(ratio)
 
             # Arrival confirmation logic
             if self.arrival_pending and self.arrival_pending_start is not None:
@@ -394,6 +429,75 @@ class BufferMonitor:
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
 
+    def _confirm_startup_presence(self) -> None:
+        """Confirm startup presence after passing detection threshold.
+
+        Similar to _confirm_arrival but:
+        - Transitions from PENDING_STARTUP to ROOSTING
+        - Only sends notification if notify_on_startup is enabled
+        """
+        ratio = self.startup_detection_count / self.startup_frame_count
+        logger.event(
+            f"✅ STARTUP PRESENCE CONFIRMED - detection ratio: {ratio:.1%} "
+            f"({self.startup_detection_count}/{self.startup_frame_count} frames)"
+        )
+
+        # Rename arrival clip from .tmp to final
+        self.arrival_clip_recorder.rename_to_final()
+
+        # Rename visit recording from .tmp to final
+        self.visit_recorder.rename_to_final()
+
+        # Transition from PENDING_STARTUP to ROOSTING
+        now = get_now_tz(self.full_config)
+        self.state_machine.confirm_startup_presence(now)
+
+        # Send notification only if notify_on_startup is enabled
+        if self.notify_on_startup and self.startup_pending_start is not None:
+            logger.info("📲 Sending startup arrival notification")
+            self.event_handler.handle_event(
+                FalconEvent.ARRIVED, self.startup_pending_start, {"startup": True}
+            )
+        else:
+            logger.info("📴 Skipping startup arrival notification (notify_on_startup=false)")
+
+        # Reset pending state
+        self.startup_pending = False
+        self.startup_pending_start = None
+        self.startup_detection_count = 0
+        self.startup_frame_count = 0
+
+    def _cancel_startup_presence(self, ratio: float) -> None:
+        """Cancel startup presence - insufficient detections during confirmation window."""
+        logger.warning(
+            f"⚠️  STARTUP PRESENCE CANCELLED - detection ratio: {ratio:.1%} "
+            f"({self.startup_detection_count}/{self.startup_frame_count} frames, "
+            f"threshold: {self.arrival_confirmation_ratio:.1%})"
+        )
+
+        # Stop recordings WITHOUT renaming (keeps .tmp extension)
+        now = datetime.now()
+        self.arrival_clip_recorder.stop_recording(now)
+        self.visit_recorder.stop_recording(now)
+
+        # Reset state machine to ABSENT
+        self.state_machine.reset_to_absent()
+
+        # Reset pending state
+        self._reset_pending_states()
+
+    def _reset_pending_states(self) -> None:
+        """Reset all pending confirmation states (startup and arrival)."""
+        self.startup_pending = False
+        self.startup_pending_start = None
+        self.startup_detection_count = 0
+        self.startup_frame_count = 0
+
+        self.arrival_pending = False
+        self.arrival_pending_start = None
+        self.arrival_detection_count = 0
+        self.arrival_frame_count = 0
+
     def run(self) -> None:
         """Main monitoring loop."""
         logger.info("=" * 60)
@@ -453,14 +557,17 @@ class BufferMonitor:
                         falcon_detected = len(initial_detections) > 0
 
                         now = get_now_tz(self.full_config)
-                        self.state_machine.initialize_state(falcon_detected, now)
+                        initial_state = self.state_machine.initialize_state(falcon_detected, now)
 
                         # Reset frame time to prevent false outage detection
                         last_frame_time = current_time
 
-                        state_name = self.state_machine.state.value
+                        state_name = initial_state.value
                         if falcon_detected:
                             max_conf = max(d.confidence for d in initial_detections)
+
+                            # If falcon detected, state is PENDING_STARTUP
+                            # We need to confirm presence before transitioning to ROOSTING
                             logger.info(
                                 f"📊 Initial state: {state_name.upper()} "
                                 f"({max_birds_in_frame} bird(s), max conf: {max_conf:.2f})"
@@ -495,11 +602,16 @@ class BufferMonitor:
                                 frame_size=self._frame_size or (1280, 720),
                             )
 
-                            # Send startup arrival notification WITH photo (if enabled)
-                            if self.notify_on_startup:
-                                self.event_handler.handle_event(
-                                    FalconEvent.ARRIVED, now, {"state": state_name}
-                                )
+                            # Start startup confirmation tracking (no telegram notification yet)
+                            # Use same confirmation window as arrival confirmation
+                            self.startup_pending = True
+                            self.startup_pending_start = now
+                            self.startup_detection_count = len(initial_detections)
+                            self.startup_frame_count = 1
+                            logger.info(
+                                f"⏳ Startup presence pending confirmation "
+                                f"({self.arrival_confirmation_seconds}s window)"
+                            )
                         else:
                             logger.info(f"📊 Initial state: {state_name.upper()} (no birds)")
 
@@ -538,6 +650,20 @@ class BufferMonitor:
                         # Still write to visit recording
                         if self.visit_recorder.is_recording:
                             self.visit_recorder.write_frame(frame.data)
+
+                            # Check for stream outage exceeded (>5 seconds of None frames)
+                            if self.visit_recorder.stream_outage_exceeded:
+                                logger.warning(
+                                    "⚠️  Stream outage exceeded - stopping recording "
+                                    "and resetting state"
+                                )
+                                # Stop recording WITHOUT renaming (keeps .tmp extension)
+                                self.visit_recorder.stop_recording(now)
+                                self.arrival_clip_recorder.stop_recording(now)
+
+                                # Reset state machine and pending confirmations
+                                self.state_machine.reset_to_absent()
+                                self._reset_pending_states()
                         continue
 
                     # Pass outage compensation to process_frame

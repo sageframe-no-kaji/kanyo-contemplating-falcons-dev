@@ -79,6 +79,9 @@ async def stream_detail(request: Request, stream_id: str):
     # Get deduplicated events from last 24 hours
     events = clip_service.get_recent_events(stream["clips_path"], stream_tz)
 
+    # Get stats for sidebar
+    stats = clip_service.get_stream_stats(stream["clips_path"], stream_tz, hours=24)
+
     return templates.TemplateResponse(
         "stream/detail.html",
         {
@@ -86,6 +89,7 @@ async def stream_detail(request: Request, stream_id: str):
             "stream": stream,
             "clips": clips,
             "events": events,
+            "stats": stats,
             "date": today,
         },
     )

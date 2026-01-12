@@ -216,6 +216,44 @@
                 </nav>
             </div>
 
+            <!-- Stats (Last 24h) -->
+            <div class="bg-zinc-800 rounded-lg p-4">
+                <h3 class="font-semibold mb-3">📊 Stats (Last 24h)</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-zinc-400">Arrivals</span>
+                        <span class="text-green-400 font-medium">{{ stats.arrivals }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-zinc-400">Departures</span>
+                        <span class="text-red-400 font-medium">{{ stats.departures }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-zinc-400">Visits</span>
+                        <span class="text-blue-400 font-medium">{{ stats.visits }}</span>
+                    </div>
+                    <div class="flex justify-between border-t border-zinc-700 pt-2 mt-2">
+                        <span class="text-zinc-400">Total Clips</span>
+                        <span class="text-zinc-200 font-medium">{{ stats.total_clips }}</span>
+                    </div>
+                    {% if stats.last_event_time %}
+                    <div class="border-t border-zinc-700 pt-2 mt-2">
+                        <div class="text-zinc-400 text-xs">Last Event</div>
+                        <div class="text-zinc-200">
+                            {% if stats.last_event_type == 'arrival' %}
+                                <span class="text-green-400">🦅 {{ stats.last_event_type }}</span>
+                            {% elif stats.last_event_type == 'departure' %}
+                                <span class="text-red-400">👋 {{ stats.last_event_type }}</span>
+                            {% else %}
+                                <span class="text-blue-400">{{ stats.last_event_type }}</span>
+                            {% endif %}
+                            at {{ stats.last_event_time }}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
             <!-- Recent Events -->
             <div class="bg-zinc-800 rounded-lg p-4">
                 <h3 class="font-semibold mb-3">Last 24 Hours</h3>

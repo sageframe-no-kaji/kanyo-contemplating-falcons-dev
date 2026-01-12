@@ -451,3 +451,57 @@ def get_recent_events(clips_path: str, stream_timezone: str, hours: int = 24) ->
 
     # Sort by time (most recent first)
     return sorted(events_by_time.values(), key=lambda x: x["time"], reverse=True)
+
+
+def get_stream_stats(clips_path: str, stream_timezone: str, hours: int = 24) -> dict:
+    """Calculate statistics from recent clips.
+
+    Args:
+        clips_path: Path to clips directory
+        stream_timezone: Stream's IANA timezone
+        hours: Number of hours to analyze (default 24)
+
+    Returns:
+        Dictionary with stats:
+        - total_clips: Total number of clips
+        - arrivals: Number of arrival events
+        - departures: Number of departure events
+        - visits: Number of complete visits
+        - total_visit_duration: Sum of all visit durations (seconds)
+        - avg_visit_duration: Average visit duration (seconds)
+        - longest_visit: Longest visit duration (seconds)
+        - last_event_time: Time of most recent event
+        - last_event_type: Type of most recent event
+    """
+    clips = list_clips_since(clips_path, stream_timezone, hours)
+
+    # Count by type
+    arrivals = 0
+    departures = 0
+    visits = 0
+
+    for clip in clips:
+        clip_type = clip.get("type", "")
+        if clip_type == "arrival":
+            arrivals += 1
+        elif clip_type == "departure":
+            departures += 1
+        elif clip_type == "visit":
+            visits += 1
+
+    # Get most recent event
+    events = get_recent_events(clips_path, stream_timezone, hours)
+    last_event_time = events[0]["time"] if events else None
+    last_event_type = events[0]["type"] if events else None
+    last_event_date = events[0].get("date", "") if events else ""
+
+    return {
+        "total_clips": len(clips),
+        "arrivals": arrivals,
+        "departures": departures,
+        "visits": visits,
+        "hours_analyzed": hours,
+        "last_event_time": last_event_time,
+        "last_event_type": last_event_type,
+        "last_event_date": last_event_date,
+    }

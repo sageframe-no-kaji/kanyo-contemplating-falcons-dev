@@ -13,6 +13,7 @@ class FalconEvent(Enum):
     ARRIVED = "arrived"  # Falcon entered after absence
     DEPARTED = "departed"  # Falcon left (exceeded timeout)
     ROOSTING = "roosting"  # Transitioned to long-term presence (notification only)
+    STARTUP_CONFIRMED = "startup_confirmed"  # Falcon confirmed at startup (no notify)
 
 
 class FalconState(Enum):
@@ -21,3 +22,4 @@ class FalconState(Enum):
     ABSENT = "absent"
     VISITING = "visiting"
     ROOSTING = "roosting"  # Same timeout as VISITING, just for notification
+    PENDING_STARTUP = "pending_startup"  # Confirming falcon presence at startup/recovery
