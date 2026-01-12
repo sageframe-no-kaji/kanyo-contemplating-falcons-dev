@@ -161,6 +161,8 @@ class BufferClipManager:
             return False
 
         visit_end = visit_metadata.get("visit_end")  # This is last_detection time
+        visit_start = visit_metadata.get("visit_start")
+        recording_start = visit_metadata.get("recording_start")
         recording_duration = visit_metadata.get("recording_duration_seconds", 0)
 
         if not visit_end or not recording_duration:
@@ -170,17 +172,28 @@ class BufferClipManager:
         # Parse timestamps if strings
         if isinstance(visit_end, str):
             visit_end = datetime.fromisoformat(visit_end)
+        if isinstance(visit_start, str):
+            visit_start = datetime.fromisoformat(visit_start)
+        if isinstance(recording_start, str):
+            recording_start = datetime.fromisoformat(recording_start)
 
-        # The last detection should be near the END of the recording.
-        # Use recording_duration to calculate the offset from the end.
-        # visit_end is when falcon was last seen, which should be near end of recording.
-        # The offset from end is typically just the confirmation window (10s default).
-        #
-        # Instead of calculating from recording_start (which may be wrong due to
-        # missing lead-in on restart), we calculate from the END of the recording.
-        # The departure happens at recording_duration, so last_detection_offset
-        # is approximately recording_duration (departure triggers recording stop).
-        last_detection_offset = recording_duration
+        # Calculate the actual offset where the last detection occurred in the file.
+        # The file structure is: [lead-in frames][visit frames][exit timeout frames]
+        # - lead_in_time: seconds of pre-arrival footage (recording_start to visit_start)
+        # - visit_duration: seconds from arrival to last detection (visit_start to visit_end)
+        # - last_detection_offset = lead_in_time + visit_duration
+        if visit_start and recording_start:
+            lead_in_time = (visit_start - recording_start).total_seconds()
+            visit_duration = (visit_end - visit_start).total_seconds()
+            last_detection_offset = lead_in_time + visit_duration
+            logger.debug(f"Lead-in time: {lead_in_time:.1f}s")
+            logger.debug(f"Visit duration: {visit_duration:.1f}s")
+        else:
+            # Fallback: estimate from recording duration minus exit timeout
+            # Exit timeout is typically 90s, so last detection is ~90s before end
+            logger.warning("Missing visit_start or recording_start, using fallback calculation")
+            exit_timeout = 90.0  # Default exit timeout
+            last_detection_offset = max(0, recording_duration - exit_timeout)
 
         # Departure clip: centered on last detection
         # Start = last_detection - departure_before
