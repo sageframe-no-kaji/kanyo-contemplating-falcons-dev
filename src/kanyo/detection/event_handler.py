@@ -76,9 +76,8 @@ class FalconEventHandler:
 
         elif event_type == FalconEvent.DEPARTED:
             # State machine provides visit_duration_seconds or total_visit_duration
-            duration = (
-                metadata.get("visit_duration_seconds")
-                or metadata.get("total_visit_duration", 0)
+            duration = metadata.get("visit_duration_seconds") or metadata.get(
+                "total_visit_duration", 0
             )
             duration_str = format_duration(duration)
 

@@ -270,7 +270,7 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
                     # Find the closest departure after this visit start
                     # Need to find the matching departure, not just any departure after this time
                     departure_thumb = None
-                    closest_time_diff = float('inf')
+                    closest_time_diff = float("inf")
 
                     for dep_file in date_path.glob("falcon_*_departure.jpg"):
                         dep_time_str = dep_file.name.split("_")[1]
@@ -299,6 +299,7 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
                     elif arrival_thumb.exists():
                         # In-progress visit: use arrival thumbnail as fallback
                         import shutil
+
                         shutil.copy2(arrival_thumb, thumb_path)
 
                 has_thumbnail = thumb_path.exists()

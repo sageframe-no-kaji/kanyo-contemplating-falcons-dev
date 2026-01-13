@@ -62,7 +62,7 @@ def test_departure_after_startup_has_nonzero_duration():
     # Should have departed with correct duration
     assert len(events) == 1
     assert events[0][0] == FalconEvent.DEPARTED
-    
+
     metadata = events[0][2]
     # Duration should be from visit_start (t0) to last detection (t2) = 3 hours
     expected_duration = (t2 - t0).total_seconds()

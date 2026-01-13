@@ -258,9 +258,7 @@ class FalconStateMachine:
             timestamp: Confirmation time
         """
         if self.state != FalconState.PENDING_STARTUP:
-            logger.warning(
-                f"confirm_startup_presence called in {self.state} state, ignoring"
-            )
+            logger.warning(f"confirm_startup_presence called in {self.state} state, ignoring")
             return
 
         self.state = FalconState.ROOSTING

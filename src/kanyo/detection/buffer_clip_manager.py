@@ -191,21 +191,26 @@ class BufferClipManager:
                 )
                 return False
 
-        # Calculate the actual offset where the last detection occurred in the file.
-        # The file structure is: [lead-in frames][visit frames][exit timeout frames]
-        # - lead_in_time: seconds of pre-arrival footage (recording_start to visit_start)
-        # - visit_duration: seconds from arrival to last detection (visit_start to visit_end)
-        # - last_detection_offset = lead_in_time + visit_duration
-        if visit_start and recording_start:
+        # Use frame-based offset if available (accurate even with stream outages)
+        # Otherwise fall back to wall-clock calculation
+        last_detection_offset = visit_metadata.get("last_detection_offset_seconds")
+
+        if last_detection_offset is not None:
+            logger.debug(f"Using frame-based last_detection_offset: {last_detection_offset:.1f}s")
+        elif visit_start and recording_start:
+            # Fallback: Calculate from wall clock (may be inaccurate with stream outages)
             lead_in_time = (visit_start - recording_start).total_seconds()
             visit_duration = (visit_end - visit_start).total_seconds()
             last_detection_offset = lead_in_time + visit_duration
+            logger.warning(
+                f"Using wall-clock fallback for last_detection_offset: "
+                f"{last_detection_offset:.1f}s (may be inaccurate with stream outages)"
+            )
             logger.debug(f"Lead-in time: {lead_in_time:.1f}s")
             logger.debug(f"Visit duration: {visit_duration:.1f}s")
         else:
-            # Fallback: estimate from recording duration minus exit timeout
-            # Exit timeout is typically 90s, so last detection is ~90s before end
-            logger.warning("Missing visit_start or recording_start, using fallback calculation")
+            # Last resort: estimate from recording duration minus exit timeout
+            logger.warning("Missing timing data, using recording duration fallback")
             exit_timeout = 90.0  # Default exit timeout
             last_detection_offset = max(0, recording_duration - exit_timeout)
 
@@ -215,7 +220,7 @@ class BufferClipManager:
         start_offset = max(0, last_detection_offset - self.clip_departure_before)
         clip_duration = self.clip_departure_before + self.clip_departure_after
 
-        logger.debug(f"Departure clip calculation:")
+        logger.debug("Departure clip calculation:")
         logger.debug(f"  last_detection_offset: {last_detection_offset:.1f}s")
         logger.debug(f"  start_offset: {start_offset:.1f}s")
         logger.debug(f"  initial clip_duration: {clip_duration:.1f}s")
@@ -230,7 +235,8 @@ class BufferClipManager:
             if clip_duration < 5:  # Less than 5 seconds is useless
                 logger.warning(
                     f"Departure clip would be too short ({clip_duration:.1f}s), skipping. "
-                    f"start_offset={start_offset:.1f}s, recording_duration={recording_duration:.1f}s"
+                    f"start_offset={start_offset:.1f}s, "
+                    f"recording_duration={recording_duration:.1f}s"
                 )
                 return False
 

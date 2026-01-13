@@ -85,6 +85,7 @@ class VisitRecorder:
         self._visit_start: datetime | None = None
         self._recording_start: datetime | None = None
         self._frame_count: int = 0
+        self._last_detection_frame: int = 0  # Frame number of most recent detection
         self._events: list[dict] = []
         self._frame_size: tuple[int, int] | None = None
         self._stderr_file: typing.IO | None = None
@@ -118,6 +119,22 @@ class VisitRecorder:
     def current_offset_seconds(self) -> float:
         """Current offset into the visit recording in seconds."""
         return self._frame_count / self.fps if self.fps > 0 else 0
+
+    def mark_detection(self) -> None:
+        """
+        Mark the current frame as having a detection.
+
+        Call this each time the falcon is detected during a visit.
+        The last detection frame is used to calculate the accurate
+        departure clip offset (not affected by stream outages).
+        """
+        if self.is_recording:
+            self._last_detection_frame = self._frame_count
+
+    @property
+    def last_detection_offset_seconds(self) -> float:
+        """Offset in seconds where the last detection occurred in the video."""
+        return self._last_detection_frame / self.fps if self.fps > 0 else 0
 
     def start_recording(
         self,
@@ -153,6 +170,7 @@ class VisitRecorder:
         self._visit_start = arrival_time
         self._recording_start = arrival_time - timedelta(seconds=self.lead_in_seconds)
         self._frame_count = 0
+        self._last_detection_frame = 0
         self._events = []
         self._frame_size = frame_size
 
@@ -435,6 +453,8 @@ class VisitRecorder:
         visit_duration = (
             (departure_time - self._visit_start).total_seconds() if self._visit_start else 0
         )
+        # Calculate last detection offset from frame count (accurate even with stream outages)
+        last_detection_offset = self._last_detection_frame / self.fps if self.fps > 0 else 0
         metadata = {
             "visit_file": str(self._visit_path),
             "visit_start": self._visit_start.isoformat() if self._visit_start else None,
@@ -444,7 +464,9 @@ class VisitRecorder:
             ),  # When file started (includes lead-in)
             "duration_seconds": visit_duration,
             "recording_duration_seconds": self._frame_count / self.fps,
+            "last_detection_offset_seconds": last_detection_offset,  # Frame-accurate offset
             "frame_count": self._frame_count,
+            "last_detection_frame": self._last_detection_frame,
             "fps": self.fps,
             "events": self._events,
         }
@@ -475,6 +497,7 @@ class VisitRecorder:
         # Reset state
         self._process = None
         self._frame_count = 0
+        self._last_detection_frame = 0
         self._events = []
         self._confirmed = False
 

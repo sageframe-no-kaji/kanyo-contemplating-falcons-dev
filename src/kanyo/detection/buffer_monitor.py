@@ -270,6 +270,9 @@ class BufferMonitor:
             if falcon_detected:
                 logger.debug(f"Bird detected at {now}, updating last_detection_time")
                 self.last_detection_time = now
+                # Mark current frame as having a detection (for accurate departure clip timing)
+                if self.visit_recorder.is_recording:
+                    self.visit_recorder.mark_detection()
 
             # Store frame for thumbnails
             if falcon_detected:

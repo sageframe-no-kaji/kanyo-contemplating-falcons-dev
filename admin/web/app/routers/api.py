@@ -223,6 +223,7 @@ group-hover:opacity-100 transition bg-black/30">
     html += "</div>"
     return html
 
+
 @router.get("/streams/{stream_id}/events", response_class=HTMLResponse)
 async def get_events_for_range(request: Request, stream_id: str, hours: int = 24):
     """Get events from the last N hours."""
@@ -255,8 +256,9 @@ async def get_events_for_range(request: Request, stream_id: str, hours: int = 24
         </span>
         <span class="text-white ml-2">{event['type']}</span>
     </div>"""
-    html += '</div>'
+    html += "</div>"
     return html
+
 
 @router.get("/streams/{stream_id}/logs")
 async def get_logs(

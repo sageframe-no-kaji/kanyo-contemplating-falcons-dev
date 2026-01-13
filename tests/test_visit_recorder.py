@@ -259,3 +259,117 @@ class TestVisitRecorderWriteFrame:
         result = recorder.write_frame(frame)
 
         assert result is False
+
+
+class TestVisitRecorderDetectionTracking:
+    """Tests for frame-based detection tracking."""
+
+    def test_mark_detection_updates_last_detection_frame(self):
+        """Test that mark_detection updates the last detection frame."""
+        recorder = VisitRecorder()
+        recorder._frame_count = 100
+        # Simulate recording state
+        recorder._process = MagicMock()
+        recorder._process.poll.return_value = None
+
+        recorder.mark_detection()
+
+        assert recorder._last_detection_frame == 100
+
+    def test_mark_detection_does_nothing_when_not_recording(self):
+        """Test that mark_detection is a no-op when not recording."""
+        recorder = VisitRecorder()
+        recorder._frame_count = 100
+        recorder._last_detection_frame = 50
+
+        recorder.mark_detection()
+
+        # Should not update since not recording
+        assert recorder._last_detection_frame == 50
+
+    def test_last_detection_offset_seconds(self):
+        """Test that last_detection_offset_seconds calculates correctly."""
+        recorder = VisitRecorder(fps=30)
+        recorder._last_detection_frame = 900  # 30 seconds at 30fps
+
+        assert recorder.last_detection_offset_seconds == 30.0
+
+    def test_last_detection_offset_seconds_zero_initially(self):
+        """Test that last_detection_offset_seconds is 0 initially."""
+        recorder = VisitRecorder()
+        assert recorder.last_detection_offset_seconds == 0
+
+    @patch("subprocess.Popen")
+    @patch("select.select")
+    def test_mark_detection_tracks_multiple_detections(self, mock_select, mock_popen, tmp_path):
+        """Test that mark_detection tracks the most recent detection frame."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.stdin.fileno.return_value = 3
+        mock_popen.return_value = mock_process
+        mock_select.return_value = ([], [3], [])
+
+        recorder = VisitRecorder(clips_dir=str(tmp_path), fps=30)
+        recorder.start_recording(datetime.now())
+
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+
+        # Write some frames without detection
+        for _ in range(10):
+            recorder.write_frame(frame)
+
+        # First detection at frame 10
+        recorder.mark_detection()
+        assert recorder._last_detection_frame == 10
+
+        # Write more frames
+        for _ in range(20):
+            recorder.write_frame(frame)
+
+        # Second detection at frame 30
+        recorder.mark_detection()
+        assert recorder._last_detection_frame == 30
+
+    @patch("subprocess.Popen")
+    def test_stop_recording_includes_last_detection_offset(self, mock_popen, tmp_path):
+        """Test that stop_recording metadata includes last_detection_offset_seconds."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        recorder = VisitRecorder(clips_dir=str(tmp_path), fps=30)
+
+        # Manually set up recording state
+        arrival_time = datetime.now()
+        recorder._process = mock_process
+        recorder._visit_path = tmp_path / "2026-01-13" / "falcon_092736_visit.mp4.tmp"
+        recorder._final_path = tmp_path / "2026-01-13" / "falcon_092736_visit.mp4"
+        recorder._visit_path.parent.mkdir(parents=True, exist_ok=True)
+        recorder._visit_path.touch()
+        recorder._visit_start = arrival_time
+        recorder._recording_start = arrival_time
+        recorder._frame_count = 900  # 30 seconds of frames
+        recorder._last_detection_frame = 750  # Detection at 25 seconds
+
+        _, metadata = recorder.stop_recording(datetime.now())
+
+        assert "last_detection_offset_seconds" in metadata
+        assert metadata["last_detection_offset_seconds"] == 25.0
+        assert metadata["last_detection_frame"] == 750
+
+    def test_start_recording_resets_last_detection_frame(self, tmp_path):
+        """Test that start_recording resets last_detection_frame to 0."""
+        recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder._last_detection_frame = 500
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.poll.return_value = None
+            mock_popen.return_value = mock_process
+
+            recorder.start_recording(datetime.now())
+
+        assert recorder._last_detection_frame == 0
