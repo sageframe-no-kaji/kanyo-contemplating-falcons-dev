@@ -223,6 +223,40 @@ group-hover:opacity-100 transition bg-black/30">
     html += "</div>"
     return html
 
+@router.get("/streams/{stream_id}/events", response_class=HTMLResponse)
+async def get_events_for_range(request: Request, stream_id: str, hours: int = 24):
+    """Get events from the last N hours."""
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    # Get events from last N hours using stream's timezone
+    stream_tz = stream.get("timezone", "UTC")
+    events = clip_service.get_recent_events(stream["clips_path"], stream_tz, hours)
+
+    # Render events HTML
+    if not events:
+        # Calculate label
+        if hours == 24:
+            label = "24 hours"
+        else:
+            days = hours // 24
+            label = f"{days} days"
+        return f'<p class="text-zinc-500 text-sm">No events in the last {label}</p>'
+
+    html = '<div class="space-y-2 max-h-96 overflow-y-auto">'
+    for event in events:
+        html += f"""
+    <div class="text-sm hover:bg-zinc-700 rounded px-2 py-1 -mx-2 cursor-pointer transition"
+         onclick="playClip('/clips/{stream_id}/{event['date']}/{event['filename']}', '{event['type']} at {event['time']}')">
+        <span class="text-zinc-400">
+            {event['date']} {event['time']}
+            <span class="event-local-time text-zinc-500" data-datetime="{event['datetime'].isoformat()}"></span>
+        </span>
+        <span class="text-white ml-2">{event['type']}</span>
+    </div>"""
+    html += '</div>'
+    return html
 
 @router.get("/streams/{stream_id}/logs")
 async def get_logs(

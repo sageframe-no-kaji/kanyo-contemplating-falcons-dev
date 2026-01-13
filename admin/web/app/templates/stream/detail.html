@@ -256,14 +256,36 @@
 
             <!-- Recent Events -->
             <div class="bg-zinc-800 rounded-lg p-4">
-                <h3 class="font-semibold mb-3">Last 24 Hours</h3>
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-semibold" id="events-title">Last 24 Hours</h3>
+                    <div class="flex gap-1">
+                        {% set time_ranges = [
+                            (24, "24h"),
+                            (48, "2 Days"),
+                            (72, "3 Days"),
+                            (96, "4 Days"),
+                            (120, "5 Days")
+                        ] %}
+                        {% for hours, label in time_ranges %}
+                            <button
+                                hx-get="/api/streams/{{ stream.id }}/events?hours={{ hours }}"
+                                hx-target="#events-list"
+                                hx-swap="innerHTML"
+                                class="px-2 py-1 text-xs rounded transition {% if loop.first %}bg-zinc-600 text-white{% else %}bg-zinc-700 hover:bg-zinc-600 text-zinc-400{% endif %}"
+                                onclick="document.querySelectorAll('#events-list').forEach(el => el.parentElement.querySelectorAll('button').forEach(btn => btn.classList.remove('bg-zinc-600', 'text-white'))); this.classList.add('bg-zinc-600', 'text-white'); document.getElementById('events-title').textContent = 'Last {{ label }}'">
+                                {{ label }}
+                            </button>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div id="events-list">
                 {% if events %}
                 <div class="space-y-2 max-h-96 overflow-y-auto">
                     {% for event in events %}
                     <div class="text-sm hover:bg-zinc-700 rounded px-2 py-1 -mx-2 cursor-pointer transition"
                          onclick="playClip('/clips/{{ stream.id }}/{{ event.date }}/{{ event.filename }}', '{{ event.type }} at {{ event.time }}')">
                         <span class="text-zinc-400">
-                            {{ event.time }}
+                            {{ event.date }} {{ event.time }}
                             <span class="event-local-time text-zinc-500" data-datetime="{{ event.datetime.isoformat() }}"></span>
                         </span>
                         <span class="text-white ml-2">{{ event.type }}</span>
@@ -273,6 +295,7 @@
                 {% else %}
                 <p class="text-zinc-500 text-sm">No events in the last 24 hours</p>
                 {% endif %}
+                </div>
             </div>
         </div>
     </div>
