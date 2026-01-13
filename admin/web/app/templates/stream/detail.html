@@ -262,7 +262,10 @@
                     {% for event in events %}
                     <div class="text-sm hover:bg-zinc-700 rounded px-2 py-1 -mx-2 cursor-pointer transition"
                          onclick="playClip('/clips/{{ stream.id }}/{{ event.date }}/{{ event.filename }}', '{{ event.type }} at {{ event.time }}')">
-                        <span class="text-zinc-400">{{ event.time }}</span>
+                        <span class="text-zinc-400">
+                            {{ event.time }}
+                            <span class="event-local-time text-zinc-500" data-datetime="{{ event.datetime.isoformat() }}"></span>
+                        </span>
                         <span class="text-white ml-2">{{ event.type }}</span>
                     </div>
                     {% endfor %}

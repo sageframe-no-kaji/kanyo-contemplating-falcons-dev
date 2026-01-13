@@ -473,10 +473,11 @@ def get_recent_events(clips_path: str, stream_timezone: str, hours: int = 24) ->
             "type": clip_type,
             "filename": clip["filename"],
             "date": clip.get("date", ""),
+            "datetime": clip["datetime"],  # Include datetime for local time conversion
         }
 
-    # Sort by time (most recent first)
-    return sorted(events_by_time.values(), key=lambda x: x["time"], reverse=True)
+    # Sort by datetime (most recent first)
+    return sorted(events_by_time.values(), key=lambda x: x["datetime"], reverse=True)
 
 
 def get_stream_stats(clips_path: str, stream_timezone: str, hours: int = 24) -> dict:

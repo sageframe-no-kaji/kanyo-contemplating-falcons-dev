@@ -240,6 +240,40 @@ setInterval(updateStreamTime, 1000);
 updateStreamTime(); // Initial update
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Event Time Local Conversion
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert event times to local browser time and display in parentheses
+ */
+function updateEventLocalTimes() {
+    const eventTimeElements = document.querySelectorAll('.event-local-time');
+
+    eventTimeElements.forEach(el => {
+        const datetimeStr = el.dataset.datetime;
+        if (!datetimeStr) return;
+
+        try {
+            const eventDate = new Date(datetimeStr);
+            // Format as HH:MM:SS in local time
+            const hh = String(eventDate.getHours()).padStart(2, '0');
+            const mm = String(eventDate.getMinutes()).padStart(2, '0');
+            const ss = String(eventDate.getSeconds()).padStart(2, '0');
+
+            el.textContent = ` (${hh}:${mm}:${ss} local)`;
+        } catch (e) {
+            console.warn('Failed to parse datetime:', datetimeStr, e);
+        }
+    });
+}
+
+// Update event times on page load
+document.addEventListener('DOMContentLoaded', updateEventLocalTimes);
+
+// Also update after HTMX swaps (in case events are loaded dynamically)
+document.body.addEventListener('htmx:afterSwap', updateEventLocalTimes);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Auto-hide success messages
 // ─────────────────────────────────────────────────────────────────────────────
 
