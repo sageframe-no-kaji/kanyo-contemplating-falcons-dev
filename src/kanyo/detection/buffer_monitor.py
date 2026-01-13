@@ -667,6 +667,11 @@ class BufferMonitor:
                                 # Reset state machine and pending confirmations
                                 self.state_machine.reset_to_absent()
                                 self._reset_pending_states()
+
+                        # Still write to arrival clip recording (fixes accelerated video bug)
+                        if self.arrival_clip_recorder.is_recording():
+                            self.arrival_clip_recorder.write_frame(frame.data, now)
+
                         continue
 
                     # Pass outage compensation to process_frame
