@@ -146,11 +146,11 @@
                     {% for clip in clips[:12] %}
                     {% if clip.is_video %}
                     <div class="aspect-video bg-zinc-900 rounded overflow-hidden relative group cursor-pointer"
-                         onclick="playClip('/clips/{{ stream.id }}/{{ date }}/{{ clip.filename }}', '{{ clip.type }} at {{ clip.time }}')">
+                         onclick="playClip('/clips/{{ stream.id }}/{{ clip.date }}/{{ clip.filename }}', '{{ clip.type }} at {{ clip.time }}')">
 
                         {# Find thumbnail - same name but .jpg #}
                         {% set thumb_name = clip.filename.rsplit('.', 1)[0] + '.jpg' %}
-                        <img src="/clips/{{ stream.id }}/{{ date }}/{{ thumb_name }}"
+                        <img src="/clips/{{ stream.id }}/{{ clip.date }}/{{ thumb_name }}"
                              class="w-full h-full object-cover"
                              onerror="this.style.display='none'"
                              alt="{{ clip.type }} at {{ clip.time }}">

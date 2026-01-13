@@ -215,12 +215,22 @@ class BufferClipManager:
         start_offset = max(0, last_detection_offset - self.clip_departure_before)
         clip_duration = self.clip_departure_before + self.clip_departure_after
 
+        logger.debug(f"Departure clip calculation:")
+        logger.debug(f"  last_detection_offset: {last_detection_offset:.1f}s")
+        logger.debug(f"  start_offset: {start_offset:.1f}s")
+        logger.debug(f"  initial clip_duration: {clip_duration:.1f}s")
+        logger.debug(f"  recording_duration: {recording_duration:.1f}s")
+
         # Ensure we don't exceed the video duration
         if start_offset + clip_duration > recording_duration:
             clip_duration = max(0, recording_duration - start_offset)
+            logger.warning(
+                f"Departure clip would extend past recording end, trimming to {clip_duration:.1f}s"
+            )
             if clip_duration < 5:  # Less than 5 seconds is useless
                 logger.warning(
-                    f"Departure clip would be too short ({clip_duration:.1f}s), skipping"
+                    f"Departure clip would be too short ({clip_duration:.1f}s), skipping. "
+                    f"start_offset={start_offset:.1f}s, recording_duration={recording_duration:.1f}s"
                 )
                 return False
 

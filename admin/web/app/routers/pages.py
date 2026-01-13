@@ -71,10 +71,12 @@ async def stream_detail(request: Request, stream_id: str):
     stream["status"] = status["status"]
     stream["uptime"] = status.get("uptime", "")
 
-    # Get today's clips using STREAM timezone, not server timezone
+    # Get clips from last 24 hours using STREAM timezone
     stream_tz = stream.get("timezone", "UTC")
     today = clip_service.get_stream_today(stream_tz)
-    clips = clip_service.list_clips(stream["clips_path"], today)
+    clips = clip_service.list_clips_since(stream["clips_path"], stream_tz, hours=24)
+    # Filter to only show videos (skip still images)
+    clips = [c for c in clips if c["is_video"]]
 
     # Get deduplicated events from last 24 hours
     events = clip_service.get_recent_events(stream["clips_path"], stream_tz)
@@ -90,7 +92,6 @@ async def stream_detail(request: Request, stream_id: str):
             "clips": clips,
             "events": events,
             "stats": stats,
-            "date": today,
         },
     )
 
