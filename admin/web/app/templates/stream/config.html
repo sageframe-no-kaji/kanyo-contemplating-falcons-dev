@@ -251,7 +251,7 @@
                     <textarea name="display_description"
                               rows="3"
                               placeholder="Brief description of the camera and location for public viewers"
-                              class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">{{ config.display.description or '' }}</textarea>
+                              class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">{{ config.get('display', {}).get('description', '') }}</textarea>
                 </div>
             </div>
         </section>
