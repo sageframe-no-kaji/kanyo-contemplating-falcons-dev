@@ -158,6 +158,20 @@ ntfy_topic: "kanyo_admin_errors"
 notification_cooldown_minutes: 5
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Display Metadata (for public viewer site)
+# ─────────────────────────────────────────────────────────────────────────────
+display:
+  short_name: "My Cam"                    # Brief name for stream cards
+  location: "City, State/Country"          # Full location description
+  coordinates: [0.0, 0.0]                  # [latitude, longitude]
+  species: "Peregrine Falcon (Falco peregrinus)"
+  nest_status: "Active nesting site"      # Current status description
+  maintainer: "Organization Name"          # Who maintains the camera
+  maintainer_url: "https://example.com"    # Optional website link
+  description: "Brief description of the camera location and purpose for public viewers."
+
+
 # ============================================================================
 # End of example config.yaml
 # ============================================================================
