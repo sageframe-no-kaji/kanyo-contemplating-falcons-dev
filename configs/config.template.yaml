@@ -2,6 +2,12 @@
 #
 # TIMING CONSTRAINTS (enforced at load):
 #   roosting_threshold > exit_timeout
+#
+# Thumbnail Image (for viewer landing page):
+#   Place thumbnail at: /opt/services/kanyo-viewer/frontend/public/thumbnails/<stream-id>.jpg
+#   Recommended: 1280×720 (16:9), JPG format, under 500KB
+#   Min: 640×360, Max: 1920×1080
+#   Fallback: viewer will use most recent arrival snapshot from clips
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream Identity (for Admin GUI)
@@ -42,6 +48,17 @@ short_visit_threshold: 600     # >= 60s required
 telegram_enabled: false
 telegram_channel: ""
 notification_cooldown_minutes: 5
+
+# Display Metadata (for public viewer site)
+display:
+  short_name: "My Cam"                    # Brief name for stream cards
+  location: "City, State/Country"          # Full location description
+  coordinates: [0.0, 0.0]                  # [latitude, longitude]
+  species: "Peregrine Falcon (Falco peregrinus)"
+  nest_status: "Active nesting site"      # Current status description
+  maintainer: "Organization Name"          # Who maintains the camera
+  maintainer_url: "https://example.com"    # Optional website link
+  description: "Brief description of the camera location and purpose for public viewers."
 
 # Logging
 log_level: "DEBUG"        # DEBUG, INFO, WARNING, ERROR
