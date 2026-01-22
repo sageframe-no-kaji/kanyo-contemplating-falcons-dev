@@ -196,8 +196,8 @@
                         <input type="number"
                                name="display_latitude"
                                value="{{ config.get('display', {}).get('coordinates', [None, None])[0] or '' }}"
-                               step="0.0001"
-                               placeholder="42.3762"
+                               step="0.000001"
+                               placeholder="42.376235"
                                class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                     </div>
                     <div>
@@ -205,8 +205,8 @@
                         <input type="number"
                                name="display_longitude"
                                value="{{ config.get('display', {}).get('coordinates', [None, None])[1] or '' }}"
-                               step="0.0001"
-                               placeholder="-71.1158"
+                               step="0.000001"
+                               placeholder="-71.115832"
                                class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                     </div>
                 </div>
