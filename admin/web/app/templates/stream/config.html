@@ -175,7 +175,7 @@
                     <label class="block text-sm font-medium mb-2">Short Name</label>
                     <input type="text"
                            name="display_short_name"
-                           value="{{ config.display.short_name or '' }}"
+                           value="{{ config.get('display', {}).get('short_name', '') }}"
                            placeholder="e.g., Harvard"
                            class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                     <p class="text-xs text-zinc-400 mt-1">Brief name for stream cards</p>
@@ -185,7 +185,7 @@
                     <label class="block text-sm font-medium mb-2">Location</label>
                     <input type="text"
                            name="display_location"
-                           value="{{ config.display.location or '' }}"
+                           value="{{ config.get('display', {}).get('location', '') }}"
                            placeholder="e.g., Memorial Hall, Harvard University, Cambridge MA"
                            class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                 </div>
@@ -195,7 +195,7 @@
                         <label class="block text-sm font-medium mb-2">Latitude</label>
                         <input type="number"
                                name="display_latitude"
-                               value="{{ config.display.coordinates[0] if config.display.coordinates else '' }}"
+                               value="{{ config.get('display', {}).get('coordinates', [None, None])[0] or '' }}"
                                step="0.0001"
                                placeholder="42.3762"
                                class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
@@ -204,7 +204,7 @@
                         <label class="block text-sm font-medium mb-2">Longitude</label>
                         <input type="number"
                                name="display_longitude"
-                               value="{{ config.display.coordinates[1] if config.display.coordinates else '' }}"
+                               value="{{ config.get('display', {}).get('coordinates', [None, None])[1] or '' }}"
                                step="0.0001"
                                placeholder="-71.1158"
                                class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
@@ -215,7 +215,7 @@
                     <label class="block text-sm font-medium mb-2">Species</label>
                     <input type="text"
                            name="display_species"
-                           value="{{ config.display.species or '' }}"
+                           value="{{ config.get('display', {}).get('species', '') }}"
                            placeholder="e.g., Peregrine Falcon (Falco peregrinus)"
                            class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                 </div>
@@ -225,14 +225,14 @@
                     <textarea name="display_nest_status"
                               rows="2"
                               placeholder="e.g., Active nesting site with periodic occupancy"
-                              class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">{{ config.display.nest_status or '' }}</textarea>
+                              class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">{{ config.get('display', {}).get('nest_status', '') }}</textarea>
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium mb-2">Maintainer</label>
                     <input type="text"
                            name="display_maintainer"
-                           value="{{ config.display.maintainer or '' }}"
+                           value="{{ config.get('display', {}).get('maintainer', '') }}"
                            placeholder="e.g., Harvard Faculty of Arts & Sciences"
                            class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                 </div>
@@ -241,7 +241,7 @@
                     <label class="block text-sm font-medium mb-2">Maintainer URL</label>
                     <input type="url"
                            name="display_maintainer_url"
-                           value="{{ config.display.maintainer_url or '' }}"
+                           value="{{ config.get('display', {}).get('maintainer_url', '') }}"
                            placeholder="https://example.com"
                            class="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 focus:outline-none focus:border-zinc-500">
                 </div>
