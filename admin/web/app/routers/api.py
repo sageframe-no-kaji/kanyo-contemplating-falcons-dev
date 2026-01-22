@@ -343,6 +343,16 @@ async def update_config(
     roosting_threshold: int = Form(...),
     telegram_enabled: bool = Form(False),
     telegram_channel: str = Form(""),
+    # Display metadata fields
+    display_short_name: str = Form(""),
+    display_location: str = Form(""),
+    display_latitude: str = Form(""),
+    display_longitude: str = Form(""),
+    display_species: str = Form(""),
+    display_nest_status: str = Form(""),
+    display_maintainer: str = Form(""),
+    display_maintainer_url: str = Form(""),
+    display_description: str = Form(""),
 ):
     """Update stream configuration."""
     try:
@@ -378,6 +388,33 @@ async def update_config(
         elif "detection_confidence_ir" in existing_config:
             # Remove if cleared
             del existing_config["detection_confidence_ir"]
+
+        # Update display metadata
+        display_data = {}
+        if display_short_name:
+            display_data["short_name"] = display_short_name
+        if display_location:
+            display_data["location"] = display_location
+        if display_latitude and display_longitude:
+            try:
+                lat = float(display_latitude)
+                lon = float(display_longitude)
+                display_data["coordinates"] = [lat, lon]
+            except ValueError:
+                pass  # Skip invalid coordinates
+        if display_species:
+            display_data["species"] = display_species
+        if display_nest_status:
+            display_data["nest_status"] = display_nest_status
+        if display_maintainer:
+            display_data["maintainer"] = display_maintainer
+        if display_maintainer_url:
+            display_data["maintainer_url"] = display_maintainer_url
+        if display_description:
+            display_data["description"] = display_description
+
+        if display_data:
+            updated_fields["display"] = display_data
 
         existing_config.update(updated_fields)
 
