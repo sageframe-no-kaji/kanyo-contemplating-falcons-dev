@@ -282,3 +282,6 @@ docker-compose.local.yml
 .pytest_cache/
 .venv/
 .obsidian/
+__pycache__/
+*.pyc
+*.egg-info/
