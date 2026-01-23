@@ -1,107 +1,78 @@
 # Kanyo Quick Start Guide
 
-Get Kanyo running and detecting birds in under 15 minutes.
+Get Kanyo running and detecting birds in 15 minutes.
 
 ---
 
 ## Prerequisites
 
-- **Docker** and **Docker Compose** installed
 - **A YouTube live stream URL** (any bird/wildlife cam works)
-- **Optional:** NVIDIA GPU with drivers for faster detection
+- **One of:**
+  - Docker and Docker Compose (recommended)
+  - Python 3.11+ (for bare metal)
+- **Optional:** NVIDIA GPU for faster detection
 
 ---
 
-## Step 1: Clone the Repository
+## Option A: Docker (Recommended)
+
+### Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
 cd kanyo-contemplating-falcons-dev
 ```
 
----
-
-## Step 2: Create Your Configuration
-
-Copy the template and edit it:
+### Step 2: Create Your Configuration
 
 ```bash
 cp configs/config.template.yaml config.yaml
 ```
 
-Open `config.yaml` and set at minimum:
+Edit `config.yaml` with at minimum:
 
 ```yaml
-# REQUIRED: Your YouTube stream URL
 video_source: "https://www.youtube.com/watch?v=YOUR_VIDEO_ID"
-
-# REQUIRED: Timezone for the stream location
-timezone: "America/New_York"  # Use tz database names
-
-# REQUIRED: A name for your stream
+timezone: "America/New_York"  # Stream's local timezone
 stream_name: "My Falcon Cam"
 ```
 
-The template has sensible defaults for everything else. You can tune detection thresholds later.
-
----
-
-## Step 3: Create Data Directories
+### Step 3: Create Data Directories
 
 ```bash
 mkdir -p clips logs
 ```
 
-Kanyo will store video clips in `clips/` organized by date, and logs in `logs/`.
-
----
-
-## Step 4: Choose Your Deployment
-
-Kanyo supports three hardware configurations:
+### Step 4: Choose Your Hardware
 
 | Hardware | Compose File | Best For |
 |----------|--------------|----------|
-| NVIDIA GPU | `docker-compose.nvidia.yml` | Fastest detection, recommended |
-| Intel iGPU | `docker-compose.vaapi.yml` | Good performance, integrated graphics |
-| CPU only | `docker-compose.cpu.yml` | Works anywhere, slower |
+| NVIDIA GPU | `docker/docker-compose.nvidia.yml` | Fastest detection |
+| Intel iGPU | `docker/docker-compose.vaapi.yml` | Good performance |
+| CPU only | `docker/docker-compose.cpu.yml` | Works anywhere |
 
----
-
-## Step 5: Start Kanyo
-
-For NVIDIA GPU:
+### Step 5: Start Kanyo
 
 ```bash
+# For NVIDIA GPU:
 docker compose -f docker/docker-compose.nvidia.yml up -d
-```
 
-For Intel iGPU:
-
-```bash
+# For Intel iGPU:
 docker compose -f docker/docker-compose.vaapi.yml up -d
-```
 
-For CPU only:
-
-```bash
+# For CPU only:
 docker compose -f docker/docker-compose.cpu.yml up -d
 ```
 
----
-
-## Step 6: Verify It's Working
-
-Check the logs:
+### Step 6: Verify It's Working
 
 ```bash
 docker logs kanyo-detection --tail 50 -f
 ```
 
 You should see:
-
 ```
-INFO | Resolving stream URL: https://www.youtube.com/watch?v=...
+INFO | Resolving stream URL...
 INFO | ✅ Connected to stream
 INFO | Frame 100: No detection
 INFO | Frame 200: bird detected (confidence: 0.67)
@@ -111,9 +82,79 @@ Press `Ctrl+C` to stop following logs.
 
 ---
 
-## Step 7: Set Up Telegram Notifications (Optional)
+## Option B: Bare Metal (No Docker)
 
-Telegram notifications let you know when birds arrive or depart.
+### Step 1: Clone and Set Up Environment
+
+```bash
+git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
+cd kanyo-contemplating-falcons-dev
+
+python3.11 -m venv venv
+source venv/bin/activate
+```
+
+### Step 2: Install Dependencies
+
+```bash
+pip install -r requirements-base.txt
+
+# Choose ONE ML backend:
+pip install -r docker/requirements-ml-cpu.txt      # CPU (slowest)
+# OR
+pip install -r docker/requirements-ml-vaapi.txt    # Intel iGPU
+# OR
+pip install -r docker/requirements-ml-cuda.txt     # NVIDIA GPU
+```
+
+### Step 3: Create Configuration
+
+```bash
+cp configs/config.template.yaml config.yaml
+mkdir -p clips logs
+```
+
+Edit `config.yaml` with your stream URL.
+
+### Step 4: Run Kanyo
+
+```bash
+python -m kanyo.detection.buffer_monitor config.yaml
+```
+
+### Step 5: Run as a Service (Optional)
+
+Create `/etc/systemd/system/kanyo.service`:
+
+```ini
+[Unit]
+Description=Kanyo Falcon Detection
+After=network.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/path/to/kanyo-contemplating-falcons-dev
+Environment="TELEGRAM_BOT_TOKEN=your_token"
+ExecStart=/path/to/kanyo-contemplating-falcons-dev/venv/bin/python -m kanyo.detection.buffer_monitor config.yaml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable kanyo
+sudo systemctl start kanyo
+sudo journalctl -u kanyo -f
+```
+
+---
+
+## Telegram Notifications (Optional)
 
 ### Create a Telegram Bot
 
@@ -123,54 +164,29 @@ Telegram notifications let you know when birds arrive or depart.
 
 ### Create a Channel
 
-1. In Telegram, create a new **Channel** (not a group)
-2. Make it **Public** and give it a username (e.g., `@my_falcon_alerts`)
-3. Go to channel settings → Administrators → Add Administrator
-4. Search for your bot by username and add it
-5. Enable **Post Messages** permission for the bot
+1. Create a new **Channel** in Telegram (not a group)
+2. Make it **Public** with a username (e.g., `@my_falcon_alerts`)
+3. Add your bot as Administrator with **Post Messages** permission
 
 ### Configure Kanyo
 
-Create a `.env` file in your project directory:
-
+**For Docker:** Create a `.env` file:
 ```bash
 echo "TELEGRAM_BOT_TOKEN=your_bot_token_here" > .env
 ```
 
-Update your `config.yaml`:
+**For bare metal:** Export the variable:
+```bash
+export TELEGRAM_BOT_TOKEN=your_bot_token_here
+```
 
+Update `config.yaml`:
 ```yaml
 telegram_enabled: true
 telegram_channel: "@my_falcon_alerts"
 ```
 
-Restart Kanyo:
-
-```bash
-docker compose -f docker/docker-compose.nvidia.yml restart
-```
-
----
-
-## Step 8: Check Your Clips
-
-After Kanyo has been running and detected some activity, check the clips directory:
-
-```bash
-ls -la clips/
-```
-
-You'll see date folders:
-
-```
-clips/
-└── 2026-01-23/
-    ├── events_2026-01-23.json
-    ├── falcon_072315_arrival.mp4
-    ├── falcon_072315_arrival.jpg
-    ├── falcon_084530_departure.mp4
-    └── falcon_072315_visit.mp4
-```
+Restart Kanyo.
 
 ---
 
@@ -182,15 +198,15 @@ Key settings in `config.yaml`:
 |---------|---------|-------------|
 | `video_source` | — | YouTube stream URL (required) |
 | `timezone` | UTC | Stream's local timezone |
-| `detection_confidence` | 0.4 | Minimum confidence to detect (0.0–1.0) |
-| `detection_confidence_ir` | 0.2 | Lower threshold for IR/night cameras |
-| `frame_interval` | 3 | Process every Nth frame (higher = less CPU) |
-| `exit_timeout` | 90 | Seconds without detection before "departed" |
-| `roosting_threshold` | 1800 | Seconds (30 min) before "roosting" notification |
-| `arrival_confirmation_seconds` | 10 | Seconds to confirm arrival isn't a false positive |
-| `arrival_confirmation_ratio` | 0.3 | % of frames that must have detections to confirm |
+| `detection_confidence` | 0.4 | Minimum confidence (0.0–1.0) |
+| `detection_confidence_ir` | 0.2 | Threshold for IR/night cameras |
+| `frame_interval` | 3 | Process every Nth frame |
+| `exit_timeout` | 90 | Seconds without detection = departed |
+| `roosting_threshold` | 1800 | Seconds (30 min) before roosting alert |
+| `arrival_confirmation_seconds` | 10 | Window to confirm arrival |
+| `arrival_confirmation_ratio` | 0.3 | % of frames needed to confirm |
 
-See `configs/config.template.yaml` for the full list with documentation.
+See `configs/config.template.yaml` for the full list.
 
 ---
 
@@ -198,81 +214,97 @@ See `configs/config.template.yaml` for the full list with documentation.
 
 ### "YouTube precondition failed"
 
-YouTube sometimes changes their API. Kanyo will automatically retry with a fallback client. If it persists:
+YouTube changed their API. Rebuild with latest yt-dlp:
 
 ```bash
+# Docker
 docker compose -f docker/docker-compose.nvidia.yml build --no-cache
 docker compose -f docker/docker-compose.nvidia.yml up -d
+
+# Bare metal
+pip install --upgrade yt-dlp
 ```
 
-### No detections but bird is clearly visible
+### No detections but bird is visible
 
 - Lower `detection_confidence` (try 0.3)
-- For IR/night cameras, check `detection_confidence_ir`
-- Verify `detect_any_animal: true` is set (YOLO sometimes classifies birds as other animals)
+- For IR/night cameras, lower `detection_confidence_ir` (try 0.15)
+- Ensure `detect_any_animal: true` (YOLO sometimes misclassifies birds)
 
-### Too many false positives
+### Too many false arrivals
 
 - Raise `detection_confidence` (try 0.5)
 - Increase `arrival_confirmation_ratio` (try 0.4)
-- Check if the camera has overlays or timestamps that trigger detections
+- Increase `arrival_confirmation_seconds` (try 15)
 
-### Telegram notifications not sending
+### Telegram not sending
 
-1. Verify bot token in `.env`
-2. Verify bot is admin of channel with post permission
-3. Check logs for Telegram errors: `docker logs kanyo-detection | grep -i telegram`
+1. Verify bot token is set correctly
+2. Verify bot is admin of channel with Post Messages permission
+3. Check logs: `docker logs kanyo-detection | grep -i telegram`
+
+### High CPU usage
+
+- Increase `frame_interval` (try 5 or 10)
+- Enable hardware encoding: `clip_hardware_encoding: true`
+- Use Docker with GPU support
+
+### Check hardware encoding
+
+```bash
+# See what encoders are available
+python -c "from kanyo.utils.encoder import detect_hardware_encoder; print(detect_hardware_encoder(verbose=True))"
+```
+
+### Import errors (bare metal)
+
+```bash
+source venv/bin/activate
+python --version  # Needs 3.11+
+pip install -r requirements-base.txt
+```
+
+### Permission errors
+
+```bash
+mkdir -p clips logs
+chmod 755 clips logs
+# For Docker: ensure directories are owned by UID 1000
+sudo chown -R 1000:1000 clips logs
+```
+
+---
+
+## Quick Commands
+
+```bash
+# Start (Docker)
+docker compose -f docker/docker-compose.nvidia.yml up -d
+
+# Stop (Docker)
+docker compose -f docker/docker-compose.nvidia.yml down
+
+# View logs (Docker)
+docker logs kanyo-detection --tail 100 -f
+
+# Restart after config change (Docker)
+docker compose -f docker/docker-compose.nvidia.yml restart
+
+# Rebuild (after code changes)
+docker compose -f docker/docker-compose.nvidia.yml build --no-cache
+docker compose -f docker/docker-compose.nvidia.yml up -d
+
+# Check clips
+ls -la clips/$(date +%Y-%m-%d)/
+
+# Disk usage
+du -sh clips/
+```
 
 ---
 
 ## Next Steps
 
-### Add the Viewer
-
-The viewer provides a web interface for browsing clips and watching streams:
-
-```bash
-git clone https://github.com/sageframe-no-kaji/kanyo-viewer.git
-cd kanyo-viewer
-# See kanyo-viewer README for setup
-```
-
-### Add More Streams
-
-See [docs/adding-streams.md](docs/adding-streams.md) for multi-stream deployment.
-
-### Understand the Detection Logic
-
-See [docs/sensing-logic.md](docs/sensing-logic.md) for how the state machine works.
-
----
-
-## Getting Help
-
-- **Issues:** [GitHub Issues](https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/discussions)
-
----
-
-## Quick Commands Reference
-
-```bash
-# Start
-docker compose -f docker/docker-compose.nvidia.yml up -d
-
-# Stop
-docker compose -f docker/docker-compose.nvidia.yml down
-
-# View logs
-docker logs kanyo-detection --tail 100 -f
-
-# Restart after config change
-docker compose -f docker/docker-compose.nvidia.yml restart
-
-# Rebuild (after code changes or to update yt-dlp)
-docker compose -f docker/docker-compose.nvidia.yml build --no-cache
-docker compose -f docker/docker-compose.nvidia.yml up -d
-
-# Check disk usage
-du -sh clips/
-```
+- **[docs/adding-streams.md](docs/adding-streams.md)** — Add more camera streams
+- **[docs/sensing-logic.md](docs/sensing-logic.md)** — Understand how detection works
+- **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** — Advanced Docker deployment with ZFS

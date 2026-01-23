@@ -174,7 +174,9 @@ def main():
         print("Usage: migrate_events_to_correct_dates.py <clips_dir> <timezone> [--dry-run]")
         print("\nExample:")
         print("  python migrate_events_to_correct_dates.py /data/harvard/clips Australia/Sydney")
-        print("  python migrate_events_to_correct_dates.py /data/harvard/clips Australia/Sydney --dry-run")
+        print(
+            "  python migrate_events_to_correct_dates.py /data/harvard/clips Australia/Sydney --dry-run"
+        )
         sys.exit(1)
 
     clips_dir = Path(sys.argv[1])
@@ -190,6 +192,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

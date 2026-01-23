@@ -28,6 +28,18 @@ What started as a simple notification system grew into a full monitoring platfor
 - **Sends notifications** via Telegram when something happens
 - **Serves a web interface** for browsing events, watching clips, and viewing live streams
 
+## How It Works
+
+Kanyo watches YouTube live streams and uses computer vision to detect when birds
+appear. When it sees a bird, it waits 10 seconds to make sure it's really there
+(not just a shadow or glitch), then sends you a notification with a photo.
+
+While the bird is visiting, Kanyo records video. When the bird leaves (gone for
+at least 90 seconds), it sends another notification and saves clips of the
+arrival and departure.
+
+All the clips are organized by date and viewable through a simple web interface.
+
 ### The Detection Problem
 
 Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED... DETECTED..." — generating hundreds of false events when a bird simply moves within the frame. Kanyo uses a state machine with configurable timeouts to produce clean, meaningful events:

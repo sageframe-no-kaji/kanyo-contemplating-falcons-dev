@@ -3,6 +3,7 @@ config.yaml
 
 # Internal Development
 /Agent-Tasks/
+devlog/Agent-Tasks/
 
 # Docker - user-specific production config
 docker-compose.yml

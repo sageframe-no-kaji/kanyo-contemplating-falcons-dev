@@ -1,37 +1,41 @@
-Here's the updated `sensing-logic.md`:
-
-```markdown
 # Kanyo Sensing Logic
 
 > **This is the single source of truth for Kanyo's detection system.**
 
-## Overview
+---
 
-Kanyo is a falcon detection system that monitors YouTube live streams of falcon nests, detects when birds are present, and intelligently tracks their behavior over time. The system uses a debounced state machine to eliminate false "entered/exited" spam that plagues simpler detection systems.
+## Plain English Summary
 
-### The Problem
+**The Problem:** Dumb detection systems send 100 alerts when a falcon sits still for 3 hours—triggering on every detection flicker.
 
-Traditional detection systems trigger on every detection/no-detection transition:
+**The Solution:** A state machine that waits and confirms before deciding anything.
 
-```
-10:00:01 | FALCON ENTERED
-10:00:05 | FALCON EXITED    ← False (just moved out of frame)
-10:00:08 | FALCON ENTERED   ← False (moved back)
-10:00:12 | FALCON EXITED    ← False
-...repeat 50 times during 3-hour roost...
-```
+### How It Works
 
-### The Solution
+1. **Detection**: YOLO looks at each frame and says "bird" or "no bird"
+2. **Confirmation**: First detection starts a 10-second confirmation window—30% of frames must detect bird to confirm arrival
+3. **State tracking**: Once confirmed, track whether bird is visiting (<30 min) or roosting (>30 min)
+4. **Departure**: Bird must be gone for 90 continuous seconds before we declare departure
+5. **Clips**: Record everything—arrival clips, departure clips, full visit videos
 
-A **state machine** with debounced exit detection:
+### The States
 
-```
-10:00:01 | FALCON ARRIVED
-10:30:01 | FALCON ROOSTING (settled in, 30 min threshold)
-13:00:00 | FALCON DEPARTED (3 hour visit)
-```
+| State | Meaning | What Triggers Exit |
+|-------|---------|-------------------|
+| **ABSENT** | No bird | Detection → confirm → VISITING |
+| **PENDING** | Maybe arrived, confirming... | Confirmed → VISITING, Failed → ABSENT |
+| **VISITING** | Bird here < 30 min | 90s gone → DEPARTED, 30 min → ROOSTING |
+| **ROOSTING** | Bird here > 30 min | 90s gone → DEPARTED |
 
-**Result**: One arrival/departure pair for a 3-hour visit, instead of 100+ false alerts.
+### Why Confirmation Matters
+
+Without confirmation, a single false-positive frame triggers a fake arrival notification. With confirmation:
+- Real arrivals: 60%+ detection ratio → confirmed ✅
+- False positives: <15% detection ratio → cancelled ❌
+
+### The 90-Second Rule
+
+The bird must be gone for 90 **continuous** seconds. If it flickers back into view at 89 seconds, the counter resets. This eliminates false departures from detection noise.
 
 ---
 
@@ -46,11 +50,11 @@ A **state machine** with debounced exit detection:
 │        │                                                                │
 │        ▼                                                                │
 │   ┌──────────────────┐    ┌──────────────────┐    ┌─────────────────┐  │
-│   │  StreamCapture   │ →  │  FalconDetector  │ →  │ StateMachine    │  │
-│   │  (capture.py)    │    │  (detect.py)     │    │ (falcon_state)  │  │
+│   │  StreamCapture   │ →  │  FalconDetector  │ →  │  StateMachine   │  │
+│   │  (capture.py)    │    │  (detect.py)     │    │  (falcon_state) │  │
 │   │                  │    │                  │    │                 │  │
-│   │  • yt-dlp URL    │    │  • YOLO model    │    │  • 3 states     │  │
-│   │  • OpenCV read   │    │  • Confidence    │    │  • Transitions  │  │
+│   │  • yt-dlp URL    │    │  • YOLO model    │    │  • 4 states     │  │
+│   │  • OpenCV read   │    │  • Confidence    │    │  • Confirmation │  │
 │   │  • Frame skip    │    │  • Class filter  │    │  • Timeouts     │  │
 │   └────────┬─────────┘    └──────────────────┘    └────────┬────────┘  │
 │            │                                                │          │
@@ -122,7 +126,8 @@ FalconDetector runs YOLOv8 inference on each frame to detect birds/animals.
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `detection_confidence` | 0.35 | Minimum confidence to accept (0.0–1.0) |
+| `detection_confidence` | 0.4 | Minimum confidence for daytime (0.0–1.0) |
+| `detection_confidence_ir` | 0.2 | Minimum confidence for IR/night cameras |
 | `model_path` | models/yolov8n.pt | Path to YOLO weights |
 | `detect_any_animal` | true | Treat any animal as falcon |
 | `animal_classes` | [14-23] | COCO class IDs to accept |
@@ -137,72 +142,66 @@ FalconDetector runs YOLOv8 inference on each frame to detect birds/animals.
 
 The FalconStateMachine is the brain of the system. It tracks falcon presence over time and determines when meaningful events occur—eliminating the noise of raw frame-by-frame detections.
 
-### The Three States
+### The Four States
 
 ```
-┌─────────┐
-│ ABSENT  │ ◄─── No falcon detected
-└────┬────┘
-     │ Detection
-     ▼
-┌──────────┐
-│ VISITING │ ◄─── Falcon present < 30 minutes
-└────┬─────┘
-     │ 30 min threshold
-     ▼
-┌───────────┐
-│ ROOSTING  │ ◄─── Long-term presence > 30 minutes (notification only)
-└───────────┘
+                      INITIALIZATION
+                           │
+              falcon detected on startup?
+                      │           │
+                      ▼           ▼
+              PENDING_STARTUP   ABSENT ◄─────────────────┐
+                      │           │                       │
+                (confirm?)    detection                   │
+                 │      │         │                       │
+                 ▼      ▼         ▼                       │
+             ROOSTING ABSENT   VISITING ──(30 min)──► ROOSTING
+                                  │                       │
+                                  └───────(90s gone)──────┘
 ```
 
 | State | Description | Exit Condition |
 |-------|-------------|----------------|
-| **ABSENT** | No falcon detected | Bird detected → VISITING |
+| **ABSENT** | No falcon detected | Bird detected → start confirmation |
+| **PENDING_STARTUP** | Falcon detected on startup, confirming | Confirmed → ROOSTING, Failed → ABSENT |
 | **VISITING** | Falcon present < 30 min | Gone 90s → DEPARTED, or stays 30 min → ROOSTING |
 | **ROOSTING** | Falcon present > 30 min | Gone 90s → DEPARTED |
 
-**Key insight**: ROOSTING uses the same exit timeout as VISITING. It exists only to trigger a "settled in" notification—not for different timeout behavior.
+**Key insight**: ROOSTING uses the same exit timeout as VISITING. It exists only to trigger a "settled in" notification.
 
-### State Transitions
+### Arrival Confirmation
 
-#### ABSENT → VISITING
+When a falcon is first detected, the system doesn't immediately declare arrival. Instead:
 
-**Trigger**: Falcon detected after absence
-**Event**: `ARRIVED`
-**Actions**:
-- Log arrival time
-- Send arrival notification (with thumbnail)
-- Start visit recording
-- Start arrival clip recording (parallel, 45s duration)
+1. **Start confirmation window** (10 seconds by default)
+2. **Count detections** during the window
+3. **Calculate ratio**: detections / total frames
+4. **If ratio ≥ 30%**: Arrival confirmed → send notification
+5. **If ratio < 30%**: Arrival cancelled → reset to ABSENT
 
-#### VISITING → ROOSTING
+This eliminates false arrivals from single-frame detection noise.
 
-**Trigger**: Continuous presence for 30 minutes (`roosting_threshold`)
-**Event**: `ROOSTING`
-**Actions**:
-- Log transition to roosting state
-- Send "settled in" notification (optional)
-- No change to exit timeout
+```
+Detection → PENDING → (10 seconds) → ratio ≥ 30%? → CONFIRMED → VISITING
+                                   → ratio < 30%? → CANCELLED → ABSENT
+```
 
-#### VISITING → ABSENT
+**During confirmation:**
+- Recordings start immediately (with `.tmp` suffix)
+- No notification sent yet
+- If confirmed: rename `.tmp` files, send notification
+- If cancelled: keep `.tmp` files for debugging, no notification
 
-**Trigger**: No detection for 90 seconds (`exit_timeout`)
-**Event**: `DEPARTED`
-**Actions**:
-- Log departure with visit duration
-- Send departure notification
-- Stop visit recording
-- Create departure clip from visit file
+### Startup Confirmation
 
-#### ROOSTING → ABSENT
+When the system starts and detects a falcon already present:
 
-**Trigger**: No detection for 90 seconds (`exit_timeout`)
-**Event**: `DEPARTED`
-**Actions**:
-- Log departure with total duration
-- Send departure notification
-- Stop visit recording
-- Create departure clip from visit file
+1. Enter `PENDING_STARTUP` state (not ROOSTING)
+2. Run same confirmation logic as arrivals
+3. If confirmed: transition to ROOSTING (optionally send notification if `notify_on_startup: true`)
+4. If not confirmed: transition to ABSENT
+
+This prevents false "arrived" notifications when restarting the container with a falcon already on camera.
 
 ### The Debounce (Rolling Timeout)
 
@@ -224,15 +223,16 @@ last_absence_start = None  # Reset the counter
 
 If the bird disappears for 50 seconds then reappears, the counter **resets to zero**. The bird must be gone for a continuous 90 seconds to trigger departure.
 
-### The Initialization Period
+### Stream Outage Handling
 
-**Problem**: When monitoring starts, we don't know if a falcon is already present.
+When the YouTube stream drops:
 
-**Solution**: For the first 30 seconds, the system processes every frame and collects detections without triggering events. Then:
-- If detections found → Initialize to ROOSTING (assume falcon was already there)
-- If no detections → Initialize to ABSENT (nest is empty)
-
-This prevents a false "ARRIVED" event when the monitor restarts with a falcon already present.
+1. **Brief outages (<5 seconds)**: Use "freeze frame" — repeat last good frame to maintain video continuity
+2. **Extended outages (>5 seconds)**:
+   - Stop recordings (prevents corrupted video)
+   - Track cumulative outage time (doesn't count toward absence duration)
+   - Reset state to ABSENT
+   - When stream resumes with detection, go through normal confirmation flow
 
 ### Configuration
 
@@ -240,6 +240,9 @@ This prevents a false "ARRIVED" event when the monitor restarts with a falcon al
 |---------|---------|---------|
 | `exit_timeout` | 90 | Seconds absent before departure (all states) |
 | `roosting_threshold` | 1800 | Seconds (30 min) before ROOSTING notification |
+| `arrival_confirmation_seconds` | 10 | Confirmation window duration |
+| `arrival_confirmation_ratio` | 0.3 | Required detection ratio to confirm (30%) |
+| `notify_on_startup` | false | Send notification if falcon present on startup |
 
 ---
 
@@ -291,78 +294,52 @@ Kanyo uses a **buffer-based architecture** for clip extraction:
 │                                                                     │
 │   ┌─────────────┐      ┌──────────────────┐      ┌───────────────┐ │
 │   │ FrameBuffer │  →   │  VisitRecorder   │  →   │ BufferClip    │ │
-│   │             │      │                  │      │ Manager       │ │
-│   │ Ring buffer │      │ • Writes visit   │      │               │ │
-│   │ of frames   │      │   video file     │      │ • Extracts    │ │
-│   │ (60s)       │      │ • Logs events    │      │   departure   │ │
-│   │             │      │ • Creates JSON   │      │   clips       │ │
+│   │             │      │                  │      │    Manager    │ │
+│   │  Ring buffer│      │  • Write visit   │      │               │ │
+│   │  (60s)      │      │  • Track times   │      │  • Departure  │ │
+│   │             │      │  • Metadata      │      │    clips      │ │
 │   └─────────────┘      └──────────────────┘      └───────────────┘ │
 │         │                                                           │
-│         │              ┌──────────────────┐                         │
-│         └───────────── │ ArrivalClip      │                         │
-│                        │ Recorder         │                         │
-│                        │ • Parallel 45s   │                         │
-│                        │ • Immediate clip │                         │
-│                        └──────────────────┘                         │
+│         │              ┌──────────────────┐                        │
+│         └───────────── │ ArrivalClip      │                        │
+│           (pre-event)  │    Recorder      │                        │
+│                        │                  │                        │
+│                        │  • 45s parallel  │                        │
+│                        │  • Auto-complete │                        │
+│                        └──────────────────┘                        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Components
+### How It Works
 
-**FrameBuffer** (`frame_buffer.py`)
-- Thread-safe ring buffer storing recent frames (JPEG compressed)
-- Configurable duration (default 60s)
-- Frames retrieved by time range for pre-event footage
+1. **FrameBuffer**: A ring buffer that holds the last 60 seconds of frames. When an arrival is detected, we can pull "pre-event" footage from before the detection.
 
-**VisitRecorder** (`visit_recorder.py`)
-- Records complete falcon visits to video files
-- Logs detection events with timestamps relative to video start
-- Creates JSON metadata with visit summary
-- Integrates pre-arrival frames from buffer
+2. **VisitRecorder**: Records the entire visit from arrival to departure. Produces `falcon_HHMMSS_visit.mp4`.
 
-**ArrivalClipRecorder** (`arrival_clip_recorder.py`)
-- Records arrival clips in parallel with visit recording
-- Fixed duration (45s: 15s before + 30s after)
-- Completes automatically, doesn't wait for departure
+3. **ArrivalClipRecorder**: Records a 45-second arrival clip in parallel (15s before + 30s after arrival). Auto-completes and doesn't depend on departure.
 
-**BufferClipManager** (`buffer_clip_manager.py`)
-- Orchestrates recording lifecycle
-- Extracts departure clips from visit file using ffmpeg
-- Uses `last_detection` time for accurate departure clip offset
+4. **BufferClipManager**: Extracts the departure clip from the visit recording using ffmpeg (last 60s before + 30s after departure).
 
-**BufferMonitor** (`buffer_monitor.py`)
-- Main entry point combining all components
-- Captures frames → buffers → detects → manages clips
+### The `.tmp` File Workflow
 
-### Clip Strategy
+During arrival confirmation:
 
-| Clip Type | Before Event | After Event | When Created |
-|-----------|--------------|-------------|--------------|
-| **Arrival** | 15s | 30s | Immediately (parallel recording) |
-| **Departure** | 60s | 30s | After visit file closes |
-| **Full Visit** | All frames | All frames | Always saved |
-
-### Departure Clip Timing
-
-The departure clip is extracted from the visit file using the **last detection time**, not the end of the file:
-
-```
-Visit file: 3 hours 48 minutes
-Bird last detected: 3 hours 38 minutes into file
-Departure clip: (3h38m - 60s) to (3h38m + 30s)
-```
-
-This ensures the departure clip shows the bird leaving, not 10 minutes of empty nest.
+1. Detection triggers tentative arrival
+2. Start recordings with `.tmp` suffix: `falcon_081530_arrival.mp4.tmp`
+3. Run confirmation for 10 seconds
+4. **If confirmed**: Rename to final: `falcon_081530_arrival.mp4`
+5. **If cancelled**: Keep `.tmp` files for debugging, stop recordings
 
 ### Configuration
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `buffer_duration` | 60 | Seconds of frames to keep in ring buffer |
+| `buffer_seconds` | 60 | Seconds of frames to keep in ring buffer |
 | `clip_arrival_before` | 15 | Seconds before arrival for clip |
 | `clip_arrival_after` | 30 | Seconds after arrival for clip |
-| `clip_departure_before` | 60 | Seconds before departure for clip |
-| `clip_departure_after` | 30 | Seconds after departure for clip |
+| `clip_departure_before` | 30 | Seconds before departure for clip |
+| `clip_departure_after` | 15 | Seconds after departure for clip |
+| `clip_crf` | 23 | Video quality (lower = better, larger file) |
 
 ---
 
@@ -375,7 +352,7 @@ def process_frame(frame, timestamp):
     # 1. Push frame into ring buffer (keeps 60s of history)
     frame_buffer.add_frame(frame, timestamp)
 
-    # 2. Write to active recordings
+    # 2. Write to active recordings (if any)
     if visit_recorder.is_recording:
         visit_recorder.write_frame(frame)
     if arrival_clip_recorder.is_recording():
@@ -385,24 +362,25 @@ def process_frame(frame, timestamp):
     detections = detector.detect_birds(frame, timestamp=now)
     falcon_detected = len(detections) > 0
 
-    # 4. Update state machine → may generate events
+    # 4. Handle confirmation windows (arrival or startup)
+    if arrival_pending:
+        update_arrival_confirmation(falcon_detected)
+    if startup_pending:
+        update_startup_confirmation(falcon_detected)
+
+    # 5. Update state machine → may generate events
     events = state_machine.update(falcon_detected, now)
 
-    # 5. Handle events
+    # 6. Handle events
     for event_type, event_time, metadata in events:
         if event_type == ARRIVED:
-            # Get pre-arrival frames from buffer
-            lead_in = frame_buffer.get_frames_before(event_time, 15)
-            # Start parallel arrival clip (45s, auto-completes)
-            arrival_clip_recorder.start_recording(event_time, lead_in)
-            # Start long-term visit recording
-            visit_recorder.start_recording(event_time, lead_in)
+            start_confirmation_window()
+            # Recordings start with .tmp suffix
 
         if event_type == DEPARTED:
-            # Stop visit recording
-            visit_path, metadata = visit_recorder.stop_recording(event_time)
-            # Extract departure clip from visit file
+            visit_path = visit_recorder.stop_recording(event_time)
             clip_manager.create_departure_clip(metadata)
+            event_handler.handle_event(DEPARTED, event_time, metadata)
 ```
 
 ---
@@ -415,68 +393,54 @@ def process_frame(frame, timestamp):
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream & Detection
 # ─────────────────────────────────────────────────────────────────────────────
-video_source: "https://youtube.com/..."  # YouTube live stream URL
-detection_confidence: 0.35               # 0.0–1.0, higher = fewer false positives
-frame_interval: 3                        # Process every Nth frame
-model_path: "models/yolov8n.pt"          # YOLO model
-detect_any_animal: true                  # Treat any animal as falcon
-timezone: "-05:00"                       # For timestamps and log files
+video_source: "https://youtube.com/watch?v=..."
+stream_name: "Harvard Falcon Cam"
+timezone: "America/New_York"
+
+detection_confidence: 0.4           # Daytime threshold
+detection_confidence_ir: 0.2        # Night/IR threshold
+frame_interval: 3                   # Process every Nth frame
+model_path: models/yolov8n.pt
+detect_any_animal: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # State Machine
 # ─────────────────────────────────────────────────────────────────────────────
-exit_timeout: 90               # Seconds absent before departure (all states)
-roosting_threshold: 1800       # 30 min - triggers ROOSTING notification
+exit_timeout: 90                    # Seconds absent = departed
+roosting_threshold: 1800            # 30 min = roosting notification
+arrival_confirmation_seconds: 10    # Confirmation window
+arrival_confirmation_ratio: 0.3     # 30% detection ratio required
+notify_on_startup: false            # Notify if falcon present on startup
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Buffer & Clip Extraction
+# Clips
 # ─────────────────────────────────────────────────────────────────────────────
-clips_dir: "clips"
-buffer_duration: 60            # Seconds of frames in ring buffer
-clip_arrival_before: 15        # Seconds before arrival in clip
-clip_arrival_after: 30         # Seconds after arrival in clip
-clip_departure_before: 60      # Seconds before departure in clip
-clip_departure_after: 30       # Seconds after departure in clip
-clip_crf: 23                   # Video quality (18=high, 23=balanced, 28=small)
-clip_fps: 30                   # Output frame rate
+clips_dir: clips
+buffer_seconds: 60
+clip_arrival_before: 15
+clip_arrival_after: 30
+clip_departure_before: 30
+clip_departure_after: 15
+clip_crf: 23
+clip_fps: 30
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Notifications
 # ─────────────────────────────────────────────────────────────────────────────
 telegram_enabled: true
-telegram_channel: "@your_channel"
+telegram_channel: "@kanyo_harvard"
 notification_cooldown_minutes: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+log_level: INFO
+log_file: logs/kanyo.log
 ```
 
 ---
 
-## Tuning Guide
+## See Also
 
-### `exit_timeout` (default: 90s)
-
-| Situation | Recommendation |
-|-----------|----------------|
-| Reliable stream, good detection | 60–90s |
-| Unreliable stream, detection gaps | 120–180s |
-| Camera has occlusion issues | 120–180s |
-| Want faster departure alerts | 60s |
-
-**Note**: If too short, YOLO detection flicker causes false departures. If too long, you wait unnecessarily after bird leaves.
-
-### `roosting_threshold` (default: 1800s / 30 min)
-
-| Situation | Recommendation |
-|-----------|----------------|
-| Want "settled in" notification quickly | 900–1200s (15-20 min) |
-| Only care about very long stays | 3600s (1 hour) |
-| Don't want roosting notifications | Set very high or disable notification |
-
-### `detection_confidence` (default: 0.35)
-
-| Situation | Recommendation |
-|-----------|----------------|
-| Missing detections (bird present but not detected) | Lower to 0.25–0.30 |
-| False positives (detecting shadows, etc.) | Raise to 0.40–0.50 |
-| High-quality camera, good lighting | 0.35–0.45 |
-| Poor camera, variable lighting | 0.25–0.35 |
-```
+- [QUICKSTART.md](../QUICKSTART.md) — Get running in 10 minutes
+- [adding-streams.md](adding-streams.md) — Multi-stream deployment
