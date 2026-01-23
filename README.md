@@ -1,244 +1,172 @@
 # Kanyo (観鷹)
-**Contemplating Falcons**
 
-Real-time falcon detection and event tracking for live camera streams. Automatically captures video clips when falcons arrive or depart, tracks roosting behavior, and sends notifications via Telegram.
+### _Contemplating Falcons_
 
-## What It Does
+An open-source system for monitoring wildlife cameras with computer vision. Kanyo watches live YouTube streams, detects when birds arrive and depart, captures video clips of each visit, and sends real-time notifications.
 
-- 🦅 **Detects falcons** in live YouTube streams using YOLOv8
-- 📹 **Captures video clips** of arrivals and departures
-- 🔔 **Sends notifications** via Telegram when falcons are spotted
-- 📊 **Tracks behavior** with state machine (absent → visiting → roosting → departed)
-- 🕐 **Generates timelines** with thumbnails and event logs
+**Live Demo:** [kanyo.sageframe.net](https://kanyo.sageframe.net)
 
-## Origin Story
-
-Born from a conversation with Claudia Goldin (Nobel laureate in Economics) on a flight to New York, where she expressed interest in having the live feed automatically mark timestamps when the peregrines are actually in frame.
+![Kanyo Viewer](docs/images/viewer-screenshot.png)
 
 ---
 
-## Quick Start
+## Origin Story
 
-### Docker (Recommended)
+This project began on a flight to New York in December 2024. I found myself seated next to a falcon enthusiast, who mentioned her connection to the peregrine falcon nest cam atop Memorial Hall at Harvard. She wondered aloud whether someone could build a tool to automatically mark timestamps when the falcons were actually in frame—so enthusiasts wouldn't have to scrub through hours of empty nest footage.
 
-```bash
-# 1. Create project directory
-mkdir kanyo && cd kanyo
+It turns out that someone was me.
 
-# 2. Download docker-compose file (choose one):
-#    CPU:    docker-compose.cpu.yml
-#    Intel:  docker-compose.vaapi.yml
-#    NVIDIA: docker-compose.nvidia.yml
+What started as a simple notification system grew into a full monitoring platform. The name **Kanyo** (観鷹) combines the Japanese characters for "contemplating" and "falcon"—a nod to both the meditative act of watching these birds and the computational attention the system pays to every frame.
 
-curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.nvidia.yml
-mv docker-compose.nvidia.yml docker-compose.yml
+---
 
-# 3. Download config template
-curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/configs/config.template.yaml
-mv config.template.yaml config.yaml
-# Edit config.yaml with your stream URL and settings
+## What It Does
 
-# 4. Create directories for persistent data
-mkdir -p clips logs
+- **Detects birds** in live YouTube streams using YOLOv8 computer vision
+- **Tracks behavior** with a debounced state machine (no more false "arrived/departed" spam)
+- **Records video clips** of arrivals, departures, and complete visits
+- **Sends notifications** via Telegram when something happens
+- **Serves a web interface** for browsing events, watching clips, and viewing live streams
 
-# 5. Create .env file (if using Telegram)
-echo "TELEGRAM_BOT_TOKEN=your_token_here" > .env
+### The Detection Problem
 
-# 6. Start
-docker compose up -d
+Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED... DETECTED..." — generating hundreds of false events when a bird simply moves within the frame. Kanyo uses a state machine with configurable timeouts to produce clean, meaningful events:
+
+```
+10:00:01 | 🦅 ARRIVED
+10:30:00 | 🏠 ROOSTING (settled in)
+13:00:00 | 👋 DEPARTED (3 hour visit)
 ```
 
-See **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** for multi-stream and ZFS deployment.
-
-### Local Development
-
-```bash
-# Clone repository
-git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
-cd kanyo-contemplating-falcons-dev
-
-# Create virtual environment
-python3.11 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest
-
-# Run detection on a stream
-python -m kanyo.detection.buffer_monitor config.yaml
-```
+One arrival. One departure. Three hours of presence tracked correctly.
 
 ---
 
 ## Project Structure
 
-```
-kanyo-contemplating-falcons-dev/
-├── src/kanyo/               # Main package
-│   ├── detection/           # Video capture, detection, state machine
-│   ├── generation/          # Clip extraction, site generation
-│   └── utils/               # Config, logging, notifications, encoding
-├── tests/                   # Test suite
-├── configs/                 # Configuration templates
-│   └── config.template.yaml # Documented config template
-├── docker/                  # Docker deployment files
-│   ├── Dockerfile.cpu       # Pure CPU variant
-│   ├── Dockerfile.vaapi     # Intel iGPU + OpenVINO
-│   ├── Dockerfile.nvidia    # NVIDIA CUDA 12.1
-│   └── docker-compose.*.yml # Deployment configs
-├── scripts/                 # Build, deploy, and utility scripts
-├── docs/                    # Architecture and design documentation
-└── devlog/                  # Development journal (hos)
-```
+Kanyo is split across two repositories:
+
+| Repository                                                                                              | Purpose                                         |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| [kanyo-contemplating-falcons-dev](https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev) | Detection engine, clip recording, notifications |
+| [kanyo-viewer](https://github.com/sageframe-no-kaji/kanyo-viewer)                                       | Web interface for browsing streams and clips    |
+
+Both are designed to run in Docker containers. The detection engine processes streams 24/7; the viewer serves the web interface.
 
 ---
 
-## How It Works
+## Quick Start
 
-### State Machine
+Get a single stream running in under 10 minutes:
 
-```
-ABSENT ──────► VISITING ──────► ROOSTING
-   ▲              │                 │
-   │              │                 │
-   └──────────────┴─────────────────┘
-              (exit_timeout)
-```
+```bash
+git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
+cd kanyo-contemplating-falcons-dev
+cp configs/config.template.yaml config.yaml
+# Edit config.yaml with your YouTube stream URL
 
-| State | Meaning | Exit Condition |
-|-------|---------|----------------|
-| **ABSENT** | No falcon | Bird detected → VISITING |
-| **VISITING** | Bird present < 30 min | Gone 90s → DEPARTED, or stays 30 min → ROOSTING |
-| **ROOSTING** | Bird present > 30 min | Gone 90s → DEPARTED |
-
-ROOSTING triggers a notification but uses the same exit timeout as VISITING.
-
-### Clips Created
-
-| Event | Clip | Timing |
-|-------|------|--------|
-| **Arrival** | `falcon_HHMMSS_arrival.mp4` | 15s before + 30s after detection |
-| **Departure** | `falcon_HHMMSS_departure.mp4` | 60s before + 30s after last detection |
-| **Full Visit** | `falcon_HHMMSS_visit.mp4` | Entire visit recording |
-
----
-
-## Configuration
-
-See **[configs/config.template.yaml](configs/config.template.yaml)** for all options.
-
-Minimal config:
-```yaml
-video_source: "https://www.youtube.com/watch?v=..."
-detection_confidence: 0.35
-frame_interval: 2
-telegram_enabled: false
+mkdir -p clips logs
+docker compose -f docker/docker-compose.nvidia.yml up -d
 ```
 
-Key parameters:
-
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `video_source` | YouTube stream URL | (required) |
-| `detection_confidence` | Detection threshold (0.0-1.0) | 0.35 |
-| `frame_interval` | Frames to skip between detections | 2 |
-| `exit_timeout` | Seconds absent before departure | 90 |
-| `roosting_threshold` | Seconds before roosting notification | 1800 |
-| `telegram_enabled` | Send notifications | false |
-| `timezone` | Timezone offset for logs/filenames | "+00:00" |
-
----
-
-## Deployment Options
-
-| Method | Best For | Hardware |
-|--------|----------|----------|
-| **[Docker](docker/DOCKER-DEPLOYMENT.md)** | Production, multi-stream | CPU, Intel iGPU, NVIDIA GPU |
-| **Local** | Development, testing | Any |
-
-Three Docker image variants:
-- **`:cpu`** - Pure CPU (PyTorch CPU, no GPU)
-- **`:vaapi`** - Intel iGPU (PyTorch + OpenVINO)
-- **`:nvidia`** - NVIDIA GPU (PyTorch + CUDA 12.1)
+See **[QUICKSTART.md](QUICKSTART.md)** for the full walkthrough, including Telegram setup and hardware options.
 
 ---
 
 ## Documentation
 
-- **[docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md)** - Complete Docker guide
-- **[docs/sensing-logic.md](docs/sensing-logic.md)** - Detection and state machine details
-- **[devlog/](devlog/)** - Development journal
+| Document                                         | Description                           |
+| ------------------------------------------------ | ------------------------------------- |
+| [QUICKSTART.md](QUICKSTART.md)                   | Get running in 10 minutes             |
+| [docs/adding-streams.md](docs/adding-streams.md) | Multi-stream deployment guide         |
+| [docs/sensing-logic.md](docs/sensing-logic.md)   | How the detection state machine works |
 
 ---
 
-## Technology Stack
+## Technology
 
-- **Python 3.11+** - Core language
-- **YOLOv8** - Object detection (ultralytics)
-- **OpenCV** - Video/frame processing
-- **yt-dlp** - YouTube stream capture
-- **FFmpeg** - Video encoding with hardware acceleration
-- **Docker** - Containerized deployment
-- **Telegram Bot API** - Notifications
+**Detection Engine:**
+
+- Python 3.11
+- YOLOv8 (ultralytics) for object detection
+- OpenCV for video processing
+- yt-dlp for YouTube stream capture
+- FFmpeg for clip encoding (with hardware acceleration support)
+
+**Viewer:**
+
+- FastAPI backend
+- React + Vite + Tailwind CSS frontend
+- HTMX for admin interface
+
+**Deployment:**
+
+- Docker with NVIDIA GPU support (also CPU and Intel iGPU variants)
+- Cloudflare Tunnels for public access
 
 ---
 
 ## Development
 
 ```bash
-# Activate environment
+# Clone and set up
+git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git
+cd kanyo-contemplating-falcons-dev
+python3.11 -m venv venv
 source venv/bin/activate
+pip install -r requirements-dev.txt
 
 # Run tests
 pytest
 
-# Format code
-black src/ tests/
-isort src/ tests/
-
-# Type check
-mypy src/kanyo/
+# Run detection locally
+python -m kanyo.detection.buffer_monitor config.yaml
 ```
+
+The project has 114 passing tests covering the detection logic, state machine, and clip extraction.
 
 ---
 
-## YouTube Stream Recovery
+## Status
 
-### How Kanyo Handles YouTube API Changes
+Kanyo is in active use, monitoring falcon cams and sending thousands of notifications. The core detection system is stable; the viewer and admin interfaces continue to evolve.
 
-YouTube frequently changes their API, which can break stream capture. Kanyo handles this automatically:
+**Current capabilities:**
 
-1. **Build-time protection**: yt-dlp is upgraded at container build time
-2. **Runtime fallback**: If YouTube returns "Precondition check failed", Kanyo switches to an alternate API client (`android_creator`) and retries once
-3. **Cooldown on failure**: If fallback also fails, Kanyo waits 5 minutes before retrying to avoid rate limiting
+- Multi-stream monitoring with independent detection containers
+- Arrival confirmation to filter single-frame false positives
+- Automatic YouTube stream reconnection
+- Hardware-accelerated video encoding (NVIDIA, Intel, CPU fallback)
+- Timezone-aware event logging and display
+- Mobile-responsive viewer interface
 
-### Log Messages
+**On the roadmap:**
 
-| Message | Meaning |
-|---------|---------|
-| `YouTube precondition failed; retrying with alternate yt-dlp client` | Normal recovery, trying fallback |
-| `YouTube stream still failing after fallback; entering cooldown` | Both methods failed, waiting 5 min |
-| `✅ Connected to stream` | Recovery complete |
+- Auto-discovery of streams (eliminate manual config editing)
+- Research-focused features (annotation, data export)
+- Community features for falcon enthusiasts
 
-### If Streams Stay Down
+---
 
-If streams fail persistently after multiple cooldown cycles:
+## Contributing
 
-1. Check if the YouTube stream is actually live
-2. Rebuild the container to get latest yt-dlp: `docker compose build --no-cache`
-3. Check yt-dlp GitHub issues for known YouTube breakages
+Issues and pull requests are welcome. If you're interested in:
+
+- **Adding support for new camera types** — the detection is general-purpose
+- **Improving the viewer UI** — React/Tailwind skills appreciated
+- **Research applications** — I'd love to hear from ornithologists
+
+---
+
+## Acknowledgments
+
+- **Claudia Goldin** — For the spark that started this project
+- **Memorial Hall Falcon Cam** — For the falcons themselves
+- **Anthropic** — Claude has been an invaluable development partner
+- **The falcon cam community** — Enthusiasts who watch and report
 
 ---
 
 ## License
 
 MIT
-
-## Acknowledgments
-
-- Claudia Goldin - For the inspiration
-- Memorial Hall Falcon Cam - For the falcons
-- Anthropic - For Claude (development assistant)
