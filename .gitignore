@@ -278,3 +278,7 @@ thumbnails/
 *.m4a
 # Local development docker-compose files
 docker-compose.local.yml
+.mypy_cache/
+.pytest_cache/
+.venv/
+.obsidian/
