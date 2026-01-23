@@ -1,25 +1,50 @@
-# Scripts
+# Scripts Index
 
-Quick reference for all automation scripts.
+Utility scripts for building, deploying, and managing Kanyo.
 
-## Build Scripts
+## Docker Image Building
 
-- **`scripts/build-cpu.sh`** - Build and push CPU-only Docker image (pure CPU, no GPU acceleration)
-- **`scripts/build-vaapi.sh`** - Build and push Intel iGPU Docker image (VAAPI + OpenVINO)
-- **`scripts/build-nvidia.sh`** - Build and push NVIDIA GPU Docker image (CUDA 12.1)
-- **`scripts/build-all.sh`** - Build and optionally push all three Docker variants (cpu, vaapi, nvidia)
+| Script | Purpose |
+|--------|---------|
+| `build-all.sh` | Build all Docker image variants (cpu, vaapi, nvidia) |
+| `build-cpu.sh` | Build CPU-only image |
+| `build-vaapi.sh` | Build Intel iGPU (VAAPI) image |
+| `build-nvidia.sh` | Build NVIDIA GPU image |
 
-## Deployment Scripts
+## Deployment
 
-- **`scripts/deploy-nvidia.sh`** - Initial deployment setup for NVIDIA GPU production server (creates directories, copies configs, deploys docker-compose)
-- **`scripts/deploy-production.sh`** - Update production code and rebuild containers (pull code, down, up --build)
-- **`scripts/update-code.sh`** - Quick production update (pull code, restart containers without rebuild)
+| Script | Purpose |
+|--------|---------|
+| `deploy-nvidia.sh` | Full deployment with NVIDIA image to production |
+| `deploy-production.sh` | Deploy to production server |
+| `update-code.sh` | Quick code update via git pull + container restart |
+| `update-admin.sh` | Update admin GUI on production |
+| `update-production.sh` | Update production deployment |
 
-## Utility Scripts
+## Utilities
 
-- **`scripts/download_sample.sh`** - Download sample video for testing falcon detection
+| Script | Purpose |
+|--------|---------|
+| `event-search.sh` | Search through event JSON files (see `event-search-README.md`) |
 
-## Directories
+## Usage Examples
 
-- **`scripts/data/`** - Captured clips and events from test runs
-- **`scripts/sample/`** - Sample video files for testing
+### Build and push NVIDIA image
+```bash
+./scripts/build-nvidia.sh
+```
+
+### Quick code update (no image rebuild)
+```bash
+./scripts/update-code.sh shingan.lan
+```
+
+### Search for events
+```bash
+./scripts/event-search.sh "ARRIVED" /opt/services/kanyo-harvard/clips
+```
+
+## See Also
+
+- [QUICKSTART.md](../QUICKSTART.md) — Getting started
+- [docker/DOCKER-DEPLOYMENT.md](../docker/DOCKER-DEPLOYMENT.md) — Full deployment guide
