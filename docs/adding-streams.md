@@ -204,6 +204,8 @@ The new stream should appear in the admin interface.
 ## Part 3: Public Viewer
 
 This makes the stream visible on the public website.
+**For complete viewer documentation and features, see the [kanyo-viewer README](https://github.com/sageframe-no-kaji/kanyo-viewer).**
+
 
 ### Step 1: Add Volume Mounts
 
