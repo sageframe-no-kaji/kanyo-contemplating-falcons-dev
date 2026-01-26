@@ -1,4 +1,4 @@
-# Kanyo (観鷹)
+# Kanyō (観鷹)
 
 ### _Contemplating Falcons_
 
