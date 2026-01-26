@@ -631,7 +631,7 @@ ntfy_topic: "kanyo_falcon_cam_fas"
 ### Test Notification
 
 ```bash
-curl -d "Test from Kanyo - if you see this, notifications are working" \
+curl -d "Test from Kanyō - if you see this, notifications are working" \
      https://ntfy.sh/kanyo_falcon_cam_nsw
 ```
 Result: Received on phone within seconds ✅

@@ -1,12 +1,12 @@
 # Ho 6: GUI Architecture & Planning
 
-**Date:** 2025-12-27 **Status:** Planning **Objective:** Design and implement frontend interfaces for Kanyo falcon monitoring system
+**Date:** 2025-12-27 **Status:** Planning **Objective:** Design and implement frontend interfaces for Kanyō falcon monitoring system
 
 ---
 
 ## Overview
 
-Kanyo needs three distinct frontend components to serve different audiences and use cases:
+Kanyō needs three distinct frontend components to serve different audiences and use cases:
 
 |Frontend|Audience|Purpose|Deployment|
 |---|---|---|---|
@@ -139,7 +139,7 @@ cloudflare/                → Same React app, different API endpoint
 
 **Why FastAPI?**
 
-- Already Python-native (matches Kanyo codebase)
+- Already Python-native (matches Kanyō codebase)
 - Async support for log streaming (WebSockets)
 - Built-in OpenAPI docs (useful for debugging)
 - Easy Docker SDK integration
@@ -655,7 +655,7 @@ The HomeKit Secure Video timeline (see screenshot) has these key elements:
 5. **Date/time** display in center
 6. **Camera selector** dropdown at top
 
-We'll adapt this for Kanyo with:
+We'll adapt this for Kanyō with:
 
 - Colored segments instead of thumbnail strip (simpler)
 - Event type indicators (arrival/departure icons)

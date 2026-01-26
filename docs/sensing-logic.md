@@ -1,6 +1,6 @@
-# Kanyo Sensing Logic
+# Kanyō Sensing Logic
 
-> **This is the single source of truth for Kanyo's detection system.**
+> **This is the single source of truth for Kanyō's detection system.**
 
 ---
 
@@ -285,7 +285,7 @@ clips/
 
 ### Architecture Overview
 
-Kanyo uses a **buffer-based architecture** for clip extraction:
+Kanyō uses a **buffer-based architecture** for clip extraction:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

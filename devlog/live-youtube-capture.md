@@ -161,7 +161,7 @@ ls -lth /tmp/kanyo-buffer/
 # Should see segment_*.mp4 files growing
 ```
 
-## Running with Kanyo
+## Running with Kanyō
 
 ```bash
 # Enable tee mode in config.yaml
@@ -239,7 +239,7 @@ Create `/etc/systemd/system/kanyo.service`:
 
 ```ini
 [Unit]
-Description=Kanyo Falcon Detection
+Description=Kanyō Falcon Detection
 After=network-online.target
 Wants=network-online.target
 

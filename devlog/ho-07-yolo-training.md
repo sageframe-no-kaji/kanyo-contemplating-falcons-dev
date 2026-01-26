@@ -1,4 +1,4 @@
-# Kanyo YOLO Fine-Tuning: Complete Planning Guide
+# Kanyō YOLO Fine-Tuning: Complete Planning Guide
 
 ## Executive Summary
 
@@ -345,7 +345,7 @@ runs/detect/falcon_detector/
 
 ### Step 4: Deploy the Model (15 minutes)
 
-#### 4a. Copy Model to Kanyo
+#### 4a. Copy Model to Kanyō
 
 ```bash
 # Copy the best model to your kanyo models directory

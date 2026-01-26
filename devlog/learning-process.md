@@ -1,4 +1,4 @@
-# The Kanyo Learning Process
+# The Kanyō Learning Process
 
 **A Case Study in Experiential AI-Assisted Learning**
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-This document captures the learning methodology behind Kanyo, a real-time falcon detection system built by someone learning Python through structured, AI-assisted development. The project serves dual purposes: creating a functional wildlife monitoring system while developing deep understanding of software engineering practices.
+This document captures the learning methodology behind Kanyō, a real-time falcon detection system built by someone learning Python through structured, AI-assisted development. The project serves dual purposes: creating a functional wildlife monitoring system while developing deep understanding of software engineering practices.
 
 ---
 
@@ -242,7 +242,7 @@ AI: "You're right! Raise confidence to 0.7 instead."
 - Example: "ffmpeg encoding internals"
 - When needed: Most dependencies and libraries
 
-### Application to Kanyo
+### Application to Kanyō
 
 **Tier 1 (Black box - trust it):**
 - YOLOv8 training process
@@ -421,7 +421,7 @@ pytest tests/ -v            # Verify tests pass
 
 ---
 
-## Specific Learning Insights from Kanyo
+## Specific Learning Insights from Kanyō
 
 ### Insight 1: Debouncing is Everywhere
 
@@ -800,7 +800,7 @@ Human: [reviews code, tests, tunes threshold]
 
 ## Conclusion: A New Model for Technical Learning
 
-The Kanyo process demonstrates that AI-assisted learning can:
+The Kanyō process demonstrates that AI-assisted learning can:
 - **Accelerate skill acquisition** without sacrificing depth
 - **Maintain human agency** in design and decision-making
 - **Focus energy on concepts** rather than syntax
@@ -825,7 +825,7 @@ Together, this creates a **learning system that is greater than the sum of its p
 
 The future of technical education isn't "learn to code without AI" or "let AI code for you." It's **"learn to think in systems and use AI as a force multiplier."**
 
-Kanyo is proving that model works.
+Kanyō is proving that model works.
 
 ---
 

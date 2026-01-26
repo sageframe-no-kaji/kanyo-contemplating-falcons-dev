@@ -1,7 +1,7 @@
 # Ho-05: Deployment Verification & Monitoring
 
 **Duration:** 2-3 hours
-**Goal:** Deploy Kanyo to production environment (Proxmox/DO), verify it works, establish monitoring
+**Goal:** Deploy Kanyō to production environment (Proxmox/DO), verify it works, establish monitoring
 **Deliverable:** System running reliably with monitoring in place, ready for frontend development
 
 ---
@@ -294,9 +294,9 @@ htop
 **Create `/opt/kanyo/monitor.sh`:**
 ```bash
 #!/bin/bash
-# Simple monitoring script for Kanyo
+# Simple monitoring script for Kanyō
 
-echo "=== Kanyo System Status ==="
+echo "=== Kanyō System Status ==="
 echo "Time: $(date)"
 echo
 
@@ -453,7 +453,7 @@ docker compose ps
 
 **Create `/opt/kanyo/BASELINE.md`:**
 ```markdown
-# Kanyo Performance Baseline
+# Kanyō Performance Baseline
 
 **Date:** 2025-12-23
 **Environment:** Proxmox LXC / DigitalOcean $6 droplet

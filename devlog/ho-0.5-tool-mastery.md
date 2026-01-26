@@ -217,7 +217,7 @@ cd kanyo
 git init
 
 # Create a basic README
-echo "# Kanyo (観鷹)" > README.md
+echo "# Kanyō (観鷹)" > README.md
 echo "Contemplating Falcons - Peregrine Detection Project" >> README.md
 ```
 

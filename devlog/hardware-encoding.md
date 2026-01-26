@@ -1,6 +1,6 @@
 # Hardware Video Encoding
 
-Kanyo can use hardware acceleration to encode video clips much faster (and with less CPU usage) than software encoding.
+Kanyō can use hardware acceleration to encode video clips much faster (and with less CPU usage) than software encoding.
 
 ## Quick Start
 
@@ -10,7 +10,7 @@ In `config.yaml`:
 clip_hardware_encoding: true   # Use GPU if available, fallback to software
 ```
 
-That's it! Kanyo auto-detects the best encoder for your system.
+That's it! Kanyō auto-detects the best encoder for your system.
 
 ## Test Your System
 

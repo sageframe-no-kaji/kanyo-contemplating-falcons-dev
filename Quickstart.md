@@ -1,6 +1,6 @@
-# Kanyo Quick Start Guide
+# Kanyō Quick Start Guide
 
-Get Kanyo running and detecting birds in 15 minutes.
+Get Kanyō running and detecting birds in 15 minutes.
 
 ---
 
@@ -51,7 +51,7 @@ mkdir -p clips logs
 | Intel iGPU | `docker/docker-compose.vaapi.yml` | Good performance |
 | CPU only | `docker/docker-compose.cpu.yml` | Works anywhere |
 
-### Step 5: Start Kanyo
+### Step 5: Start Kanyō
 
 ```bash
 # For NVIDIA GPU:
@@ -116,7 +116,7 @@ mkdir -p clips logs
 
 Edit `config.yaml` with your stream URL.
 
-### Step 4: Run Kanyo
+### Step 4: Run Kanyō
 
 ```bash
 python -m kanyo.detection.buffer_monitor config.yaml
@@ -128,7 +128,7 @@ Create `/etc/systemd/system/kanyo.service`:
 
 ```ini
 [Unit]
-Description=Kanyo Falcon Detection
+Description=Kanyō Falcon Detection
 After=network.target
 
 [Service]
@@ -168,7 +168,7 @@ sudo journalctl -u kanyo -f
 2. Make it **Public** with a username (e.g., `@my_falcon_alerts`)
 3. Add your bot as Administrator with **Post Messages** permission
 
-### Configure Kanyo
+### Configure Kanyō
 
 **For Docker:** Create a `.env` file:
 ```bash
@@ -186,7 +186,7 @@ telegram_enabled: true
 telegram_channel: "@my_falcon_alerts"
 ```
 
-Restart Kanyo.
+Restart Kanyō.
 
 ---
 

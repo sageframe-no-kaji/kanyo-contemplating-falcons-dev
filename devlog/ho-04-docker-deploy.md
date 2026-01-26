@@ -1,6 +1,6 @@
 # Ho-04: Docker Deployment & Multi-Stream Management
 
-**Goal:** Deploy Kanyo as a multi-container system with proper data management, running 2+ falcon cam streams simultaneously on your HP ProDesk with ZFS-backed persistence.
+**Goal:** Deploy Kanyō as a multi-container system with proper data management, running 2+ falcon cam streams simultaneously on your HP ProDesk with ZFS-backed persistence.
 
 **Learning Focus:** This is your first Docker deployment. We'll explain every concept and command. By the end, you'll understand containerization deeply through building real infrastructure with professional-grade data governance.
 
@@ -11,7 +11,7 @@
 1. [Prerequisites](#prerequisites)
 2. [Docker Fundamentals](#docker-fundamentals)
 3. [Project Structure](#project-structure)
-4. [Phase 1: Containerize Kanyo](#phase-1-containerize-kanyo)
+4. [Phase 1: Containerize Kanyō](#phase-1-containerize-kanyo)
 5. [Phase 2: Multi-Stream Orchestration](#phase-2-multi-stream-orchestration)
 6. [Phase 3: Deployment (Tier 1 - Quick Start)](#phase-3-deployment-tier-1---quick-start)
 7. [Phase 4: Deployment (Tier 2 - Production/ZFS)](#phase-4-deployment-tier-2---productionzfs)
@@ -27,7 +27,7 @@
 ### What You Need
 
 ✅ **Ho-03 Complete:**
-- Kanyo detection working on Mac
+- Kanyō detection working on Mac
 - Clips being created
 - Notifications working
 - Code in Git
@@ -94,7 +94,7 @@ docker ps
 
 **The Problem Docker Solves:**
 
-You built Kanyo on your Mac:
+You built Kanyō on your Mac:
 - Python 3.11
 - Specific versions of OpenCV, ffmpeg, ultralytics
 - macOS-specific paths and configs
@@ -342,11 +342,11 @@ rpool/sage/kanyo/osprey   267M   366G   267M  /opt/services/kanyo-osprey
 
 ---
 
-## Phase 1: Containerize Kanyo
+## Phase 1: Containerize Kanyō
 
 ### Step 1.1: Create Dockerfile
 
-**What this does:** Defines how to build the Kanyo image (code baked in).
+**What this does:** Defines how to build the Kanyō image (code baked in).
 
 **Create `Dockerfile` in project root:**
 
@@ -2163,7 +2163,7 @@ ls -lh /opt/services/kanyo-harvard/clips/$(date +%Y-%m-%d)/
 - **Docker:** https://docs.docker.com/
 - **docker-compose:** https://docs.docker.com/compose/
 - **ZFS:** https://openzfs.github.io/openzfs-docs/
-- **Kanyo Project:** [Your GitHub repo]
+- **Kanyō Project:** [Your GitHub repo]
 
 ---
 

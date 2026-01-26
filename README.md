@@ -2,11 +2,11 @@
 
 ### _Contemplating Falcons_
 
-An open-source system for monitoring wildlife cameras with computer vision. Kanyo watches live YouTube streams, detects when birds arrive and depart, captures video clips of each visit, and sends real-time notifications.
+An open-source system for monitoring wildlife cameras with computer vision. Kanyō watches live YouTube streams, detects when birds arrive and depart, captures video clips of each visit, and sends real-time notifications.
 
 **Live Demo:** [kanyo.sageframe.net](https://kanyo.sageframe.net)
 
-![Kanyo Viewer](docs/images/viewer-screenshot.png)
+![Kanyō Viewer](docs/images/viewer-screenshot.png)
 
 ---
 
@@ -16,7 +16,7 @@ This project began on a flight to New York in December 2024. I found myself seat
 
 It turns out that someone was me.
 
-What started as a simple notification system grew into a full monitoring platform. The name **Kanyo** (観鷹) combines the Japanese characters for "contemplating" and "falcon"—a nod to both the meditative act of watching these birds and the computational attention the system pays to every frame.
+What started as a simple notification system grew into a full monitoring platform. The name **Kanyō** (観鷹) combines the Japanese characters for "contemplating" and "falcon"—a nod to both the meditative act of watching these birds and the computational attention the system pays to every frame.
 
 ---
 
@@ -30,11 +30,11 @@ What started as a simple notification system grew into a full monitoring platfor
 
 ## How It Works
 
-Kanyo watches YouTube live streams and uses computer vision to detect when birds
+Kanyō watches YouTube live streams and uses computer vision to detect when birds
 appear. When it sees a bird, it waits 10 seconds to make sure it's really there
 (not just a shadow or glitch), then sends you a notification with a photo.
 
-While the bird is visiting, Kanyo records video. When the bird leaves (gone for
+While the bird is visiting, Kanyō records video. When the bird leaves (gone for
 at least 90 seconds), it sends another notification and saves clips of the
 arrival and departure.
 
@@ -42,7 +42,7 @@ All the clips are organized by date and viewable through a simple web interface.
 
 ### The Detection Problem
 
-Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED... DETECTED..." — generating hundreds of false events when a bird simply moves within the frame. Kanyo uses a state machine with configurable timeouts to produce clean, meaningful events:
+Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED... DETECTED..." — generating hundreds of false events when a bird simply moves within the frame. Kanyō uses a state machine with configurable timeouts to produce clean, meaningful events:
 
 ```
 10:00:01 | 🦅 ARRIVED
@@ -56,7 +56,7 @@ One arrival. One departure. Three hours of presence tracked correctly.
 
 ## Project Structure
 
-Kanyo is split across two repositories:
+Kanyō is split across two repositories:
 
 | Repository                                                                                              | Purpose                                         |
 | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
@@ -141,7 +141,7 @@ The project has 114 passing tests covering the detection logic, state machine, a
 
 ## Status
 
-Kanyo is in active use, monitoring falcon cams and sending thousands of notifications. The core detection system is stable; the viewer and admin interfaces continue to evolve.
+Kanyō is in active use, monitoring falcon cams and sending thousands of notifications. The core detection system is stable; the viewer and admin interfaces continue to evolve.
 
 **Current capabilities:**
 

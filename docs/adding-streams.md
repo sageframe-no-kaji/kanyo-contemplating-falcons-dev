@@ -1,6 +1,6 @@
-# Adding Streams to Kanyo
+# Adding Streams to Kanyō
 
-This guide covers deploying new camera streams to the Kanyo monitoring system.
+This guide covers deploying new camera streams to the Kanyō monitoring system.
 
 ---
 
@@ -21,7 +21,7 @@ You can add streams to just detection (headless monitoring), or all three layers
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Access to the server running Kanyo
+- Access to the server running Kanyō
 - A YouTube live stream URL
 - (Optional) Telegram bot token for notifications
 - (Optional) NVIDIA GPU for faster detection
@@ -109,13 +109,13 @@ If you want notifications when birds arrive/depart:
 
 1. **Create a Channel**
    - Open Telegram → Menu → New Channel
-   - Name: "Kanyo STREAMID Alerts" (or whatever you want)
+   - Name: "Kanyō STREAMID Alerts" (or whatever you want)
    - Type: **Public**
    - Username: `kanyo_STREAMID`
 
 2. **Add Your Bot as Admin**
    - Go to channel settings → Administrators → Add Administrator
-   - Search for your Kanyo bot (e.g., "Kanyo Falcon Alert Bot")
+   - Search for your Kanyō bot (e.g., "Kanyō Falcon Alert Bot")
    - Enable "Post Messages" permission
    - Save
 

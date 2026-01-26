@@ -200,7 +200,7 @@ touch data/.gitkeep models/.gitkeep
 **In `src/kanyo/__init__.py`:**
 ```python
 """
-Kanyo (観鷹) - Contemplating Falcons
+Kanyō (観鷹) - Contemplating Falcons
 
 Automated detection and timeline generation for peregrine falcon live streams.
 """
@@ -389,7 +389,7 @@ Keep it simple - under 80 lines with comments.
 
 **Create `config.yaml`:**
 ```yaml
-# Kanyo Configuration
+# Kanyō Configuration
 
 # Video Source
 video:
@@ -711,7 +711,7 @@ git push
 
 **In `docs/architecture.md`:**
 ```markdown
-# Kanyo Architecture
+# Kanyō Architecture
 
 ## System Overview
 
@@ -790,7 +790,7 @@ pytest --cov                    # With coverage
 
 **In `docs/data-model.md`:**
 ```markdown
-# Kanyo Data Model
+# Kanyō Data Model
 
 ## Detection Event
 
@@ -853,7 +853,7 @@ See `config.yaml` - all settings documented inline.
 ### Update Main README
 
 **Edit `README.md` to be comprehensive:**
-# Kanyo (観鷹)
+# Kanyō (観鷹)
 **Contemplating Falcons**
 
 Automated detection and timeline generation for the Memorial Hall Peregrine Falcon cam at Harvard.
