@@ -802,6 +802,14 @@ def main():
         # Configure notifications
         monitor.event_handler.notifications = NotificationManager(config)
 
+        # Set up admin alerts for stream connection issues (separate from public notifications)
+        if monitor.event_handler.notifications:
+
+            def send_connection_alert(message: str):
+                monitor.event_handler.notifications.send_system_alert(message)
+
+            monitor.capture.on_connection_issue = send_connection_alert
+
         monitor.run()
 
     except KeyboardInterrupt:

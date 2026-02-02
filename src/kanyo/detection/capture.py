@@ -10,7 +10,7 @@ from __future__ import annotations
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Callable, Iterator
 
 import cv2
 import numpy as np
@@ -49,6 +49,7 @@ class StreamCapture:
         max_height: int = 720,
         reconnect_delay: float = 5.0,
         use_tee: bool = False,  # Deprecated, kept for compatibility
+        on_connection_issue: Callable[[str], None] | None = None,
     ):
         """
         Initialize stream capture.
@@ -58,14 +59,17 @@ class StreamCapture:
             max_height: Max resolution for YouTube streams
             reconnect_delay: Seconds to wait before reconnecting
             use_tee: DEPRECATED - ignored, kept for API compatibility
+            on_connection_issue: Optional callback for admin notifications on connection issues
         """
         self.stream_url = stream_url
         self.max_height = max_height
         self.reconnect_delay = reconnect_delay
+        self.on_connection_issue = on_connection_issue
         self._cap: cv2.VideoCapture | None = None
         self._frame_count = 0
         self._ytdlp_fallback_used = False
         self.ytdlp_opts: dict = {}
+        self._last_admin_notification_time: float = 0
 
         if use_tee:
             logger.warning("use_tee is deprecated - buffer mode is now default")
@@ -199,19 +203,65 @@ class StreamCapture:
             skip: Process every Nth frame (0 = all frames)
 
         Yields Frame objects. Handles reconnection automatically.
+        Never gives up - retries indefinitely with exponential backoff.
         """
         if not self.connect():
             raise RuntimeError("Failed to connect to stream")
+
+        consecutive_failures = 0
+        max_backoff = 300  # 5 minutes
 
         try:
             while True:
                 frame = self.read_frame()
 
                 if frame is None:
-                    if not self.reconnect():
-                        logger.error("Reconnection failed, stopping")
-                        break
+                    consecutive_failures += 1
+
+                    # Exponential backoff: 5s, 10s, 20s, 40s, ... up to 5 minutes
+                    backoff = min(
+                        self.reconnect_delay * (2 ** min(consecutive_failures - 1, 6)), max_backoff
+                    )
+
+                    if consecutive_failures == 1:
+                        logger.warning(
+                            f"Connection lost, attempting reconnect in {backoff:.0f}s..."
+                        )
+                        # Send admin alert on first failure (throttled to once per hour)
+                        if (
+                            self.on_connection_issue
+                            and (time.time() - self._last_admin_notification_time) > 3600
+                        ):
+                            self.on_connection_issue(f"Stream connection lost: {self.stream_url}")
+                            self._last_admin_notification_time = time.time()
+                    elif consecutive_failures % 12 == 0:  # Log every ~hour at max backoff
+                        logger.error(
+                            f"Still unable to reconnect after {consecutive_failures} "
+                            f"attempts (waiting {backoff:.0f}s)..."
+                        )
+                        # Send periodic admin alert
+                        if self.on_connection_issue:
+                            self.on_connection_issue(
+                                f"Still unable to reconnect after {consecutive_failures} attempts"
+                            )
+
+                    time.sleep(backoff)
+
+                    if not self.connect():
+                        continue  # Keep trying indefinitely
+
+                    logger.info("✅ Reconnected successfully!")
+                    # Send recovery notification
+                    if self.on_connection_issue and consecutive_failures > 1:
+                        self.on_connection_issue(
+                            f"Stream reconnected after {consecutive_failures} attempts"
+                        )
+                    consecutive_failures = 0
                     continue
+
+                # Reset failure counter on successful frame
+                if consecutive_failures > 0:
+                    consecutive_failures = 0
 
                 # Skip frames if requested
                 if skip > 0 and frame.frame_number % skip != 0:

@@ -210,6 +210,18 @@ class NotificationManager:
             self._send_admin_error(f"Telegram error: {e}")
             return False
 
+    def send_system_alert(self, message: str, title: str = "Kanyo System Alert") -> None:
+        """
+        Send system/admin alert to ntfy admin topic (NOT to public Telegram).
+
+        Use this for connection issues, errors, or other admin-only notifications.
+
+        Args:
+            message: Alert message text
+            title: Notification title
+        """
+        self._send_admin_notification(message, title)
+
     def _send_admin_error(self, message: str) -> None:
         """
         Send error notification to ntfy admin topic (text only).
@@ -217,22 +229,32 @@ class NotificationManager:
         Args:
             message: Error message text
         """
+        self._send_admin_notification(message, "Kanyo Error")
+
+    def _send_admin_notification(self, message: str, title: str) -> None:
+        """
+        Internal method to send notifications to ntfy admin topic.
+
+        Args:
+            message: Notification message text
+            title: Notification title
+        """
         if not self.ntfy_admin_enabled or not self.ntfy_admin_topic:
             return
 
         try:
             url = f"https://ntfy.sh/{self.ntfy_admin_topic}"
             headers = {
-                "Title": "Kanyo Error",  # Removed emoji to avoid encoding issues
+                "Title": title,
                 "Content-Type": "text/plain; charset=utf-8",
             }
             data = message.encode("utf-8")
             resp = requests.post(url, data=data, headers=headers, timeout=5)
 
             if resp.status_code >= 200 and resp.status_code < 300:
-                logger.debug(f"🔧 Admin error sent to ntfy: {message}")
+                logger.debug(f"🔧 Admin notification sent to ntfy: {message}")
             else:
-                logger.warning(f"⚠️  Failed to send admin error to ntfy: {resp.status_code}")
+                logger.warning(f"⚠️  Failed to send admin notification to ntfy: {resp.status_code}")
 
         except Exception as e:
-            logger.warning(f"⚠️  Could not send admin error to ntfy: {e}")
+            logger.warning(f"⚠️  Could not send admin notification to ntfy: {e}")

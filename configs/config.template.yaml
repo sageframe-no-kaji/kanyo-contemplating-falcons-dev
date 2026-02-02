@@ -49,6 +49,11 @@ telegram_enabled: false
 telegram_channel: ""
 notification_cooldown_minutes: 5
 
+# Admin Error Notifications (separate from public Telegram)
+# Get free push notifications at https://ntfy.sh
+ntfy_admin_enabled: false           # Enable admin-only system alerts
+ntfy_topic: "kanyo_admin_errors"    # ntfy.sh topic for connection failures, errors, etc.
+
 # Display Metadata (for public viewer site)
 display:
   short_name: "My Cam"                    # Brief name for stream cards

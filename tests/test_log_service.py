@@ -315,7 +315,8 @@ class TestShowContext:
                 show_context=True,
             )
 
-            # Should include EVENT + 5 DEBUG before + 5 DEBUG after + INFO (non-DEBUG always included)
+            # Should include EVENT + 5 DEBUG before + 5 DEBUG after
+            # + INFO (non-DEBUG always included)
             # = 1 EVENT + 3 DEBUG before + 3 DEBUG after + 1 INFO = 8 lines
             assert len(logs) == 8
 
