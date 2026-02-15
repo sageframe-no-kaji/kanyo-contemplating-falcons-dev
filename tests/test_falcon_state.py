@@ -498,3 +498,184 @@ class TestOutageCompensation:
         assert fsm.state == FalconState.ABSENT
         assert len(events) == 1
         assert events[0][0] == FalconEvent.DEPARTED
+
+
+class TestStreamRecovery:
+    """Test stream recovery confirmation flow."""
+
+    def test_set_pending_recovery_from_visiting(self):
+        """Setting PENDING_RECOVERY preserves visit context."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Arrive and visit
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+        assert fsm.state == FalconState.VISITING
+        assert fsm.visit_start == t0
+
+        # Stream outage - set pending recovery
+        t1 = t0 + timedelta(seconds=30)
+        fsm.set_pending_recovery(t1)
+
+        assert fsm.state == FalconState.PENDING_RECOVERY
+        assert fsm.pre_outage_state == FalconState.VISITING
+        assert fsm.visit_start == t0  # Visit start preserved
+
+    def test_set_pending_recovery_from_roosting(self):
+        """Setting PENDING_RECOVERY from ROOSTING preserves roosting context."""
+        config = {"exit_timeout": 90, "roosting_threshold": 60}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Arrive and transition to roosting
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+
+        # Transition to roosting
+        t1 = t0 + timedelta(seconds=61)
+        fsm.update(falcon_detected=True, timestamp=t1)
+        assert fsm.state == FalconState.ROOSTING
+        roosting_start = fsm.roosting_start
+
+        # Stream outage - set pending recovery
+        t2 = t0 + timedelta(seconds=90)
+        fsm.set_pending_recovery(t2)
+
+        assert fsm.state == FalconState.PENDING_RECOVERY
+        assert fsm.pre_outage_state == FalconState.ROOSTING
+        assert fsm.pre_outage_roosting_start == roosting_start
+
+    def test_confirm_recovery_restores_visiting(self):
+        """Confirming recovery restores VISITING state."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Setup: visiting - outage - pending recovery
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+        t1 = t0 + timedelta(seconds=30)
+        fsm.set_pending_recovery(t1)
+
+        # Confirm recovery
+        t2 = t0 + timedelta(seconds=40)
+        fsm.confirm_recovery_presence(t2)
+
+        assert fsm.state == FalconState.VISITING
+        assert fsm.pre_outage_state is None
+        assert fsm.last_detection == t2
+
+    def test_confirm_recovery_restores_roosting(self):
+        """Confirming recovery restores ROOSTING state with roosting_start."""
+        config = {"exit_timeout": 90, "roosting_threshold": 60}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Setup: roosting - outage - pending recovery
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+        t1 = t0 + timedelta(seconds=61)
+        fsm.update(falcon_detected=True, timestamp=t1)
+        original_roosting_start = fsm.roosting_start
+
+        t2 = t0 + timedelta(seconds=90)
+        fsm.set_pending_recovery(t2)
+
+        # Confirm recovery
+        t3 = t0 + timedelta(seconds=100)
+        fsm.confirm_recovery_presence(t3)
+
+        assert fsm.state == FalconState.ROOSTING
+        assert fsm.roosting_start == original_roosting_start
+        assert fsm.pre_outage_state is None
+
+    def test_cancel_recovery_generates_departure(self):
+        """Canceling recovery generates DEPARTED event with correct timing."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Setup: visiting with last detection
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+
+        # Update detection time
+        t1 = t0 + timedelta(seconds=30)
+        fsm.update(falcon_detected=True, timestamp=t1)
+
+        # Stream outage - set pending recovery
+        t2 = t0 + timedelta(seconds=40)
+        fsm.set_pending_recovery(t2)
+
+        # Cancel recovery - bird left
+        t3 = t0 + timedelta(seconds=50)
+        events = fsm.cancel_recovery(t3)
+
+        assert fsm.state == FalconState.ABSENT
+        assert len(events) == 1
+        event_type, event_time, metadata = events[0]
+        assert event_type == FalconEvent.DEPARTED
+        assert event_time == t1  # Last detection time, not current time
+        assert metadata["visit_start"] == t0
+        assert metadata["visit_end"] == t1
+        assert metadata.get("departed_during_outage") is True
+
+    def test_is_falcon_present(self):
+        """is_falcon_present returns True for presence states."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # ABSENT - not present
+        assert not fsm.is_falcon_present()
+
+        # VISITING - present
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+        assert fsm.is_falcon_present()
+
+        # PENDING_RECOVERY - present
+        fsm.set_pending_recovery(t0)
+        assert fsm.is_falcon_present()
+
+    def test_detection_during_recovery_updates_last_detection(self):
+        """Detection during PENDING_RECOVERY updates last_detection time."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Setup: visiting - outage - pending recovery
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+        t1 = t0 + timedelta(seconds=30)
+        fsm.set_pending_recovery(t1)
+
+        # Detection during recovery confirmation
+        t2 = t0 + timedelta(seconds=35)
+        events = fsm.update(falcon_detected=True, timestamp=t2)
+
+        assert fsm.state == FalconState.PENDING_RECOVERY
+        assert fsm.last_detection == t2
+        assert len(events) == 0  # No events generated during confirmation
+
+    def test_absence_during_recovery_handled(self):
+        """Absence during PENDING_RECOVERY is handled gracefully."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        # Setup: visiting - outage - pending recovery
+        fsm.initialize_state(falcon_detected=False, timestamp=t0)
+        fsm.update(falcon_detected=True, timestamp=t0)
+        t1 = t0 + timedelta(seconds=30)
+        fsm.set_pending_recovery(t1)
+
+        # No detection (absence) during recovery confirmation
+        t2 = t0 + timedelta(seconds=35)
+        events = fsm.update(falcon_detected=False, timestamp=t2)
+
+        # Should stay in PENDING_RECOVERY - buffer_monitor handles confirmation
+        assert fsm.state == FalconState.PENDING_RECOVERY
+        assert len(events) == 0

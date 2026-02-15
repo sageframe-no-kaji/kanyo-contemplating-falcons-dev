@@ -24,12 +24,17 @@ class FalconStateMachine:
     - ABSENT: No falcon detected
     - VISITING: Falcon present (< roosting threshold)
     - ROOSTING: Long-term presence (> roosting threshold, notification only)
+    - PENDING_STARTUP: Confirming falcon presence at startup
+    - PENDING_RECOVERY: Confirming falcon presence after stream recovery
 
     State Transitions:
     - ABSENT → VISITING: Detection after absence (Event: ARRIVED)
     - VISITING → ROOSTING: Continuous presence > threshold (Event: ROOSTING)
     - VISITING → ABSENT: No detection > exit_timeout (Event: DEPARTED)
     - ROOSTING → ABSENT: No detection > exit_timeout (Event: DEPARTED)
+    - VISITING/ROOSTING → PENDING_RECOVERY: Stream recovered after outage
+    - PENDING_RECOVERY → VISITING/ROOSTING: Falcon confirmed still present
+    - PENDING_RECOVERY → ABSENT: Falcon left during outage (Event: DEPARTED)
     """
 
     def __init__(self, config: dict):
@@ -55,6 +60,10 @@ class FalconStateMachine:
         self.last_absence_start: datetime | None = None
         self.roosting_start: datetime | None = None
         self.cumulative_outage = 0.0  # Track total outage time during absence
+
+        # Recovery state tracking - remember state before stream outage
+        self.pre_outage_state: FalconState | None = None
+        self.pre_outage_roosting_start: datetime | None = None
 
     def update(
         self, falcon_detected: bool, timestamp: datetime
@@ -82,6 +91,19 @@ class FalconStateMachine:
         """Add stream outage time. This time won't count toward absence duration."""
         self.cumulative_outage += seconds
 
+    def is_falcon_present(self) -> bool:
+        """Check if falcon is currently present (in a state where recovery is relevant).
+
+        Returns:
+            True if in VISITING, ROOSTING, or any confirmation state
+        """
+        return self.state in (
+            FalconState.VISITING,
+            FalconState.ROOSTING,
+            FalconState.PENDING_STARTUP,
+            FalconState.PENDING_RECOVERY,
+        )
+
     def _handle_detection(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
         """Handle falcon detection based on current state."""
         events = []
@@ -99,6 +121,12 @@ class FalconStateMachine:
 
         elif self.state == FalconState.PENDING_STARTUP:
             # PENDING_STARTUP: Just update detection time
+            # Confirmation is handled by buffer_monitor based on detection ratio
+            self.last_detection = timestamp
+            self.last_absence_start = None
+
+        elif self.state == FalconState.PENDING_RECOVERY:
+            # PENDING_RECOVERY: Just update detection time
             # Confirmation is handled by buffer_monitor based on detection ratio
             self.last_detection = timestamp
             self.last_absence_start = None
@@ -150,6 +178,11 @@ class FalconStateMachine:
 
         if self.state == FalconState.PENDING_STARTUP:
             # PENDING_STARTUP with absence: Falcon wasn't really there
+            # Let buffer_monitor handle confirmation failure based on ratio
+            pass
+
+        elif self.state == FalconState.PENDING_RECOVERY:
+            # PENDING_RECOVERY with absence: Falcon may have left during outage
             # Let buffer_monitor handle confirmation failure based on ratio
             pass
 
@@ -226,6 +259,9 @@ class FalconStateMachine:
         self.last_absence_start = None
         self.roosting_start = None
         self.cumulative_outage = 0.0
+        # Reset recovery state
+        self.pre_outage_state = None
+        self.pre_outage_roosting_start = None
 
     def reset_to_absent(self) -> None:
         """Force reset to ABSENT state (used when arrival confirmation fails)."""
@@ -269,6 +305,108 @@ class FalconStateMachine:
         if not self.visit_start:
             self.visit_start = timestamp
         logger.info("✅ STARTUP PRESENCE CONFIRMED - now ROOSTING (no notification)")
+
+    def set_pending_recovery(self, timestamp: datetime) -> None:
+        """
+        Set state to PENDING_RECOVERY after stream reconnection.
+
+        Called when stream recovers after an outage while falcon was present.
+        Preserves visit context for proper clip creation if falcon departed during outage.
+
+        Args:
+            timestamp: When stream reconnected
+        """
+        # Remember the state we were in before the outage
+        if self.state in (FalconState.VISITING, FalconState.ROOSTING):
+            self.pre_outage_state = self.state
+            self.pre_outage_roosting_start = self.roosting_start
+        else:
+            self.pre_outage_state = FalconState.VISITING
+            self.pre_outage_roosting_start = None
+
+        self.state = FalconState.PENDING_RECOVERY
+        self.last_absence_start = None
+        logger.info(
+            f"🔄 Set to PENDING_RECOVERY (was {self.pre_outage_state.value}) - "
+            "awaiting confirmation..."
+        )
+
+    def confirm_recovery_presence(self, timestamp: datetime) -> None:
+        """
+        Confirm falcon still present after stream recovery.
+
+        Transitions from PENDING_RECOVERY back to previous state.
+        No notification is sent - falcon never actually left.
+
+        Args:
+            timestamp: Confirmation time
+        """
+        if self.state != FalconState.PENDING_RECOVERY:
+            logger.warning(f"confirm_recovery_presence called in {self.state} state, ignoring")
+            return
+
+        # Restore to previous state
+        if self.pre_outage_state == FalconState.ROOSTING:
+            self.state = FalconState.ROOSTING
+            self.roosting_start = self.pre_outage_roosting_start
+        else:
+            self.state = FalconState.VISITING
+
+        self.last_detection = timestamp
+        self.last_absence_start = None
+        self.pre_outage_state = None
+        self.pre_outage_roosting_start = None
+        logger.info(f"✅ RECOVERY CONFIRMED - falcon still present, resuming {self.state.value}")
+
+    def cancel_recovery(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
+        """
+        Cancel recovery - falcon left during the stream outage.
+
+        Generates DEPARTED event with proper timing using last_detection before outage.
+
+        Args:
+            timestamp: Current time (not used for event timestamp)
+
+        Returns:
+            List containing DEPARTED event with proper metadata
+        """
+        if self.state != FalconState.PENDING_RECOVERY:
+            logger.warning(f"cancel_recovery called in {self.state} state, ignoring")
+            return []
+
+        # Generate departure event with last_detection (from before outage)
+        total_duration = (
+            (self.last_detection - self.visit_start).total_seconds()
+            if self.visit_start and self.last_detection
+            else 0
+        )
+        roosting_duration = (
+            (self.last_detection - self.pre_outage_roosting_start).total_seconds()
+            if self.pre_outage_roosting_start and self.last_detection
+            else 0
+        )
+
+        events = [
+            (
+                FalconEvent.DEPARTED,
+                self.last_detection,  # Use last detection time, not current time
+                {
+                    "visit_start": self.visit_start,
+                    "visit_end": self.last_detection,
+                    "visit_duration_seconds": total_duration,
+                    "roosting_duration": roosting_duration,
+                    "departed_during_outage": True,
+                },
+            )
+        ]
+
+        logger.info(
+            f"⚠️ RECOVERY CANCELLED - falcon left during outage "
+            f"(last seen: {self.last_detection})"
+        )
+
+        self._reset_state()
+        return events
 
     def initialize_state(self, falcon_detected: bool, timestamp: datetime) -> FalconState:
         """

@@ -61,6 +61,7 @@ class VisitRecorder:
         crf: int = 23,
         lead_in_seconds: int = 15,
         lead_out_seconds: int = 15,
+        stream_recovery_threshold: int = 30,
     ):
         """
         Initialize visit recorder.
@@ -71,6 +72,7 @@ class VisitRecorder:
             crf: Encoding quality (lower = better)
             lead_in_seconds: Seconds before arrival to include
             lead_out_seconds: Seconds after departure to include
+            stream_recovery_threshold: Max seconds of stream outage to tolerate
         """
         self.clips_dir = Path(clips_dir)
         self.fps = fps
@@ -94,7 +96,8 @@ class VisitRecorder:
         # Freeze frame handling for stream outages
         self._last_good_frame: np.ndarray | None = None
         self._consecutive_none_frames: int = 0
-        self._max_none_frames: int = 150  # 5s at 30fps - stop recording if exceeded
+        # Max frames to wait during outage - matches stream_recovery_threshold
+        self._max_none_frames: int = stream_recovery_threshold * fps
 
         # Get encoder
         self._encoder = detect_hardware_encoder()

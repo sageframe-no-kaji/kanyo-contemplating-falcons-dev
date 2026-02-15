@@ -142,7 +142,7 @@ FalconDetector runs YOLOv8 inference on each frame to detect birds/animals.
 
 The FalconStateMachine is the brain of the system. It tracks falcon presence over time and determines when meaningful events occur—eliminating the noise of raw frame-by-frame detections.
 
-### The Four States
+### The Five States
 
 ```
                       INITIALIZATION
@@ -156,8 +156,18 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
                  │      │         │                       │
                  ▼      ▼         ▼                       │
              ROOSTING ABSENT   VISITING ──(30 min)──► ROOSTING
-                                  │                       │
-                                  └───────(90s gone)──────┘
+                  ▲              │  ▲                     │  ▲
+                  │              │  │                     │  │
+                  └──────────────┼──│──(stream outage)────┼──┘
+                                 │  │                     │
+                                 ▼  │                     │
+                         PENDING_RECOVERY ────────────────┘
+                              (confirm?)
+                         │            │
+                 bird present?    bird gone?
+                         │            │
+                         ▼            ▼
+                      Resume      DEPARTED
 ```
 
 | State | Description | Exit Condition |
@@ -166,6 +176,7 @@ The FalconStateMachine is the brain of the system. It tracks falcon presence ove
 | **PENDING_STARTUP** | Falcon detected on startup, confirming | Confirmed → ROOSTING, Failed → ABSENT |
 | **VISITING** | Falcon present < 30 min | Gone 90s → DEPARTED, or stays 30 min → ROOSTING |
 | **ROOSTING** | Falcon present > 30 min | Gone 90s → DEPARTED |
+| **PENDING_RECOVERY** | Checking if falcon still present after stream outage | Confirmed → resume previous, Failed → DEPARTED |
 
 **Key insight**: ROOSTING uses the same exit timeout as VISITING. It exists only to trigger a "settled in" notification.
 
@@ -225,14 +236,37 @@ If the bird disappears for 50 seconds then reappears, the counter **resets to ze
 
 ### Stream Outage Handling
 
-When the YouTube stream drops:
+When the YouTube stream drops, the system now handles it gracefully to prevent broken clips:
 
-1. **Brief outages (<5 seconds)**: Use "freeze frame" — repeat last good frame to maintain video continuity
-2. **Extended outages (>5 seconds)**:
-   - Stop recordings (prevents corrupted video)
-   - Track cumulative outage time (doesn't count toward absence duration)
-   - Reset state to ABSENT
-   - When stream resumes with detection, go through normal confirmation flow
+#### Short Outages (≤ stream_recovery_threshold)
+
+For outages up to 30 seconds (configurable):
+
+1. **Recording continues** using "freeze frame" — repeating the last good frame
+2. **State machine enters `PENDING_RECOVERY`** — remembering previous state (VISITING/ROOSTING)
+3. **Recovery confirmation begins** when stream resumes:
+   - Similar to arrival confirmation: monitor detection ratio over confirmation window
+   - If bird still present (≥30% detection ratio): resume previous state, no departure triggered
+   - If bird gone (<30% detection ratio): generate DEPARTED event with proper clip timing
+
+```
+Bird present → Stream drops 20s → Stream resumes
+            → Enter PENDING_RECOVERY
+            → Check if bird still there (10s confirmation)
+            → Bird present? Resume VISITING, no notification
+            → Bird gone? DEPARTED with correct last_detection time
+```
+
+**Key benefit**: No broken clips or false notifications on brief stream hiccups.
+
+#### Extended Outages (> stream_recovery_threshold)
+
+For outages longer than the threshold (default 30s):
+
+1. **Stop recordings** (prevents excessively long freeze frames)
+2. **Track cumulative outage time** (doesn't count toward absence duration)
+3. **Reset state to ABSENT** when outage threshold exceeded
+4. When stream resumes with detection, go through normal startup confirmation flow
 
 ### Configuration
 
@@ -242,6 +276,8 @@ When the YouTube stream drops:
 | `roosting_threshold` | 1800 | Seconds (30 min) before ROOSTING notification |
 | `arrival_confirmation_seconds` | 10 | Confirmation window duration |
 | `arrival_confirmation_ratio` | 0.3 | Required detection ratio to confirm (30%) |
+| `stream_recovery_threshold` | 30 | Max outage seconds to attempt recovery |
+| `stream_recovery_confirmation` | 10 | Seconds to confirm bird still present after recovery |
 | `notify_on_startup` | false | Send notification if falcon present on startup |
 
 ---

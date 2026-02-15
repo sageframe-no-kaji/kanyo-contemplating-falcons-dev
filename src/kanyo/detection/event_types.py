@@ -23,3 +23,4 @@ class FalconState(Enum):
     VISITING = "visiting"
     ROOSTING = "roosting"  # Same timeout as VISITING, just for notification
     PENDING_STARTUP = "pending_startup"  # Confirming falcon presence at startup/recovery
+    PENDING_RECOVERY = "pending_recovery"  # Confirming falcon presence after stream recovery

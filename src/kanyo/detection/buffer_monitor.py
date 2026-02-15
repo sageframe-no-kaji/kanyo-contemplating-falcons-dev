@@ -82,6 +82,9 @@ class BufferMonitor:
         clips_dir: str = "clips",
         # State machine settings
         roosting_threshold: int = 1800,
+        # Stream recovery settings
+        stream_recovery_threshold: int = 30,
+        stream_recovery_confirmation: int = 10,
         # Notification settings
         notify_on_startup: bool = True,
         record_arrival_on_startup: bool = False,
@@ -99,6 +102,10 @@ class BufferMonitor:
         self.clips_dir = clips_dir
         self.max_runtime_seconds = max_runtime_seconds
         self.full_config = full_config or {}
+
+        # Stream recovery config
+        self.stream_recovery_threshold = stream_recovery_threshold
+        self.stream_recovery_confirmation = stream_recovery_confirmation
 
         # Stream capture (NO tee mode)
         self.capture = StreamCapture(
@@ -127,6 +134,7 @@ class BufferMonitor:
             crf=clip_crf,
             lead_in_seconds=clip_arrival_before,
             lead_out_seconds=clip_departure_after,
+            stream_recovery_threshold=stream_recovery_threshold,
         )
 
         # Clip manager using buffer approach
@@ -180,6 +188,12 @@ class BufferMonitor:
         self.startup_pending_start: datetime | None = None
         self.startup_detection_count = 0
         self.startup_frame_count = 0
+
+        # Stream recovery confirmation state (check if bird still there after outage)
+        self.recovery_pending = False
+        self.recovery_pending_start: datetime | None = None
+        self.recovery_detection_count = 0
+        self.recovery_frame_count = 0
 
         # Load arrival confirmation config
         self.arrival_confirmation_seconds = (
@@ -265,6 +279,23 @@ class BufferMonitor:
                     else:
                         # FAILURE
                         self._cancel_arrival(ratio)
+
+            # Recovery confirmation logic (after stream outage)
+            if self.recovery_pending and self.recovery_pending_start is not None:
+                self.recovery_frame_count += 1
+                if falcon_detected:
+                    self.recovery_detection_count += 1
+
+                elapsed = (now - self.recovery_pending_start).total_seconds()
+                if elapsed >= self.stream_recovery_confirmation:
+                    ratio = self.recovery_detection_count / max(self.recovery_frame_count, 1)
+
+                    if ratio >= self.arrival_confirmation_ratio:
+                        # SUCCESS - bird still present
+                        self._confirm_recovery()
+                    else:
+                        # FAILURE - bird left during outage
+                        self._cancel_recovery(ratio)
 
             # Debug logging for detection tracking
             if falcon_detected:
@@ -419,7 +450,7 @@ class BufferMonitor:
         )
 
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
-        now = datetime.now()
+        now = get_now_tz(self.full_config)
         self.arrival_clip_recorder.stop_recording(now)
         self.visit_recorder.stop_recording(now)  # Ignore return value
 
@@ -479,7 +510,7 @@ class BufferMonitor:
         )
 
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
-        now = datetime.now()
+        now = get_now_tz(self.full_config)
         self.arrival_clip_recorder.stop_recording(now)
         self.visit_recorder.stop_recording(now)
 
@@ -489,8 +520,56 @@ class BufferMonitor:
         # Reset pending state
         self._reset_pending_states()
 
+    def _confirm_recovery(self) -> None:
+        """Confirm falcon still present after stream recovery.
+
+        Transitions from PENDING_RECOVERY back to previous state (VISITING/ROOSTING).
+        No notification - falcon never actually left.
+        """
+        ratio = self.recovery_detection_count / max(self.recovery_frame_count, 1)
+        logger.event(
+            f"✅ RECOVERY CONFIRMED - falcon still present, ratio: {ratio:.1%} "
+            f"({self.recovery_detection_count}/{self.recovery_frame_count} frames)"
+        )
+
+        # Confirm recovery in state machine (restores previous state)
+        now = get_now_tz(self.full_config)
+        self.state_machine.confirm_recovery_presence(now)
+
+        # Reset recovery pending state only
+        self.recovery_pending = False
+        self.recovery_pending_start = None
+        self.recovery_detection_count = 0
+        self.recovery_frame_count = 0
+
+    def _cancel_recovery(self, ratio: float) -> None:
+        """Cancel recovery - falcon left during the stream outage.
+
+        Generates DEPARTED event with proper clip timing.
+        """
+        logger.warning(
+            f"⚠️  RECOVERY CANCELLED - falcon left during outage, ratio: {ratio:.1%} "
+            f"({self.recovery_detection_count}/{self.recovery_frame_count} frames, "
+            f"threshold: {self.arrival_confirmation_ratio:.1%})"
+        )
+
+        # Get departure events from state machine (uses last_detection from before outage)
+        now = get_now_tz(self.full_config)
+        events = self.state_machine.cancel_recovery(now)
+
+        # Handle deparure event (create clips, notify, etc.)
+        for event_type, event_time, metadata in events:
+            self.event_handler.handle_event(event_type, event_time, metadata)
+            self._handle_event(event_type, event_time, metadata)
+
+        # Reset recovery pending state
+        self.recovery_pending = False
+        self.recovery_pending_start = None
+        self.recovery_detection_count = 0
+        self.recovery_frame_count = 0
+
     def _reset_pending_states(self) -> None:
-        """Reset all pending confirmation states (startup and arrival)."""
+        """Reset all pending confirmation states (startup, arrival, and recovery)."""
         self.startup_pending = False
         self.startup_pending_start = None
         self.startup_detection_count = 0
@@ -500,6 +579,11 @@ class BufferMonitor:
         self.arrival_pending_start = None
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
+
+        self.recovery_pending = False
+        self.recovery_pending_start = None
+        self.recovery_detection_count = 0
+        self.recovery_frame_count = 0
 
     def run(self) -> None:
         """Main monitoring loop."""
@@ -549,6 +633,26 @@ class BufferMonitor:
                     outage_duration = time_since_last_frame
                     self.state_machine.add_outage(outage_duration)
                     logger.info(f"⚠️  Stream outage detected: {outage_duration:.1f}s")
+
+                    # Check if bird was present before outage and outage is recoverable
+                    if (
+                        self.state_machine.is_falcon_present()
+                        and outage_duration <= self.stream_recovery_threshold
+                        and self.visit_recorder.is_recording
+                    ):
+                        # Short outage - start recovery confirmation
+                        now = get_now_tz(self.full_config)
+                        self.state_machine.set_pending_recovery(now)
+
+                        self.recovery_pending = True
+                        self.recovery_pending_start = now
+                        self.recovery_detection_count = 0
+                        self.recovery_frame_count = 0
+
+                        logger.info(
+                            f"🔄 Starting recovery confirmation "
+                            f"({self.stream_recovery_confirmation}s window)"
+                        )
 
                 last_frame_time = current_time
                 elapsed = current_time - start_time
@@ -794,6 +898,8 @@ def main():
             clip_crf=config.get("clip_crf", 23),
             clips_dir=config.get("clips_dir", "clips"),
             roosting_threshold=config.get("roosting_threshold", 1800),
+            stream_recovery_threshold=config.get("stream_recovery_threshold", 30),
+            stream_recovery_confirmation=config.get("stream_recovery_confirmation", 10),
             notify_on_startup=config.get("notify_on_startup", True),
             max_runtime_seconds=config.get("max_runtime_seconds"),
             full_config=config,

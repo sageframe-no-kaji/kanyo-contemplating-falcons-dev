@@ -1,4 +1,4 @@
-#!/bin/bash
+w#!/bin/bash
 # Build and push CPU, VAAPI, and NVIDIA CUDA docker images to registry
 
 set -e

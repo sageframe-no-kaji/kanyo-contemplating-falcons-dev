@@ -28,6 +28,10 @@ timezone: "UTC"                # IANA timezone name (e.g., "Australia/Sydney", "
 exit_timeout: 90               # Seconds absent before departure (same for all states)
 roosting_threshold: 1800       # 30 min - transition to roosting (notification only)
 
+# Stream recovery (prevent broken clips on short outages)
+stream_recovery_threshold: 30         # Max outage seconds to attempt recovery (default: 30)
+stream_recovery_confirmation: 10      # Seconds to confirm bird still present after recovery
+
 # Arrival confirmation (prevent false positives)
 arrival_confirmation_seconds: 10   # Seconds to confirm arrival
 arrival_confirmation_ratio: 0.3    # 30% of frames must detect
