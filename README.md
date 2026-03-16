@@ -8,6 +8,8 @@ An open-source system for monitoring wildlife cameras with computer vision. Kany
 
 ![Kanyō Viewer](docs/images/viewer-screenshot.png)
 
+**Development Process:** This project was built using the [Ho System](https://atmarcus.net/work/ho-system), a structured methodology for human-AI collaborative development. The human makes every design decision. The AI implements under direction. There is verification at every step.
+
 ---
 
 ## Origin Story
