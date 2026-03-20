@@ -24,6 +24,7 @@ from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
+from kanyo.utils.output import get_output_path  # noqa: E402
 from kanyo.utils.visit_recorder import VisitRecorder  # noqa: E402
 
 logger = get_logger(__name__)
@@ -399,9 +400,27 @@ class BufferMonitor:
 
                 # Save visit metadata to event store
                 if "visit_start" in metadata and "visit_end" in metadata:
+                    visit_start_dt = metadata["visit_start"]
+                    if isinstance(visit_start_dt, str):
+                        visit_start_dt = datetime.fromisoformat(visit_start_dt)
+
+                    # Derive arrival clip and thumbnail paths from arrival timestamp
+                    arrival_clip_path = get_output_path(
+                        self.clips_dir, visit_start_dt, "arrival", "mp4"
+                    )
+                    thumbnail_path = get_output_path(
+                        self.clips_dir, visit_start_dt, "arrival", "jpg"
+                    )
+
                     visit = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=metadata["visit_end"],
+                        arrival_clip_path=(
+                            str(arrival_clip_path) if arrival_clip_path.exists() else None
+                        ),
+                        thumbnail_path=(
+                            str(thumbnail_path) if thumbnail_path.exists() else None
+                        ),
                     )
                     self.event_store.append(visit)
 
@@ -449,10 +468,23 @@ class BufferMonitor:
             f"threshold: {self.arrival_confirmation_ratio:.1%})"
         )
 
+        # Capture paths before stopping (arrival_clip_recorder resets self._recorder on stop)
+        arrival_tmp = self.arrival_clip_recorder.get_temp_path()
+        visit_tmp = self.visit_recorder.get_temp_path()
+
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
         now = get_now_tz(self.full_config)
         self.arrival_clip_recorder.stop_recording(now)
         self.visit_recorder.stop_recording(now)  # Ignore return value
+
+        # Clean up .tmp files from cancelled arrival
+        for tmp_path in (arrival_tmp, visit_tmp):
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                    logger.debug(f"Deleted cancelled recording: {tmp_path.name}")
+                except Exception as e:
+                    logger.debug(f"Could not delete tmp file {tmp_path.name}: {e}")
 
         # Reset state machine to ABSENT
         self.state_machine.reset_to_absent()
@@ -509,10 +541,23 @@ class BufferMonitor:
             f"threshold: {self.arrival_confirmation_ratio:.1%})"
         )
 
+        # Capture paths before stopping (arrival_clip_recorder resets self._recorder on stop)
+        arrival_tmp = self.arrival_clip_recorder.get_temp_path()
+        visit_tmp = self.visit_recorder.get_temp_path()
+
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
         now = get_now_tz(self.full_config)
         self.arrival_clip_recorder.stop_recording(now)
         self.visit_recorder.stop_recording(now)
+
+        # Clean up .tmp files from cancelled startup
+        for tmp_path in (arrival_tmp, visit_tmp):
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                    logger.debug(f"Deleted cancelled recording: {tmp_path.name}")
+                except Exception as e:
+                    logger.debug(f"Could not delete tmp file {tmp_path.name}: {e}")
 
         # Reset state machine to ABSENT
         self.state_machine.reset_to_absent()

@@ -149,9 +149,6 @@ class BufferClipManager:
         The departure clip is centered on the last detection time,
         NOT the end of the recording file.
 
-        Skips departure clips for very short visits (< 60s) to avoid
-        having 3 separate clips (arrival, visit, departure) for brief visits.
-
         Args:
             visit_metadata: Metadata from visit recorder with offsets
 
@@ -179,17 +176,6 @@ class BufferClipManager:
             visit_start = datetime.fromisoformat(visit_start)
         if isinstance(recording_start, str):
             recording_start = datetime.fromisoformat(recording_start)
-
-        # Skip departure clip for very short visits (< 60 seconds)
-        # The full visit clip already captures everything
-        if visit_start and isinstance(visit_start, datetime):
-            visit_duration = (visit_end - visit_start).total_seconds()
-            if visit_duration < 60:
-                logger.info(
-                    f"Skipping departure clip for short visit ({visit_duration:.1f}s) - "
-                    "full visit clip already captures departure"
-                )
-                return False
 
         # Use frame-based offset if available (accurate even with stream outages)
         # Otherwise fall back to wall-clock calculation
