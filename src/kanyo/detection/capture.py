@@ -88,6 +88,8 @@ class StreamCapture:
             "yt-dlp",
             "--cookies",
             "/app/cookies.txt",
+            "--js-runtimes",
+            "node",
             "-f",
             f"best[height<={self.max_height}]",
             "-g",
