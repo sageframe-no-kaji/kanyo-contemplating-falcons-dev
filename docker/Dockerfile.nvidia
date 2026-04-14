@@ -9,17 +9,25 @@ ARG APP_GID=1000
 # Install Python 3.11 and system dependencies
 # ffmpeg: video processing
 # libgl1, libglib2.0-0: OpenCV dependencies
+# curl: required for NodeSource setup
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3.11-dev \
     python3-pip \
     ffmpeg \
-    nodejs \
+    curl \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 LTS via NodeSource
+# Ubuntu 22.04 ships nodejs v12 which lacks --experimental-permission (requires v20+)
+# yt-dlp uses --experimental-permission for sandbox isolation when running the n-challenge solver
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Make python3.11 the default python
