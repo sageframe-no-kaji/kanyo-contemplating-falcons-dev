@@ -53,8 +53,8 @@ RUN pip install --no-cache-dir -r requirements-base.txt
 COPY --chown=app:app docker/requirements-ml-cuda.txt .
 RUN pip install --no-cache-dir -r requirements-ml-cuda.txt
 
-# Upgrade yt-dlp at build time to get latest YouTube API fixes
-RUN pip install --upgrade yt-dlp
+# Upgrade yt-dlp at build time to get latest YouTube API fixes; yt-dlp-ejs required for n-challenge JS solver
+RUN pip install --upgrade yt-dlp yt-dlp-ejs
 
 # Set YOLO cache directory BEFORE downloading model
 ENV YOLO_CONFIG_DIR=/app/.config
