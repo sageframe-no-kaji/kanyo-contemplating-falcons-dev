@@ -86,6 +86,8 @@ class StreamCapture:
         # Build command with optional extractor args for fallback client
         cmd = [
             "yt-dlp",
+            "--cookies",
+            "/app/cookies.txt",
             "-f",
             f"best[height<={self.max_height}]",
             "-g",
