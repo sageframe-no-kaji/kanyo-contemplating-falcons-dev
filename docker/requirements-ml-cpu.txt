@@ -10,7 +10,7 @@ torch==2.5.1
 torchvision==0.20.1
 
 # Computer vision
-opencv-python-headless==4.8.1.78  # Video processing (headless for Docker - no GUI deps)
+opencv-python-headless>=4.10.0    # Video processing (headless for Docker - no GUI deps)
 
 # Detection framework (install LAST, after PyTorch is locked)
 ultralytics==8.3.0                 # YOLOv8 object detection
