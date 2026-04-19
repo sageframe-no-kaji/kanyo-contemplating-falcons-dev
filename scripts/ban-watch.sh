@@ -50,6 +50,8 @@ notify "Kanyo ban-watch started" \
 
 CONSECUTIVE_SUCCESSES=0
 REQUIRED_SUCCESSES=2  # two 200s in a row before declaring victory
+POLLS_SINCE_STATUS_NOTIFY=0
+STATUS_NOTIFY_EVERY=4  # notify every 4 polls = every 2 hours
 
 while true; do
   STATUS=$(check_status)
@@ -57,6 +59,7 @@ while true; do
 
   if [ "$STATUS" = "200" ]; then
     CONSECUTIVE_SUCCESSES=$((CONSECUTIVE_SUCCESSES + 1))
+    POLLS_SINCE_STATUS_NOTIFY=0
     log "consecutive successes: $CONSECUTIVE_SUCCESSES / $REQUIRED_SUCCESSES"
     if [ "$CONSECUTIVE_SUCCESSES" -ge "$REQUIRED_SUCCESSES" ]; then
       log "BAN LIFTED — notifying and exiting"
@@ -70,6 +73,13 @@ while true; do
       log "false positive recovered — resetting counter"
     fi
     CONSECUTIVE_SUCCESSES=0
+    POLLS_SINCE_STATUS_NOTIFY=$((POLLS_SINCE_STATUS_NOTIFY + 1))
+    if [ "$POLLS_SINCE_STATUS_NOTIFY" -ge "$STATUS_NOTIFY_EVERY" ]; then
+      notify "Kanyo still banned" \
+        "Still getting 403 on YouTube segments. Watching. Next update in 2h." \
+        "low"
+      POLLS_SINCE_STATUS_NOTIFY=0
+    fi
   fi
 
   sleep "$CHECK_INTERVAL_SECONDS"
