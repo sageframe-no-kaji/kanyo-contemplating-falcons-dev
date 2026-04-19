@@ -4,7 +4,7 @@
 
 An open-source system for monitoring wildlife cameras with computer vision. Kanyō watches live YouTube streams, detects when birds arrive and depart, captures video clips of each visit, and sends real-time notifications.
 
-**Live Demo:** [kanyo.sageframe.net](https://kanyo.sageframe.net)
+**Live Demo:** [kanyo.sageframe.net](https://kanyo.sageframe.net) · For current status and roadmap, see [Issues](https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/issues).
 
 ![Kanyō Viewer](docs/images/viewer-screenshot.png)
 
