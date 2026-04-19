@@ -69,7 +69,7 @@ class TestYouTubeRecovery:
     @patch("kanyo.detection.capture.subprocess.run")
     @patch("kanyo.detection.capture.time.sleep")
     def test_fallback_failure_triggers_cooldown(self, mock_sleep, mock_subprocess):
-        """Test that fallback failure triggers 5-minute cooldown."""
+        """Test that fallback failure triggers backoff sleep."""
         # Both calls fail with precondition error
         mock_result = MagicMock()
         mock_result.returncode = 1
@@ -81,8 +81,11 @@ class TestYouTubeRecovery:
         result = capture.connect()
 
         assert result is False
-        # Should have called sleep with 300 seconds (5 minutes)
-        mock_sleep.assert_called_with(300)
+        # Should have slept with a backoff delay (at least BACKOFF_MIN_SECONDS)
+        mock_sleep.assert_called_once()
+        delay = mock_sleep.call_args[0][0]
+        assert delay >= 48.0  # BACKOFF_MIN_SECONDS minus max jitter
+        assert delay <= 1800  # BACKOFF_MAX_SECONDS
 
     def test_initial_state(self):
         """Test that StreamCapture initializes with correct default state."""

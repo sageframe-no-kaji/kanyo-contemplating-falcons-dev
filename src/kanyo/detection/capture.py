@@ -7,6 +7,7 @@ with automatic reconnection support.
 
 from __future__ import annotations
 
+import random
 import subprocess
 import time
 from dataclasses import dataclass
@@ -18,6 +19,13 @@ import numpy as np
 from kanyo.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Backoff constants for stream reconnection
+BACKOFF_MIN_SECONDS = 60
+BACKOFF_MAX_SECONDS = 1800  # 30 minutes
+BACKOFF_MULTIPLIER = 2.0
+BACKOFF_JITTER_FRAC = 0.2
+MAX_DAILY_ATTEMPTS = 50  # hard ceiling per stream per 24h
 
 
 @dataclass
@@ -70,6 +78,9 @@ class StreamCapture:
         self._ytdlp_fallback_used = False
         self.ytdlp_opts: dict = {}
         self._last_admin_notification_time: float = 0
+        self._consecutive_failures = 0
+        self._attempts_today = 0
+        self._attempts_window_start = time.time()
 
         if use_tee:
             logger.warning("use_tee is deprecated - buffer mode is now default")
@@ -86,8 +97,6 @@ class StreamCapture:
         # Build command with optional extractor args for fallback client
         cmd = [
             "yt-dlp",
-            "--cookies",
-            "/app/cookies.txt",
             "--js-runtimes",
             "node",
             "-f",
@@ -113,13 +122,38 @@ class StreamCapture:
         logger.debug(f"Resolved to: {direct_url[:80]}...")
         return direct_url
 
+    def _compute_backoff(self) -> float:
+        """Compute next backoff delay with exponential growth and jitter."""
+        base = min(
+            BACKOFF_MIN_SECONDS * (BACKOFF_MULTIPLIER**self._consecutive_failures),
+            BACKOFF_MAX_SECONDS,
+        )
+        jitter = base * BACKOFF_JITTER_FRAC * (2 * random.random() - 1)
+        return max(BACKOFF_MIN_SECONDS, base + jitter)
+
+    def _check_daily_cap(self) -> bool:
+        """Return True if under the daily attempt cap, False if over."""
+        now = time.time()
+        if now - self._attempts_window_start > 86400:
+            self._attempts_today = 0
+            self._attempts_window_start = now
+        return self._attempts_today < MAX_DAILY_ATTEMPTS
+
     def connect(self) -> bool:
         """
-        Connect to the video stream.
-
-        Returns True if connection successful.
-        Implements automatic recovery for YouTube API changes.
+        Connect to the video stream with exponential backoff on failure.
+        Returns True if connection successful, False otherwise.
         """
+        if not self._check_daily_cap():
+            logger.error(
+                f"Daily attempt cap ({MAX_DAILY_ATTEMPTS}) reached for this stream. "
+                f"Going dormant until window resets."
+            )
+            time.sleep(3600)  # sleep an hour, then check again
+            return False
+
+        self._attempts_today += 1
+
         try:
             is_youtube = "youtube.com" in self.stream_url or "youtu.be" in self.stream_url
 
@@ -132,40 +166,51 @@ class StreamCapture:
 
             if not self._cap.isOpened():
                 logger.error("Failed to open video stream")
+                self._consecutive_failures += 1
+                delay = self._compute_backoff()
+                logger.warning(
+                    f"Backoff: sleeping {delay:.0f}s before next attempt "
+                    f"(failure #{self._consecutive_failures})"
+                )
+                time.sleep(delay)
                 return False
 
             logger.info("✅ Connected to stream")
-            # Reset fallback flag on successful connection
+            # Reset both fallback and backoff state on success
             self._ytdlp_fallback_used = False
+            self._consecutive_failures = 0
             return True
 
         except RuntimeError as e:
             error_message = str(e)
 
-            # Handle YouTube "Precondition check failed" with fallback client
-            if "Precondition check failed" in error_message:
-                if not self._ytdlp_fallback_used:
-                    self._ytdlp_fallback_used = True
-                    logger.warning(
-                        "YouTube precondition failed; retrying with alternate yt-dlp client"
-                    )
+            if "Precondition check failed" in error_message and not self._ytdlp_fallback_used:
+                self._ytdlp_fallback_used = True
+                logger.warning("YouTube precondition failed; retrying with alternate yt-dlp client")
+                self.ytdlp_opts["extractor_args"] = {
+                    "youtube": {"player_client": ["android_creator"]}
+                }
+                return self.connect()
 
-                    self.ytdlp_opts["extractor_args"] = {
-                        "youtube": {"player_client": ["android_creator"]}
-                    }
-
-                    return self.connect()
-                else:
-                    # Fallback also failed, enter cooldown
-                    logger.error("YouTube stream still failing after fallback; entering cooldown")
-                    time.sleep(300)  # 5 minutes
-                    return False
-
+            # All other errors — apply backoff
+            self._consecutive_failures += 1
+            delay = self._compute_backoff()
             logger.error(f"Connection failed: {e}")
+            logger.warning(
+                f"Backoff: sleeping {delay:.0f}s before next attempt "
+                f"(failure #{self._consecutive_failures})"
+            )
+            time.sleep(delay)
             return False
 
         except Exception as e:
+            self._consecutive_failures += 1
+            delay = self._compute_backoff()
             logger.error(f"Connection failed: {e}")
+            logger.warning(
+                f"Backoff: sleeping {delay:.0f}s (failure #{self._consecutive_failures})"
+            )
+            time.sleep(delay)
             return False
 
     def disconnect(self) -> None:
@@ -176,10 +221,9 @@ class StreamCapture:
             logger.debug("Disconnected from stream")
 
     def reconnect(self) -> bool:
-        """Disconnect and reconnect to the stream."""
-        logger.warning(f"Reconnecting in {self.reconnect_delay}s...")
+        """Disconnect and reconnect. Backoff timing is owned by connect()."""
+        logger.warning("Connection lost, reconnecting...")
         self.disconnect()
-        time.sleep(self.reconnect_delay)
         return self.connect()
 
     def read_frame(self) -> Frame | None:
@@ -207,65 +251,31 @@ class StreamCapture:
             skip: Process every Nth frame (0 = all frames)
 
         Yields Frame objects. Handles reconnection automatically.
-        Never gives up - retries indefinitely with exponential backoff.
+        All retry timing is owned by connect() — this method does not sleep.
         """
         if not self.connect():
             raise RuntimeError("Failed to connect to stream")
-
-        consecutive_failures = 0
-        max_backoff = 300  # 5 minutes
 
         try:
             while True:
                 frame = self.read_frame()
 
                 if frame is None:
-                    consecutive_failures += 1
+                    # Send admin alert (throttled to once per hour)
+                    if (
+                        self.on_connection_issue
+                        and (time.time() - self._last_admin_notification_time) > 3600
+                    ):
+                        self.on_connection_issue(f"Stream connection lost: {self.stream_url}")
+                        self._last_admin_notification_time = time.time()
 
-                    # Exponential backoff: 5s, 10s, 20s, 40s, ... up to 5 minutes
-                    backoff = min(
-                        self.reconnect_delay * (2 ** min(consecutive_failures - 1, 6)), max_backoff
-                    )
-
-                    if consecutive_failures == 1:
-                        logger.warning(
-                            f"Connection lost, attempting reconnect in {backoff:.0f}s..."
-                        )
-                        # Send admin alert on first failure (throttled to once per hour)
-                        if (
-                            self.on_connection_issue
-                            and (time.time() - self._last_admin_notification_time) > 3600
-                        ):
-                            self.on_connection_issue(f"Stream connection lost: {self.stream_url}")
-                            self._last_admin_notification_time = time.time()
-                    elif consecutive_failures % 12 == 0:  # Log every ~hour at max backoff
-                        logger.error(
-                            f"Still unable to reconnect after {consecutive_failures} "
-                            f"attempts (waiting {backoff:.0f}s)..."
-                        )
-                        # Send periodic admin alert
-                        if self.on_connection_issue:
-                            self.on_connection_issue(
-                                f"Still unable to reconnect after {consecutive_failures} attempts"
-                            )
-
-                    time.sleep(backoff)
-
-                    if not self.connect():
-                        continue  # Keep trying indefinitely
+                    if not self.reconnect():
+                        continue  # reconnect() sleeps via connect() backoff
 
                     logger.info("✅ Reconnected successfully!")
-                    # Send recovery notification
-                    if self.on_connection_issue and consecutive_failures > 1:
-                        self.on_connection_issue(
-                            f"Stream reconnected after {consecutive_failures} attempts"
-                        )
-                    consecutive_failures = 0
+                    if self.on_connection_issue:
+                        self.on_connection_issue("Stream reconnected")
                     continue
-
-                # Reset failure counter on successful frame
-                if consecutive_failures > 0:
-                    consecutive_failures = 0
 
                 # Skip frames if requested
                 if skip > 0 and frame.frame_number % skip != 0:
