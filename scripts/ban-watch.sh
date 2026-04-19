@@ -10,7 +10,7 @@ VIDEO_ID="glczTFRRAK4"
 NTFY_TOPIC="kanyo_admin_errors"
 COMPOSE_DIR="/opt/services/kanyo-admin"
 CHECK_INTERVAL_SECONDS=1800  # 30 min — DO NOT lower this
-LOGFILE="/var/log/ban-watch.log"
+LOGFILE="$HOME/ban-watch.log"
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOGFILE"
