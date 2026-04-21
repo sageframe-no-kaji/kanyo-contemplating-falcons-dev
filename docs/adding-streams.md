@@ -10,9 +10,11 @@ Adding a stream involves three layers:
 
 | Layer | What | Files to Edit |
 |-------|------|---------------|
-| **Detection** | Monitors the stream, detects birds, records clips | `docker-compose.yml`, `config.yaml` |
-| **Admin** | Shows stream in admin dashboard | `docker-compose.yml` (dashboard volumes) |
-| **Viewer** | Shows stream on public site | `docker-compose.yml`, `streams.yaml` |
+| **Detection** | Monitors the stream, detects birds, records clips | admin `docker-compose.yml`, `config.yaml`, `.env` |
+| **Admin** | Shows stream in admin dashboard | admin `docker-compose.yml` (dashboard volumes) |
+| **Viewer** | Shows stream on public site | restart only — auto-discovers from data directory |
+
+The viewer is **registry-free**: it scans `/opt/services/` for any directory containing a `config.yaml` and registers it automatically. No viewer config changes are required when adding or removing streams.
 
 You can add streams to just detection (headless monitoring), or all three layers for full visibility.
 
@@ -21,10 +23,13 @@ You can add streams to just detection (headless monitoring), or all three layers
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Access to the server running Kanyō
+- Access to the server running Kanyō (via SSH with sudo)
 - A YouTube live stream URL
+- ZFS pool configured at `rpool/sage/kanyo/` (required on production kanyo host)
 - (Optional) Telegram bot token for notifications
 - (Optional) NVIDIA GPU for faster detection
+
+> **Note:** The detection container image must include `tzdata`. Without it, Python's `zoneinfo` silently falls back to UTC, causing all clip timestamps and directory names to be UTC-based instead of stream-local time. This is a hard requirement — `tzdata>=2024.1` is in `requirements.txt`; do not remove it.
 
 ---
 
@@ -32,14 +37,19 @@ You can add streams to just detection (headless monitoring), or all three layers
 
 This gets the stream monitored with clips being recorded.
 
-### Step 1: Create Stream Directory
+### Step 1: Create ZFS Dataset and Stream Directory
+
+On the production kanyo host, create a ZFS dataset first so clips get compression and quota protection:
 
 ```bash
-sudo mkdir -p /opt/services/kanyo-STREAMID/{clips,logs,data}
-sudo chown -R 1000:1000 /opt/services/kanyo-STREAMID
+sudo zfs create rpool/sage/kanyo/STREAMID
+mkdir -p /opt/services/kanyo-STREAMID/{clips,logs}
+chown -R atmarcus:atmarcus /opt/services/kanyo-STREAMID
 ```
 
-Replace `STREAMID` with a short identifier (lowercase, no spaces): `harvard`, `nsw`, `humspot`, etc.
+Replace `STREAMID` with a short identifier (lowercase, hyphens ok): `harvard`, `nsw`, `fortwayne`, `umass`, etc.
+
+The full directory name must be `kanyo-STREAMID` — the viewer uses the directory name as the stream's `id` in the API.
 
 ### Step 2: Create Configuration
 
@@ -125,9 +135,15 @@ If you want notifications when birds arrive/depart:
    telegram_channel: "@kanyo_STREAMID"
    ```
 
-### Step 4: Add to Docker Compose
+### Step 4: Add to Detection Docker Compose
 
-Edit your detection `docker-compose.yml` and add a new service:
+In `/opt/services/kanyo-admin/.env`, add the stream root path (use the next available CAM number):
+
+```bash
+KANYO_CAMn_ROOT=/opt/services/kanyo-STREAMID
+```
+
+In `/opt/services/kanyo-admin/docker-compose.yml`, add a new service block:
 
 ```yaml
 services:
@@ -139,15 +155,19 @@ services:
     command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
     volumes:
       - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/src:/app/src:ro
-      - /opt/services/kanyo-STREAMID/config.yaml:/app/config.yaml:ro
-      - /opt/services/kanyo-STREAMID/clips:/app/clips
-      - /opt/services/kanyo-STREAMID/logs:/app/logs
+      - ${KANYO_CODE_ROOT:-/opt/services/kanyo-code}/cookies.txt:/app/cookies.txt:rw
+      - ${KANYO_CAMn_ROOT:-./data/STREAMID}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAMn_ROOT:-./data/STREAMID}/clips:/app/clips
+      - ${KANYO_CAMn_ROOT:-./data/STREAMID}/logs:/app/logs
 ```
 
-If you're using environment variables for paths, also add to `.env`:
+Also add the stream volume to the `dashboard` service in the same file:
 
-```bash
-KANYO_STREAMID_ROOT=/opt/services/kanyo-STREAMID
+```yaml
+  dashboard:
+    volumes:
+      # ... existing volumes ...
+      - ${KANYO_CAMn_ROOT:-./data/STREAMID}:/data/kanyo-STREAMID
 ```
 
 ### Step 5: Start Detection
@@ -174,26 +194,10 @@ INFO | Frame 200: bird detected (confidence: 0.67)
 
 ## Part 2: Admin Dashboard
 
-This makes the stream visible in the admin interface.
-
-### Step 1: Add Volume Mount
-
-Edit your admin `docker-compose.yml` and add the stream to the dashboard service:
-
-```yaml
-services:
-  dashboard:
-    # ... existing config ...
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${KANYO_CAM1_ROOT:-./data/cam1}:/data/cam1
-      - ${KANYO_CAM2_ROOT:-./data/cam2}:/data/cam2
-      - /opt/services/kanyo-STREAMID:/data/STREAMID    # ADD THIS
-```
-
-### Step 2: Restart Dashboard
+The dashboard volume is added in Step 4 of Part 1 above (both detection and dashboard are in the same `kanyo-admin/docker-compose.yml`). After editing:
 
 ```bash
+cd /opt/services/kanyo-admin
 docker compose up -d dashboard
 ```
 
@@ -203,48 +207,26 @@ The new stream should appear in the admin interface.
 
 ## Part 3: Public Viewer
 
-This makes the stream visible on the public website.
-**For complete viewer documentation and features, see the [kanyo-viewer README](https://github.com/sageframe-no-kaji/kanyo-viewer).**
+The viewer uses **auto-discovery** — no config file edits required. The viewer container mounts `/opt/services` as `/data` and scans for any subdirectory containing a `config.yaml`. Creating the stream directory with its config is sufficient.
 
-
-### Step 1: Add Volume Mounts
-
-Edit `/opt/services/kanyo-viewer/docker-compose.yml`:
-
-```yaml
-services:
-  viewer:
-    # ... existing config ...
-    volumes:
-      # ... existing volumes ...
-      - /opt/services/kanyo-STREAMID:/data/STREAMID:ro
-      - /opt/services/kanyo-STREAMID/config.yaml:/configs/STREAMID/config.yaml:ro
-```
-
-### Step 2: Register the Stream
-
-Edit `/opt/services/kanyo-viewer/backend/streams.yaml`:
-
-```yaml
-streams:
-  # ... existing streams ...
-
-  kanyo-STREAMID:
-    config_path: "/configs/STREAMID/config.yaml"
-    data_path: "/data/STREAMID"
-```
-
-### Step 3: Rebuild and Restart
+### Step 1: Restart the Viewer
 
 ```bash
 cd /opt/services/kanyo-viewer
-docker compose build viewer
-docker compose up -d viewer
+docker compose restart
 ```
 
-### Step 4: Verify
+The stream will appear automatically. The viewer caches the stream list on startup, so a restart is required whenever streams are added or removed.
 
-Visit your viewer URL. The new stream should appear on the landing page.
+### Step 2: Verify
+
+```bash
+curl -s http://localhost:3000/api/streams | python3 -m json.tool | grep '"id"'
+```
+
+You should see `kanyo-STREAMID` in the list. Visit the public viewer URL to confirm it appears on the landing page.
+
+> **For complete viewer documentation and features, see the [kanyo-viewer README](https://github.com/sageframe-no-kaji/kanyo-viewer).**
 
 ---
 
@@ -322,9 +304,10 @@ Common issues:
 
 ### Stream not appearing in viewer
 
-1. Check volume mounts in viewer's `docker-compose.yml`
-2. Check `streams.yaml` has the correct entry
-3. Rebuild viewer: `docker compose build viewer && docker compose up -d viewer`
+1. Confirm `/opt/services/kanyo-STREAMID/config.yaml` exists and is valid YAML
+2. Restart the viewer: `cd /opt/services/kanyo-viewer && docker compose restart`
+3. Check the API directly: `curl http://localhost:3000/api/streams`
+4. Check viewer logs: `docker logs kanyo-viewer --tail 50`
 
 ---
 
@@ -369,25 +352,41 @@ find /opt/services/kanyo-STREAMID/clips/ -name "*.jpg" -mtime +30 -delete
 
 ---
 
-## ZFS Setup (Optional)
+## Removing a Stream
 
-If using ZFS for storage, create a dataset before the stream directory:
+To fully remove a stream from the system:
 
-```bash
-sudo zfs create rpool/sage/kanyo/STREAMID
-sudo zfs set quota=500G rpool/sage/kanyo/STREAMID
-sudo mkdir -p /opt/services/kanyo-STREAMID/{clips,logs,data}
-sudo chown -R 1000:1000 /opt/services/kanyo-STREAMID
-```
+1. **Stop the detection container:**
+   ```bash
+   cd /opt/services/kanyo-admin
+   docker compose stop STREAMID-gpu
+   docker compose rm -f STREAMID-gpu
+   ```
 
-Benefits:
-- Compression (saves ~20% disk space on video)
-- Snapshots for backup
-- Quotas to prevent runaway storage
+2. **Edit admin `docker-compose.yml`:** Remove the service block and its dashboard volume line.
+
+3. **Edit admin `.env`:** Remove the `KANYO_CAMn_ROOT` line.
+
+4. **Restart admin dashboard:**
+   ```bash
+   docker compose up -d dashboard
+   ```
+
+5. **Restart the viewer:**
+   ```bash
+   cd /opt/services/kanyo-viewer && docker compose restart
+   ```
+
+6. **Delete data and destroy ZFS dataset (irreversible):**
+   ```bash
+   sudo rm -rf /opt/services/kanyo-STREAMID
+   sudo zfs destroy rpool/sage/kanyo/STREAMID
+   ```
 
 ---
 
 ## See Also
 
-- [QUICKSTART.md](../QUICKSTART.md) — Get your first stream running
+- [Quickstart.md](../Quickstart.md) — Get your first stream running
 - [sensing-logic.md](sensing-logic.md) — How the detection state machine works
+- [kanyo-viewer](https://github.com/sageframe-no-kaji/kanyo-viewer) — Viewer architecture and API
