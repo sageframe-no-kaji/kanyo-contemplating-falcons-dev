@@ -12,12 +12,25 @@
 
     <!-- Streams Section -->
     <section class="mb-12">
-        <h2 class="text-2xl font-bold mb-6">STREAMS</h2>
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold">STREAMS</h2>
+            <div class="flex items-center gap-3">
+                <span id="reorder-feedback" class="text-green-400 text-sm hidden">✓ Order saved</span>
+                <span class="text-zinc-500 text-sm">Drag cards to reorder</span>
+            </div>
+        </div>
 
         {% if streams %}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div id="streams-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {% for stream in streams %}
+            <div class="sortable-item" data-id="{{ stream.id }}">
+                <div class="drag-handle flex items-center gap-1 pb-1 cursor-grab text-zinc-600 hover:text-zinc-400 select-none text-xs"
+                     title="Drag to reorder">
+                    <span class="text-base leading-none">⠿</span>
+                    <span>{{ stream.display_order if stream.display_order != 999 else '—' }}</span>
+                </div>
                 {% include "components/stream_card.html" %}
+            </div>
             {% endfor %}
         </div>
         {% else %}
@@ -39,4 +52,55 @@
         </div>
     </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+(function () {
+    const grid = document.getElementById('streams-grid');
+    if (!grid) return;
+
+    const feedback = document.getElementById('reorder-feedback');
+    let feedbackTimer;
+
+    Sortable.create(grid, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'opacity-30',
+        onEnd: function () {
+            const order = [...grid.querySelectorAll('[data-id]')].map(el => el.dataset.id);
+            fetch('/api/streams/reorder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({stream_ids: order})
+            })
+            .then(r => r.json())
+            .then(() => {
+                grid.querySelectorAll('[data-id]').forEach((el, i) => {
+                    const badge = el.querySelector('.drag-handle span:last-child');
+                    if (badge) badge.textContent = i + 1;
+                });
+                clearTimeout(feedbackTimer);
+                feedback.classList.remove('hidden', 'text-red-400');
+                feedback.classList.add('text-green-400');
+                feedback.textContent = '✓ Order saved';
+                feedbackTimer = setTimeout(() => feedback.classList.add('hidden'), 2500);
+            })
+            .catch(() => {
+                clearTimeout(feedbackTimer);
+                feedback.classList.remove('hidden', 'text-green-400');
+                feedback.classList.add('text-red-400');
+                feedback.textContent = '✗ Save failed';
+                feedbackTimer = setTimeout(() => {
+                    feedback.classList.add('hidden');
+                    feedback.classList.remove('text-red-400');
+                    feedback.classList.add('text-green-400');
+                    feedback.textContent = '✓ Order saved';
+                }, 3000);
+            });
+        }
+    });
+}());
+</script>
 {% endblock %}

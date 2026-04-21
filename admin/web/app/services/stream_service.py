@@ -43,6 +43,7 @@ def discover_streams() -> list[dict]:
                 "clips_path": str(stream_dir / "clips"),
                 "video_source": config.get("video_source", ""),
                 "timezone": config.get("timezone", "UTC"),
+                "display_order": config.get("display", {}).get("order", 999),
             }
             streams.append(stream_info)
         except Exception as e:
@@ -50,6 +51,7 @@ def discover_streams() -> list[dict]:
             print(f"Error reading config for {stream_dir.name}: {e}")
             continue
 
+    streams.sort(key=lambda s: (s["display_order"], s["id"]))
     return streams
 
 

@@ -1,9 +1,10 @@
 """API router for JSON endpoints."""
 
 from fastapi import APIRouter, HTTPException, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
+from pydantic import BaseModel
 
 from app.services import (
     stream_service,
@@ -353,6 +354,7 @@ async def update_config(
     display_maintainer: str = Form(""),
     display_maintainer_url: str = Form(""),
     display_description: str = Form(""),
+    display_order: str = Form(""),
 ):
     """Update stream configuration."""
     try:
@@ -412,9 +414,16 @@ async def update_config(
             display_data["maintainer_url"] = display_maintainer_url
         if display_description:
             display_data["description"] = display_description
+        if display_order:
+            try:
+                display_data["order"] = int(display_order)
+            except ValueError:
+                pass
 
-        if display_data:
-            updated_fields["display"] = display_data
+        # Merge into existing display dict to preserve fields not in this form (e.g. thumbnail_url)
+        existing_display = existing_config.get("display", {})
+        existing_display.update(display_data)
+        updated_fields["display"] = existing_display
 
         existing_config.update(updated_fields)
 
@@ -467,6 +476,30 @@ async def update_config(
             )
         else:
             raise HTTPException(status_code=500, detail=str(e))
+
+
+class ReorderRequest(BaseModel):
+    stream_ids: list[str]
+
+
+@router.post("/streams/reorder")
+async def reorder_streams(body: ReorderRequest):
+    """Write display.order to each stream's config.yaml based on submitted order."""
+    errors = []
+    for index, stream_id in enumerate(body.stream_ids):
+        stream = stream_service.get_stream(stream_id)
+        if not stream:
+            errors.append(stream_id)
+            continue
+        existing_config = config_service.read_config(stream["config_path"])
+        display = existing_config.get("display", {})
+        display["order"] = index + 1
+        existing_config["display"] = display
+        config_service.write_config(stream["config_path"], existing_config)
+
+    if errors:
+        return JSONResponse({"ok": False, "errors": errors}, status_code=207)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/streams")
