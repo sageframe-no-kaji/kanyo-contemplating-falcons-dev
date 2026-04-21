@@ -26,7 +26,12 @@ timezone: "UTC"                # IANA timezone name (e.g., "Australia/Sydney", "
 
 # State machine configuration
 exit_timeout: 90               # Seconds absent before departure (same for all states)
-roosting_threshold: 1800       # 30 min - transition to roosting (notification only)
+roosting_threshold: 1800       # 30 min - transition to roosting
+roosting_recording_mode: continuous  # continuous | stop
+                                     # continuous: record entire visit regardless of length (default, research-friendly)
+                                     # stop: finalize recording at roosting threshold, capture departure from buffer
+roosting_detection_interval: 30      # seconds between YOLO checks while roosting in stop mode
+                                     # ignored in continuous mode
 
 # Stream recovery (prevent broken clips on short outages)
 stream_recovery_threshold: 30         # Max outage seconds to attempt recovery (default: 30)

@@ -203,6 +203,14 @@ class BufferMonitor:
         self.arrival_confirmation_ratio = (
             full_config.get("arrival_confirmation_ratio", 0.3) if full_config else 0.3
         )
+
+        # Roosting mode config
+        self.roosting_recording_mode = (full_config or {}).get("roosting_recording_mode", "continuous")
+        self.roosting_detection_interval = (full_config or {}).get("roosting_detection_interval", 30)
+        self.roosting_mode_active = False
+        self.last_roosting_check: datetime | None = None
+        self._roosting_visit_metadata: dict | None = None
+
         logger.info("BufferMonitor initialized (no tee mode)")
 
     def process_frame(self, frame_data, frame_number: int) -> None:
@@ -242,6 +250,14 @@ class BufferMonitor:
             # If arrival clip recording is active, write frame
             if self.arrival_clip_recorder.is_recording():
                 self.arrival_clip_recorder.write_frame(frame_data, now)
+
+            # In stop mode during roosting, poll YOLO at reduced interval
+            if self.roosting_mode_active and self.roosting_recording_mode == "stop":
+                if self.last_roosting_check is not None:
+                    elapsed = (now - self.last_roosting_check).total_seconds()
+                    if elapsed < self.roosting_detection_interval:
+                        return  # skip YOLO this frame
+                self.last_roosting_check = now
 
             # Run detection
             detections = self.detector.detect_birds(frame_data, timestamp=now)
@@ -374,6 +390,41 @@ class BufferMonitor:
                 self._cancel_arrival(ratio)
                 return  # Do not process departure normally
 
+            # Handle departure from roosting stop mode (visit recorder already stopped)
+            if self.roosting_mode_active and self.roosting_recording_mode == "stop":
+                logger.event("🦅 DEPARTURE from roost — extracting departure clip from buffer")
+                self.clip_manager.create_clip_from_buffer(
+                    event_time, "departure",
+                    before_seconds=self.clip_manager.clip_departure_before,
+                    after_seconds=self.clip_manager.clip_departure_after,
+                )
+                if self._roosting_visit_metadata and "visit_start" in metadata:
+                    visit_start_dt = metadata["visit_start"]
+                    if isinstance(visit_start_dt, str):
+                        visit_start_dt = datetime.fromisoformat(visit_start_dt)
+                    last_detection_time = metadata.get("visit_end", event_time)
+                    arrival_clip_path = get_output_path(
+                        self.clips_dir, visit_start_dt, "arrival", "mp4"
+                    )
+                    thumbnail_path = get_output_path(
+                        self.clips_dir, visit_start_dt, "arrival", "jpg"
+                    )
+                    visit = FalconVisit(
+                        start_time=metadata["visit_start"],
+                        end_time=last_detection_time,
+                        arrival_clip_path=(
+                            str(arrival_clip_path) if arrival_clip_path.exists() else None
+                        ),
+                        thumbnail_path=(
+                            str(thumbnail_path) if thumbnail_path.exists() else None
+                        ),
+                    )
+                    self.event_store.append(visit)
+                self.roosting_mode_active = False
+                self.last_roosting_check = None
+                self._roosting_visit_metadata = None
+                return
+
             # Stop recording and create clips
             logger.event("🦅 DEPARTURE - Stopping visit recording")
 
@@ -428,13 +479,20 @@ class BufferMonitor:
                     logger.event(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
 
         elif event_type == FalconEvent.ROOSTING:
-            # ROOSTING is notification-only, no clip creation needed
-            if self.visit_recorder.is_recording:
-                self.visit_recorder.log_event(
-                    event_type.name,
-                    event_time,
-                    metadata,
-                )
+            if self.roosting_recording_mode == "stop":
+                logger.event("🏠 Roosting mode=stop: finalizing visit recording")
+                if self.visit_recorder.is_recording:
+                    _, self._roosting_visit_metadata = self.visit_recorder.stop_recording(event_time)
+                self.roosting_mode_active = True
+                self.last_roosting_check = event_time
+            else:
+                # continuous mode: recording continues uninterrupted
+                if self.visit_recorder.is_recording:
+                    self.visit_recorder.log_event(
+                        event_type.name,
+                        event_time,
+                        metadata,
+                    )
 
     def _confirm_arrival(self) -> None:
         """Confirm arrival after passing detection threshold."""
