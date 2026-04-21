@@ -33,18 +33,17 @@ What started as a simple notification system grew into a full monitoring platfor
 ## How It Works
 
 Kanyō watches YouTube live streams and uses computer vision to detect when birds
-appear. When it sees a bird, it waits 10 seconds to make sure it's really there
-(not just a shadow or glitch), then sends you a notification with a photo.
+appear. When it sees a bird, it waits to make sure it's really there (not just a
+shadow or glitch), then sends you a notification with a photo.
 
-While the bird is visiting, Kanyō records video. When the bird leaves (gone for
-at least 90 seconds), it sends another notification and saves clips of the
-arrival and departure.
+While the bird is visiting, Kanyō records video. When the bird leaves, it sends
+another notification and saves clips of the arrival and departure.
 
-All the clips are organized by date and viewable through a simple web interface.
+All clips are organised by date and viewable through a simple web interface.
 
 ### The Detection Problem
 
-Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED... DETECTED..." — generating hundreds of false events when a bird simply moves within the frame. Kanyō uses a state machine with configurable timeouts to produce clean, meaningful events:
+Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED... DETECTED..." — generating noise whenever a bird moves. Kanyō uses a state machine with configurable timeouts to produce clean, meaningful events:
 
 ```
 10:00:01 | 🦅 ARRIVED
@@ -53,6 +52,30 @@ Naive detection systems trigger on every frame: "FALCON DETECTED... NOT DETECTED
 ```
 
 One arrival. One departure. Three hours of presence tracked correctly.
+
+### State Machine
+
+```
+ABSENT ──(bird detected, confirmed)──► VISITING ──(> roosting_threshold)──► ROOSTING
+  ▲                                        │                                      │
+  └──────(absent > exit_timeout)───────────┘                                      │
+  ▲                                                                                │
+  └──────────────────(absent > exit_timeout)──────────────────────────────────────┘
+```
+
+### Recording Behaviour by State
+
+| State | Recording | YOLO | Notes |
+|-------|-----------|------|-------|
+| **VISITING** | Visit file recording active | Every `frame_interval` frames | Arrival clip captured from pre-event buffer |
+| **ROOSTING** (`continuous` mode) | Recording continues uninterrupted | Every `frame_interval` frames | Full visit footage preserved |
+| **ROOSTING** (`stop` mode) | Visit file finalized at roosting threshold | Every `roosting_detection_interval` seconds | Departure captured from rolling buffer; saves disk |
+
+**`continuous` mode** (default) — the entire visit is preserved in one file. Best for research or when disk is not a constraint.
+
+**`stop` mode** — the visit file is capped at `roosting_threshold`. When the bird eventually departs, the departure clip is extracted from the rolling in-memory buffer. Suitable for cameras where birds roost for hours or overnight.
+
+See [configs/config.template.yaml](configs/config.template.yaml) for full documentation of all settings, including the hobby-vs-research tradeoffs.
 
 ---
 
