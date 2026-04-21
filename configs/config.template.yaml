@@ -1,79 +1,313 @@
+# ═════════════════════════════════════════════════════════════════════════════
 # Kanyo Configuration Template
+# ═════════════════════════════════════════════════════════════════════════════
 #
-# TIMING CONSTRAINTS (enforced at load):
+# Copy this file to your camera's config directory and fill in the values.
+# Every section below is documented with what the setting does, valid values,
+# and when you'd want to change it.
+#
+# TIMING CONSTRAINT (enforced at load):
 #   roosting_threshold > exit_timeout
 #
 # Thumbnail Image (for viewer landing page):
-#   Place thumbnail at: /opt/services/kanyo-viewer/frontend/public/thumbnails/<stream-id>.jpg
-#   Recommended: 1280×720 (16:9), JPG format, under 500KB
-#   Min: 640×360, Max: 1920×1080
-#   Fallback: viewer will use most recent arrival snapshot from clips
+#   Place a static thumbnail at:
+#     /opt/services/kanyo-viewer/frontend/public/thumbnails/<stream-id>.jpg
+#   Recommended: 1280×720 (16:9), JPG, under 500KB
+#   Fallback: viewer uses the most recent arrival snapshot from clips/
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stream Identity (for Admin GUI)
+# Stream Identity
 # ─────────────────────────────────────────────────────────────────────────────
-stream_name: "My Falcon Cam"       # Display name in admin UI
+# stream_name  — shown in the admin UI header and logs. Pick something that
+#                clearly identifies the camera at a glance.
+# video_source — YouTube live stream URL. Must be a /watch?v= URL, not a
+#                channel URL. Update this when the stream ID changes.
 
+stream_name: "My Falcon Cam"
 video_source: "https://youtube.com/watch?v=YOUR_STREAM_ID"
 
-# Detection
-detection_confidence: 0.3      # 0.0-1.0 (required)
-detection_confidence_ir: 0.25  # IR/night mode threshold (optional, lower for grayscale)
-frame_interval: 3              # >= 1 (required)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Detection Tuning
+# ─────────────────────────────────────────────────────────────────────────────
+# detection_confidence    — YOLO confidence threshold for daytime detection.
+#   Range: 0.0–1.0. Lower = more sensitive (more false positives); higher =
+#   stricter (may miss real birds). 0.3 is a good starting point for Peregrine
+#   Falcons. Raise to 0.4–0.5 if shadows or pigeons trigger false arrivals.
+#
+# detection_confidence_ir — Separate threshold for night/IR mode (grayscale
+#   frames). IR cameras produce lower contrast, so a slightly lower threshold
+#   helps. Leave unset to use detection_confidence for all frames.
+#
+# frame_interval          — Process 1 in every N frames. At 30 fps:
+#   interval=3 → ~10 checks/sec (responsive, higher CPU)
+#   interval=30 → ~1 check/sec (low CPU, fine for slow subjects)
+#   Birds are fast — don't go above 10 for active cams.
+#
+# model_path              — Path to the YOLO model file inside the container.
+#   yolov8n.pt = nano (fast, less accurate)
+#   yolov8s.pt = small (slower, better accuracy — recommended for research)
+#
+# detect_any_animal       — If true, the system detects any COCO animal class
+#   (bird, cat, dog, etc.) as a potential falcon presence. This catches cases
+#   where the model classifies the falcon as a generic "bird". Set false only
+#   if you have a custom model trained specifically for your species.
+
+detection_confidence: 0.3
+detection_confidence_ir: 0.25
+frame_interval: 3
 model_path: "models/yolov8n.pt"
 detect_any_animal: true
-timezone: "UTC"                # IANA timezone name (e.g., "Australia/Sydney", "America/New_York")
 
-# State machine configuration
-exit_timeout: 90               # Seconds absent before departure (same for all states)
-roosting_threshold: 1800       # 30 min - transition to roosting
-roosting_recording_mode: continuous  # continuous | stop
-                                     # continuous: record entire visit regardless of length (default, research-friendly)
-                                     # stop: finalize recording at roosting threshold, capture departure from buffer
-roosting_detection_interval: 30      # seconds between YOLO checks while roosting in stop mode
-                                     # ignored in continuous mode
 
-# Stream recovery (prevent broken clips on short outages)
-stream_recovery_threshold: 30         # Max outage seconds to attempt recovery (default: 30)
-stream_recovery_confirmation: 10      # Seconds to confirm bird still present after recovery
+# ─────────────────────────────────────────────────────────────────────────────
+# Timezone
+# ─────────────────────────────────────────────────────────────────────────────
+# IANA timezone string for this camera's physical location.
+# This affects clip filenames, event timestamps in the JSON store, and the
+# viewer's timeline display. Use the camera's local timezone, not the server's.
+# Examples: "Australia/Sydney", "America/New_York", "Europe/London", "UTC"
 
-# Arrival confirmation (prevent false positives)
-arrival_confirmation_seconds: 10   # Seconds to confirm arrival
-arrival_confirmation_ratio: 0.3    # 30% of frames must detect
+timezone: "UTC"
 
-# Notifications
-notify_on_startup: false       # Send notification if bird detected at startup
-record_arrival_on_startup: false  # Record arrival clip on startup (visit always records for departure)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# State Machine
+# ─────────────────────────────────────────────────────────────────────────────
+# The system uses a state machine to turn raw per-frame detections into clean
+# visit events. This prevents false arrivals/departures from momentary occlusion,
+# shadows, or camera glitches.
+#
+#   ABSENT ──(bird detected, confirmed)──► VISITING ──(> roosting_threshold)──► ROOSTING
+#     ▲                                        │                                      │
+#     └──────(absent > exit_timeout)───────────┘                                      │
+#     ▲                                                                                │
+#     └──────────────────────(absent > exit_timeout)──────────────────────────────────┘
+#
+# exit_timeout       — Seconds the bird must be continuously absent before
+#   DEPARTED fires. Prevents false departures during brief occlusions or
+#   detection gaps. 90s is reasonable for falcons that duck behind ledges.
+#   Must be less than roosting_threshold.
+#
+# roosting_threshold — Seconds of continuous presence before the system
+#   transitions to ROOSTING state. ROOSTING triggers a notification and
+#   optionally changes recording behaviour (see Roosting Mode below).
+#   Default: 1800 (30 min).
+
+exit_timeout: 90
+roosting_threshold: 1800
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Roosting Mode
+# ─────────────────────────────────────────────────────────────────────────────
+# Controls what happens to recording and detection once the bird enters
+# ROOSTING state (i.e., has been present continuously for roosting_threshold).
+#
+# roosting_recording_mode:
+#   continuous (default) — Recording continues uninterrupted for the entire
+#     visit. The visit file captures everything from arrival through departure.
+#     Best for research archiving: you get the full footage regardless of how
+#     long the roost lasts.
+#
+#   stop — Visit file is finalized at the roosting threshold. This caps the
+#     visit file at ~roosting_threshold seconds. When the bird eventually
+#     departs, a departure clip is extracted from the rolling frame buffer
+#     instead of the visit file. Saves significant disk space on cameras where
+#     birds roost for hours or overnight.
+#
+# roosting_detection_interval — Seconds between YOLO checks during a roost in
+#   stop mode. Instead of checking every frame_interval frames, the system
+#   polls once per this many seconds. Reduces CPU load during long roosts.
+#   Has no effect in continuous mode.
+
+roosting_recording_mode: continuous
+roosting_detection_interval: 30
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stream Recovery
+# ─────────────────────────────────────────────────────────────────────────────
+# YouTube streams occasionally drop for seconds at a time. These settings
+# prevent a brief outage from generating a false departure event and a broken
+# clip.
+#
+# stream_recovery_threshold   — If the stream drops for fewer than this many
+#   seconds, the system attempts recovery rather than treating it as a
+#   departure. Set lower (e.g. 15) on reliable streams; higher (e.g. 60) on
+#   flaky ones.
+#
+# stream_recovery_confirmation — After the stream comes back, the system waits
+#   this many seconds and checks whether the bird is still present before
+#   resuming normal operation. Prevents a recovery attempt on a stream that
+#   immediately drops again.
+
+stream_recovery_threshold: 30
+stream_recovery_confirmation: 10
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Arrival Confirmation
+# ─────────────────────────────────────────────────────────────────────────────
+# A single-frame detection is not enough to trigger an ARRIVED event. The
+# system runs a confirmation window to filter out shadows, pigeons flying
+# past, or momentary false positives.
+#
+# arrival_confirmation_seconds — Length of the confirmation window. During
+#   this window the system counts how many frames contain a detection.
+#
+# arrival_confirmation_ratio   — Fraction of frames in the window that must
+#   contain a detection to confirm arrival. 0.3 = 30%. At frame_interval=3
+#   and 30fps, that's roughly 1 positive detection per second over 10 seconds.
+#   Raise to 0.5 for stricter confirmation; lower to 0.2 for faster response.
+#
+# Note: Recording begins immediately at the suspected arrival — the
+# confirmation window only controls when the Telegram notification fires and
+# when the arrival clip is finalized. A failed confirmation discards the clip.
+
+arrival_confirmation_seconds: 10
+arrival_confirmation_ratio: 0.3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications (Startup)
+# ─────────────────────────────────────────────────────────────────────────────
+# notify_on_startup        — If true and a bird is already present when the
+#   container starts, send a Telegram notification. Useful if the container
+#   restarts during an active visit.
+#
+# record_arrival_on_startup — If true, also record an arrival clip when a bird
+#   is detected at startup. The visit recording always starts at startup
+#   presence so departure clips work regardless of this setting.
+
+notify_on_startup: false
+record_arrival_on_startup: false
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Clip Extraction
+# ─────────────────────────────────────────────────────────────────────────────
+# All clip timing values are in SECONDS of video, not frames.
+#
+# clips_dir             — Directory where all clips and event JSON files are
+#   written. Relative to the container working directory; typically mapped
+#   to a ZFS dataset via Docker volume.
+#
+# clip_arrival_before   — Seconds of footage before the detected arrival frame
+#   to include in the arrival clip. Pulls from the pre-event frame buffer.
+#
+# clip_arrival_after    — Seconds of footage after the arrival frame. Together
+#   with clip_arrival_before this defines the arrival clip length.
+#   Default: 15 + 30 = 45 second arrival clip.
+#
+# clip_departure_before — Seconds before the last detected frame to include in
+#   the departure clip.
+#
+# clip_departure_after  — Seconds after the last detected frame. Default:
+#   30 + 15 = 45 second departure clip, ending with ~15s of empty nest.
+#
+# short_visit_threshold — Visits shorter than this many seconds are not saved
+#   to the event store. Prevents cluttering the timeline with flyby detections
+#   that passed confirmation but never settled. Minimum: 60.
+
 clips_dir: "clips"
 clip_arrival_before: 15
 clip_arrival_after: 30
 clip_departure_before: 30
 clip_departure_after: 15
-short_visit_threshold: 600     # >= 60s required
+short_visit_threshold: 600
 
-# Notifications
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications — Telegram (Public)
+# ─────────────────────────────────────────────────────────────────────────────
+# Public-facing arrival/departure alerts sent to a Telegram channel.
+#
+# telegram_enabled            — Set true to activate Telegram notifications.
+#   Requires TELEGRAM_BOT_TOKEN env variable set on the container.
+#
+# telegram_channel            — Channel username (e.g. "@kanyo_sydney") or
+#   numeric chat ID. The bot must be an admin of the channel.
+#
+# notification_cooldown_minutes — Minimum minutes between consecutive Telegram
+#   messages. Prevents flooding if the bird makes rapid arrivals/departures.
+
 telegram_enabled: false
 telegram_channel: ""
 notification_cooldown_minutes: 5
 
-# Admin Error Notifications (separate from public Telegram)
-# Get free push notifications at https://ntfy.sh
-ntfy_admin_enabled: false           # Enable admin-only system alerts
-ntfy_topic: "kanyo_admin_errors"    # ntfy.sh topic for connection failures, errors, etc.
 
-# Display Metadata (for public viewer site)
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications — ntfy (Admin Errors)
+# ─────────────────────────────────────────────────────────────────────────────
+# Separate push notification channel for operator-only alerts: stream
+# connection failures, unrecoverable errors, container restart events.
+# Uses https://ntfy.sh (free, no account required for public topics).
+#
+# ntfy_admin_enabled — Set true to activate admin alerts.
+# ntfy_topic         — ntfy.sh topic name. Use something unguessable if you
+#   want privacy; ntfy topics are public by default.
+
+ntfy_admin_enabled: false
+ntfy_topic: "kanyo_admin_errors"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Display Metadata
+# ─────────────────────────────────────────────────────────────────────────────
+# These fields populate the public viewer site. They are not used by the
+# detection engine — change them freely without affecting recording behaviour.
+#
+# short_name    — 2–4 word label for stream cards on the landing page.
+# location      — Human-readable location for the stream detail view.
+# coordinates   — [latitude, longitude] decimal degrees. Used for map display.
+# species       — Full species name shown on the stream page.
+# nest_status   — One-line status (e.g. "Active nesting", "Fledgling season").
+# maintainer    — Organisation or person who operates the camera.
+# maintainer_url — Optional link to the maintainer's website or donate page.
+# description   — 1–3 sentence description shown on the stream page.
+
 display:
-  short_name: "My Cam"                    # Brief name for stream cards
-  location: "City, State/Country"          # Full location description
-  coordinates: [0.0, 0.0]                  # [latitude, longitude]
+  short_name: "My Cam"
+  location: "City, State/Country"
+  coordinates: [0.0, 0.0]
   species: "Peregrine Falcon (Falco peregrinus)"
-  nest_status: "Active nesting site"      # Current status description
-  maintainer: "Organization Name"          # Who maintains the camera
-  maintainer_url: "https://example.com"    # Optional website link
+  nest_status: "Active nesting site"
+  maintainer: "Organization Name"
+  maintainer_url: "https://example.com"
   description: "Brief description of the camera location and purpose for public viewers."
 
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Logging
-log_level: "DEBUG"        # DEBUG, INFO, WARNING, ERROR
+# ─────────────────────────────────────────────────────────────────────────────
+# log_level — Verbosity. DEBUG logs every frame decision; INFO logs events and
+#   state transitions only. Use DEBUG while tuning thresholds, INFO in
+#   production.
+# log_file  — Path inside the container. Typically mapped to a host directory
+#   via Docker volume for persistence across container restarts.
+
+log_level: "DEBUG"
 log_file: "logs/kanyo.log"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HOBBY vs RESEARCH
+# ─────────────────────────────────────────────────────────────────────────────
+# Default settings are optimised for a hobby monitoring setup:
+#   - roosting_recording_mode: continuous  (simple; change to stop to save disk)
+#   - detection_confidence: 0.3            (generous; catches most visits)
+#   - short_visit_threshold: 600           (skips brief flybys)
+#   - model_path: yolov8n.pt               (fast nano model)
+#
+# For research archiving, consider:
+#   - roosting_recording_mode: continuous  (preserve complete visit footage)
+#   - detection_confidence: 0.2–0.25       (maximum recall; review false positives manually)
+#   - short_visit_threshold: 60            (capture even brief landings)
+#   - model_path: yolov8s.pt               (small model; better accuracy, more CPU)
+#   - No clip retention limits             (keep all footage indefinitely)
+#
+# If you're working on raptor ecology or wildlife monitoring and want to
+# discuss what this platform could support at research scale, open an issue:
+#   https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev
