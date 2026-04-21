@@ -22,3 +22,4 @@ markdown>=3.5.0                # Markdown processing
 
 # Data handling (optional)
 python-dateutil>=2.8.0         # Date parsing utilities
+tzdata>=2024.1                 # IANA timezone database for zoneinfo (required in containers)
