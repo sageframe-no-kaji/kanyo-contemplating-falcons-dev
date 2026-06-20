@@ -390,6 +390,10 @@ class BufferMonitor:
                 self._cancel_arrival(ratio)
                 return  # Do not process departure normally
 
+            # Stop arrival clip if still active (short visit may not have hit its time limit)
+            if self.arrival_clip_recorder.is_recording():
+                self.arrival_clip_recorder.stop_recording(event_time)
+
             # Handle departure from roosting stop mode (visit recorder already stopped)
             if self.roosting_mode_active and self.roosting_recording_mode == "stop":
                 logger.event("🦅 DEPARTURE from roost — extracting departure clip from buffer")

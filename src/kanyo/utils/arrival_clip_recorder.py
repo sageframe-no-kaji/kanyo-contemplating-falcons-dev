@@ -6,7 +6,7 @@ Manages recording of arrival clips alongside main visit recordings.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,6 +40,8 @@ class ArrivalClipRecorder:
         self._clip_path: Path | None = None
         self._frames_written: int = 0
         self._max_frames: int = 0
+        self._start_time: datetime | None = None
+        self._max_duration_seconds: float = 0.0
 
     def is_recording(self) -> bool:
         """Check if currently recording an arrival clip."""
@@ -62,6 +64,11 @@ class ArrivalClipRecorder:
         Returns:
             True if recording started successfully
         """
+        if self._recorder is not None:
+            # Rapid swap or slow-stream starvation left previous clip open; close it first.
+            logger.warning("Arrival clip still active on new arrival — stopping before starting new one")
+            self.stop_recording(datetime.now(timezone.utc))
+
         clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
 
         clip_path, recorder = self.clip_manager.create_standalone_arrival_clip(
@@ -75,6 +82,8 @@ class ArrivalClipRecorder:
             self._clip_path = clip_path
             self._frames_written = len(lead_in_frames) if lead_in_frames else 0
             self._max_frames = int(clip_duration * self.clip_manager.clip_fps)
+            self._start_time = arrival_time
+            self._max_duration_seconds = float(clip_duration)
             logger.event(
                 f"📹 Arrival clip will record {self._max_frames} frames ({clip_duration}s)"
             )
@@ -86,7 +95,8 @@ class ArrivalClipRecorder:
         """
         Write a frame to the arrival clip recording.
 
-        Automatically stops recording when max frames reached.
+        Automatically stops recording when wall-clock duration is reached
+        (time-based) or frame count is reached (fallback).
 
         Args:
             frame_data: Frame to write
@@ -98,7 +108,16 @@ class ArrivalClipRecorder:
         self._recorder.write_frame(frame_data)
         self._frames_written += 1
 
-        # Stop recording after max frames reached
+        # Time-based stop: wall-clock elapsed beats frame count when stream runs slow.
+        # A slow YouTube stream can starve the frame counter for minutes; wall-clock
+        # guarantees the clip closes on schedule regardless of delivery rate.
+        if self._start_time is not None:
+            elapsed = (current_time - self._start_time).total_seconds()
+            if elapsed >= self._max_duration_seconds:
+                self.stop_recording(current_time)
+                return
+
+        # Frame-count fallback (fast streams, or tz-naive arrival_time edge case)
         if self._frames_written >= self._max_frames:
             self.stop_recording(current_time)
 
@@ -139,6 +158,8 @@ class ArrivalClipRecorder:
         self._clip_path = None
         self._frames_written = 0
         self._max_frames = 0
+        self._start_time = None
+        self._max_duration_seconds = 0.0
 
     def rename_to_final(self) -> Path | None:
         """Rename .tmp file to final name. Returns final path."""

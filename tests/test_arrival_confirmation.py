@@ -222,3 +222,116 @@ class TestArrivalConfirmationIntegration:
         # Pending state should be cleared
         assert monitor.arrival_pending is False
         assert monitor.arrival_pending_start is None
+
+
+class TestArrivalClipRecorderZombieGuard:
+    """Tests for the zombie ffmpeg process prevention fixes."""
+
+    def test_start_recording_stops_existing_recorder_first(self):
+        """start_recording() must stop any active recorder before creating a new one.
+
+        Root cause of the zombie bug: rapid nest swaps call start_recording() while
+        the previous arrival clip is still open, orphaning its ffmpeg process.
+        """
+        from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder
+
+        mock_clip_manager = Mock()
+        mock_clip_manager.clip_arrival_before = 15
+        mock_clip_manager.clip_arrival_after = 30
+        mock_clip_manager.clip_fps = 30
+
+        new_recorder = Mock()
+        new_recorder.stop_recording.return_value = (None, {})
+        mock_clip_manager.create_standalone_arrival_clip.return_value = (
+            Path("/fake/arrival.mp4.tmp"),
+            new_recorder,
+        )
+
+        acr = ArrivalClipRecorder(mock_clip_manager)
+
+        # Inject an already-active recorder (simulates an orphaned clip)
+        existing_recorder = Mock()
+        existing_recorder.stop_recording.return_value = (None, {})
+        acr._recorder = existing_recorder
+        acr._clip_path = Path("/fake/old_arrival.mp4.tmp")
+
+        now = datetime(2026, 6, 19, 12, 0, 0)
+        acr.start_recording(arrival_time=now, lead_in_frames=[], frame_size=(1280, 720))
+
+        # Old recorder must have been stopped before starting the new one
+        existing_recorder.stop_recording.assert_called_once()
+        # New recorder is now active
+        assert acr._recorder is new_recorder
+
+    def test_start_recording_initialises_time_fields(self):
+        """start_recording() must set _start_time and _max_duration_seconds."""
+        from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder
+
+        mock_clip_manager = Mock()
+        mock_clip_manager.clip_arrival_before = 15
+        mock_clip_manager.clip_arrival_after = 30
+        mock_clip_manager.clip_fps = 30
+
+        mock_recorder = Mock()
+        mock_recorder.stop_recording.return_value = (None, {})
+        mock_clip_manager.create_standalone_arrival_clip.return_value = (
+            Path("/fake/arrival.mp4.tmp"),
+            mock_recorder,
+        )
+
+        acr = ArrivalClipRecorder(mock_clip_manager)
+        arrival = datetime(2026, 6, 19, 12, 0, 0)
+        acr.start_recording(arrival_time=arrival, lead_in_frames=[], frame_size=(1280, 720))
+
+        assert acr._start_time == arrival
+        assert acr._max_duration_seconds == 45.0
+
+    def test_write_frame_stops_on_wall_clock_elapsed(self):
+        """write_frame() must stop recording when wall-clock duration is reached.
+
+        This is the root-cause fix: YouTube streams deliver frames slowly under load,
+        so frame-count alone never reaches _max_frames. Time-based stop guarantees
+        the clip closes on schedule.
+        """
+        from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder
+
+        mock_clip_manager = Mock()
+        acr = ArrivalClipRecorder(mock_clip_manager)
+
+        mock_inner = Mock()
+        mock_inner.write_frame.return_value = True
+        mock_inner.stop_recording.return_value = (None, {})
+        acr._recorder = mock_inner
+        acr._clip_path = Path("/fake/arrival.mp4.tmp")
+        acr._max_frames = 9999  # Frame count would never trigger stop
+        acr._max_duration_seconds = 45.0
+
+        arrival = datetime(2026, 6, 19, 12, 0, 0)
+        acr._start_time = arrival
+
+        # Write one frame at t+50s — past the 45s wall-clock limit
+        late_time = datetime(2026, 6, 19, 12, 0, 50)
+        acr.write_frame(frame_data=Mock(), current_time=late_time)
+
+        mock_inner.stop_recording.assert_called_once()
+        assert acr._recorder is None
+
+    def test_stop_recording_resets_time_fields(self):
+        """stop_recording() must reset _start_time and _max_duration_seconds."""
+        from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder
+
+        mock_clip_manager = Mock()
+        acr = ArrivalClipRecorder(mock_clip_manager)
+
+        mock_inner = Mock()
+        mock_inner.stop_recording.return_value = (None, {})
+        acr._recorder = mock_inner
+        acr._clip_path = Path("/fake/arrival.mp4.tmp")
+        acr._start_time = datetime(2026, 6, 19, 12, 0, 0)
+        acr._max_duration_seconds = 45.0
+
+        acr.stop_recording(datetime(2026, 6, 19, 12, 0, 45))
+
+        assert acr._start_time is None
+        assert acr._max_duration_seconds == 0.0
+        assert acr._recorder is None
