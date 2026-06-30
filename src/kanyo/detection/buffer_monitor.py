@@ -195,6 +195,10 @@ class BufferMonitor:
         self.recovery_pending_start: datetime | None = None
         self.recovery_detection_count = 0
         self.recovery_frame_count = 0
+        # Latest detection timestamp seen during the recovery window — passed
+        # to state_machine.confirm_recovery_presence so visit duration is not
+        # inflated by the confirmation window length. See 021-J.
+        self.recovery_latest_detection: datetime | None = None
 
         # Load arrival confirmation config
         self.arrival_confirmation_seconds = (
@@ -302,6 +306,7 @@ class BufferMonitor:
                 self.recovery_frame_count += 1
                 if falcon_detected:
                     self.recovery_detection_count += 1
+                    self.recovery_latest_detection = now
 
                 elapsed = (now - self.recovery_pending_start).total_seconds()
                 if elapsed >= self.stream_recovery_confirmation:
@@ -639,15 +644,20 @@ class BufferMonitor:
             f"({self.recovery_detection_count}/{self.recovery_frame_count} frames)"
         )
 
-        # Confirm recovery in state machine (restores previous state)
+        # Confirm recovery in state machine (restores previous state).
+        # Pass the actual latest detection time so visit duration isn't
+        # inflated by the recovery window length (see 021-J).
         now = get_now_tz(self.full_config)
-        self.state_machine.confirm_recovery_presence(now)
+        self.state_machine.confirm_recovery_presence(
+            now, latest_detection_time=self.recovery_latest_detection
+        )
 
         # Reset recovery pending state only
         self.recovery_pending = False
         self.recovery_pending_start = None
         self.recovery_detection_count = 0
         self.recovery_frame_count = 0
+        self.recovery_latest_detection = None
 
     def _cancel_recovery(self, ratio: float) -> None:
         """Cancel recovery - falcon left during the stream outage.
@@ -674,6 +684,7 @@ class BufferMonitor:
         self.recovery_pending_start = None
         self.recovery_detection_count = 0
         self.recovery_frame_count = 0
+        self.recovery_latest_detection = None
 
     def _reset_pending_states(self) -> None:
         """Reset all pending confirmation states (startup, arrival, and recovery)."""
@@ -691,6 +702,7 @@ class BufferMonitor:
         self.recovery_pending_start = None
         self.recovery_detection_count = 0
         self.recovery_frame_count = 0
+        self.recovery_latest_detection = None
 
     def run(self) -> None:
         """Main monitoring loop."""
@@ -755,6 +767,7 @@ class BufferMonitor:
                         self.recovery_pending_start = now
                         self.recovery_detection_count = 0
                         self.recovery_frame_count = 0
+                        self.recovery_latest_detection = None
 
                         logger.info(
                             f"🔄 Starting recovery confirmation "
