@@ -8,12 +8,16 @@ Roosting is mainly for notifications - both states use the same exit timeout.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from kanyo.utils.logger import get_logger
 
 from .event_types import FalconEvent, FalconState
 
 logger = get_logger(__name__)
+
+EventMetadata = dict[str, Any]
+StateEvent = tuple[FalconEvent, datetime, EventMetadata]
 
 
 class FalconStateMachine:
@@ -65,9 +69,7 @@ class FalconStateMachine:
         self.pre_outage_state: FalconState | None = None
         self.pre_outage_roosting_start: datetime | None = None
 
-    def update(
-        self, falcon_detected: bool, timestamp: datetime
-    ) -> list[tuple[FalconEvent, datetime, dict]]:
+    def update(self, falcon_detected: bool, timestamp: datetime) -> list[StateEvent]:
         """
         Update state based on detection status.
 
@@ -78,7 +80,7 @@ class FalconStateMachine:
         Returns:
             List of (event_type, event_timestamp, metadata) tuples for events that occurred
         """
-        events = []
+        events: list[StateEvent] = []
 
         if falcon_detected:
             events.extend(self._handle_detection(timestamp))
@@ -104,9 +106,9 @@ class FalconStateMachine:
             FalconState.PENDING_RECOVERY,
         )
 
-    def _handle_detection(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
+    def _handle_detection(self, timestamp: datetime) -> list[StateEvent]:
         """Handle falcon detection based on current state."""
-        events = []
+        events: list[StateEvent] = []
 
         if self.state == FalconState.ABSENT:
             # ABSENT → VISITING: Falcon arrived
@@ -144,7 +146,7 @@ class FalconStateMachine:
                     self.state = FalconState.ROOSTING
                     self.roosting_start = timestamp
 
-                    metadata: dict[str, datetime | float | None] = {
+                    metadata: EventMetadata = {
                         "visit_start": self.visit_start,
                         "visit_duration_seconds": visit_duration,
                         "roosting_start": timestamp,
@@ -168,9 +170,9 @@ class FalconStateMachine:
 
         return events
 
-    def _handle_absence(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
+    def _handle_absence(self, timestamp: datetime) -> list[StateEvent]:
         """Handle falcon absence based on current state."""
-        events = []
+        events: list[StateEvent] = []
 
         # Track absence start
         if self.last_absence_start is None and self.last_detection is not None:
@@ -358,7 +360,7 @@ class FalconStateMachine:
         self.pre_outage_roosting_start = None
         logger.info(f"✅ RECOVERY CONFIRMED - falcon still present, resuming {self.state.value}")
 
-    def cancel_recovery(self, timestamp: datetime) -> list[tuple[FalconEvent, datetime, dict]]:
+    def cancel_recovery(self, timestamp: datetime) -> list[StateEvent]:
         """
         Cancel recovery - falcon left during the stream outage.
 
@@ -373,6 +375,10 @@ class FalconStateMachine:
         if self.state != FalconState.PENDING_RECOVERY:
             logger.warning(f"cancel_recovery called in {self.state} state, ignoring")
             return []
+
+        # Invariant: entering PENDING_RECOVERY only happens from VISITING/ROOSTING,
+        # both of which require last_detection to have been set.
+        assert self.last_detection is not None, "PENDING_RECOVERY entered without last_detection"
 
         # Generate departure event with last_detection (from before outage)
         total_duration = (
