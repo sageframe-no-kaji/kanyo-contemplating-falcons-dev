@@ -1,32 +1,73 @@
 """Clip browsing and management service."""
 
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 from zoneinfo import ZoneInfo
 import re
 from PIL import Image, ImageDraw
 
+# DUPLICATE — keep in sync with src/kanyo/utils/config.py OFFSET_TO_TZ.
+# Admin container doesn't import kanyo, so the mapping is copied here.
+# See 021-G.
+OFFSET_TO_TZ = {
+    "+11:00": "Australia/Sydney",
+    "+10:00": "Australia/Brisbane",
+    "+09:30": "Australia/Adelaide",
+    "+08:00": "Asia/Singapore",
+    "-05:00": "America/New_York",
+    "-06:00": "America/Chicago",
+    "-07:00": "America/Denver",
+    "-08:00": "America/Los_Angeles",
+    "-10:00": "Pacific/Honolulu",
+    "+00:00": "UTC",
+}
 
-def get_stream_timezone(stream_timezone: str) -> ZoneInfo:
+
+def get_stream_timezone(stream_timezone: str) -> tzinfo:
     """
-    Parse stream timezone string to ZoneInfo object.
+    Parse stream timezone string to a tzinfo object.
+
+    Supports:
+    - IANA names: "Australia/Sydney", "America/New_York"
+    - Mapped offsets via OFFSET_TO_TZ: "+11:00" → Australia/Sydney
+    - Unmapped ±HH:MM offsets: returns a fixed-offset timezone (not UTC)
+    - Invalid: returns UTC with no exception
 
     Args:
-        stream_timezone: IANA timezone name (e.g., "Australia/Sydney") or offset (e.g., "+11:00")
+        stream_timezone: timezone string from stream config
 
     Returns:
-        ZoneInfo object for the stream's timezone
+        tzinfo (ZoneInfo for IANA / mapped, datetime.timezone for raw offsets)
     """
-    # Handle IANA timezone names
-    if "/" in stream_timezone or stream_timezone in ("UTC", "GMT"):
+    if not stream_timezone or stream_timezone in ("UTC", "GMT", "+00:00"):
+        return ZoneInfo("UTC")
+
+    # IANA name
+    if "/" in stream_timezone:
         try:
             return ZoneInfo(stream_timezone)
         except Exception:
             return ZoneInfo("UTC")
 
-    # Handle offset format (legacy) - just use UTC for admin
-    # The detection system will handle proper offset parsing
+    # Mapped legacy offset → real IANA zone (DST-aware)
+    if stream_timezone in OFFSET_TO_TZ:
+        try:
+            return ZoneInfo(OFFSET_TO_TZ[stream_timezone])
+        except Exception:
+            return ZoneInfo("UTC")
+
+    # Unmapped ±HH:MM offset → fixed-offset tzinfo (NOT UTC)
+    if stream_timezone.startswith(("+", "-")):
+        try:
+            sign = 1 if stream_timezone[0] == "+" else -1
+            parts = stream_timezone[1:].split(":")
+            hours = int(parts[0])
+            minutes = int(parts[1]) if len(parts) > 1 else 0
+            return timezone(timedelta(hours=sign * hours, minutes=sign * minutes))
+        except Exception:
+            return ZoneInfo("UTC")
+
     return ZoneInfo("UTC")
 
 
@@ -380,53 +421,76 @@ def get_today_visits(clips_path: str) -> int:
     return sum(1 for clip in clips if clip["type"] == "arrival")
 
 
-def get_last_event(clips_path: str) -> Optional[dict]:
+def get_last_event(clips_path: str, stream_timezone: str = "UTC") -> Optional[dict]:
     """
-    Get most recent event.
+    Get the most recent event in the stream's timezone.
+
+    Uses date folders and parsed filename timestamps, NOT file mtime — so
+    a stream in +11:00 displays an event time correctly even when the
+    server is in UTC. See 021-G.
 
     Args:
         clips_path: Path to clips directory
+        stream_timezone: Stream's timezone (IANA name or legacy offset)
 
     Returns:
-        Dict with time, type, ago or None
+        Dict with time, type, date, ago — or None if no events found.
     """
     clips_dir = Path(clips_path)
     if not clips_dir.exists():
         return None
 
-    latest_file = None
-    latest_time = 0
+    tz = get_stream_timezone(stream_timezone)
+    now_local = datetime.now(tz)
+
+    # Pattern: falcon_HHMMSS_type.ext (mp4/jpg/etc.). Skip .tmp and .log.
+    pattern = re.compile(
+        r"falcon_(\d{6})_(\w+)\.(mp4|jpg|jpeg|avi|mov|mkv|png)$",
+        re.IGNORECASE,
+    )
+
+    latest_dt: Optional[datetime] = None
     latest_type = ""
 
-    # Search recent date folders (last 7 days)
+    # Walk the last 7 date folders in stream-local time
     for i in range(7):
-        date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-        date_path = clips_dir / date
-
+        date_str = (now_local - timedelta(days=i)).strftime("%Y-%m-%d")
+        date_path = clips_dir / date_str
         if not date_path.exists():
             continue
 
-        # Pattern: falcon_HHMMSS_type.ext
-        pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(\w+)$")
+        try:
+            date_part = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
 
         for file in date_path.iterdir():
+            if not file.is_file():
+                continue
             match = pattern.match(file.name)
             if not match:
                 continue
+            time_str, ev_type, _ext = match.groups()
+            try:
+                clip_dt = date_part.replace(
+                    hour=int(time_str[:2]),
+                    minute=int(time_str[2:4]),
+                    second=int(time_str[4:6]),
+                    tzinfo=tz,
+                )
+            except (ValueError, OverflowError):
+                continue
+            # Skip "future" files (clock skew, bad filenames)
+            if clip_dt > now_local:
+                continue
+            if latest_dt is None or clip_dt > latest_dt:
+                latest_dt = clip_dt
+                latest_type = ev_type
 
-            mtime = file.stat().st_mtime
-            if mtime > latest_time:
-                latest_time = mtime
-                latest_type = match.group(2)
-                latest_file = file
-
-    if not latest_file:
+    if latest_dt is None:
         return None
 
-    # Calculate time ago
-    now = datetime.now().timestamp()
-    delta_seconds = int(now - latest_time)
-
+    delta_seconds = int((now_local - latest_dt).total_seconds())
     if delta_seconds < 60:
         ago = f"{delta_seconds}s ago"
     elif delta_seconds < 3600:
@@ -437,8 +501,9 @@ def get_last_event(clips_path: str) -> Optional[dict]:
         ago = f"{delta_seconds // 86400}d ago"
 
     return {
-        "time": datetime.fromtimestamp(latest_time).strftime("%H:%M:%S"),
+        "time": latest_dt.strftime("%H:%M:%S"),
         "type": latest_type,
+        "date": latest_dt.strftime("%Y-%m-%d"),
         "ago": ago,
     }
 

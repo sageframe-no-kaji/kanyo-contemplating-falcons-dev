@@ -180,6 +180,11 @@ def _parse_timezone(tz_str: str) -> ZoneInfo | timezone:
     return timezone.utc
 
 
+# Public alias — kept stable so external consumers (admin web service,
+# downstream tooling) can rely on the name. See 021-G.
+parse_stream_timezone = _parse_timezone
+
+
 def get_now_tz(config: dict[str, Any]) -> datetime:
     """Get current time in the configured timezone."""
     tz_obj = config.get("timezone_obj", timezone.utc)
