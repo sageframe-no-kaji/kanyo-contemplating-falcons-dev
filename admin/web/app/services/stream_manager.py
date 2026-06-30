@@ -1,5 +1,6 @@
 """Stream creation and management."""
 
+import os
 import re
 import subprocess
 
@@ -49,6 +50,21 @@ SERVICES_BASE = Path("/opt/services")
 ADMIN_COMPOSE = Path("/opt/services/kanyo-admin/docker-compose.yml")
 
 
+def stream_root_for(stream_id: str) -> Path:
+    """Canonical filesystem root for a stream's config/clips/logs.
+
+    Mirrors the compose volume default (`./data/{id}`, resolved relative
+    to ADMIN_COMPOSE.parent) so create_stream() writes files at the same
+    path the detection container mounts. The KANYO_{STREAM}_ROOT env var
+    overrides both — compose reads it as a volume default; this function
+    reads the same name so file creation and mount stay in sync.
+    """
+    override = os.environ.get(f"KANYO_{stream_id.upper()}_ROOT")
+    if override:
+        return Path(override)
+    return ADMIN_COMPOSE.parent / "data" / stream_id
+
+
 def validate_stream_id(stream_id: str) -> tuple[bool, str]:
     """Validate stream ID format."""
     if not stream_id:
@@ -84,7 +100,7 @@ def create_stream(
     if not video_source.startswith("http"):
         return False, "Video source must be a valid URL"
 
-    stream_dir = SERVICES_BASE / f"kanyo-{stream_id}"
+    stream_dir = stream_root_for(stream_id)
 
     # Check if already exists
     if stream_dir.exists():
