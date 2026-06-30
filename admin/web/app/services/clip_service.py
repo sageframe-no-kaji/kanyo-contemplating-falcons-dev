@@ -23,6 +23,19 @@ OFFSET_TO_TZ = {
     "+00:00": "UTC",
 }
 
+def _find_thumbnail_at_time(date_path: Path, time_str: str, event_type: str) -> Optional[Path]:
+    """Locate a thumbnail file for the given HHMMSS and event type.
+
+    Tries the new format (021-I: includes microseconds:
+    falcon_HHMMSS_FFFFFF_type.jpg) first, then falls back to the legacy
+    format (no microseconds) for older recordings.
+    """
+    new_format = next(date_path.glob(f"falcon_{time_str}_*_{event_type}.jpg"), None)
+    if new_format and new_format.exists():
+        return new_format
+    legacy = date_path / f"falcon_{time_str}_{event_type}.jpg"
+    return legacy if legacy.exists() else None
+
 
 def get_stream_timezone(stream_timezone: str) -> tzinfo:
     """
@@ -165,9 +178,12 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
     if not date_path.exists():
         return []
 
-    # Pattern: falcon_HHMMSS_type.ext (only completed media files)
-    # Exclude .tmp (in-progress) and .log files
-    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(mp4|jpg|jpeg|avi|mov|mkv|png)$")
+    # Pattern: falcon_HHMMSS[_FFFFFF]_type.ext (microseconds optional for
+    # backward compat with older recordings). Excludes .tmp and .log files.
+    pattern = re.compile(
+        r"falcon_(?P<time>\d{6})(?:_(?P<usec>\d{6}))?_(?P<type>[a-z]+)\."
+        r"(?P<ext>mp4|jpg|jpeg|avi|mov|mkv|png)$"
+    )
 
     for clip_file in sorted(date_path.iterdir(), reverse=True):
         if not clip_file.is_file():
@@ -177,7 +193,9 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
         if not match:
             continue
 
-        time_str, clip_type, ext = match.groups()
+        time_str = match.group("time")
+        clip_type = match.group("type")
+        ext = match.group("ext")
 
         # Parse time
         hour = time_str[:2]
@@ -195,7 +213,7 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
 
             # For visit clips, create composite thumbnail from arrival + nearest departure
             if clip_type == "visit" and not thumb_path.exists():
-                arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
+                arrival_thumb = _find_thumbnail_at_time(date_path, time_str, "arrival")
 
                 # Find departure thumbnail - it may be at a later time
                 departure_thumb = None
@@ -205,7 +223,7 @@ def list_clips(clips_path: str, date: str) -> list[dict]:
                         departure_thumb = dep_file
                         break
 
-                if arrival_thumb.exists() and departure_thumb and departure_thumb.exists():
+                if arrival_thumb and departure_thumb and departure_thumb.exists():
                     create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
 
             has_thumbnail = thumb_path.exists()
@@ -258,9 +276,12 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
         dates_to_check.add(current.strftime("%Y-%m-%d"))
         current += timedelta(days=1)
 
-    # Pattern: falcon_HHMMSS_type.ext (only completed media files)
-    # Exclude .tmp (in-progress) and .log files
-    pattern = re.compile(r"falcon_(\d{6})_(\w+)\.(mp4|jpg|jpeg|avi|mov|mkv|png)$")
+    # Pattern: falcon_HHMMSS[_FFFFFF]_type.ext (microseconds optional for
+    # backward compat with older recordings). Excludes .tmp and .log files.
+    pattern = re.compile(
+        r"falcon_(?P<time>\d{6})(?:_(?P<usec>\d{6}))?_(?P<type>[a-z]+)\."
+        r"(?P<ext>mp4|jpg|jpeg|avi|mov|mkv|png)$"
+    )
 
     for date_str in sorted(dates_to_check):
         date_path = clips_dir / date_str
@@ -275,7 +296,9 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
             if not match:
                 continue
 
-            time_str, clip_type, ext = match.groups()
+            time_str = match.group("time")
+            clip_type = match.group("type")
+            ext = match.group("ext")
 
             # Parse clip datetime
             hour = int(time_str[:2])
@@ -306,7 +329,7 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
 
                 # For visit clips, create composite thumbnail
                 if clip_type == "visit" and not thumb_path.exists():
-                    arrival_thumb = date_path / f"falcon_{time_str}_arrival.jpg"
+                    arrival_thumb = _find_thumbnail_at_time(date_path, time_str, "arrival")
 
                     # Find the closest departure after this visit start
                     # Need to find the matching departure, not just any departure after this time
@@ -334,10 +357,10 @@ def list_clips_since(clips_path: str, stream_timezone: str, hours: int = 24) -> 
                                 closest_time_diff = time_diff
                                 departure_thumb = dep_file
 
-                    if arrival_thumb.exists() and departure_thumb and departure_thumb.exists():
+                    if arrival_thumb and departure_thumb and departure_thumb.exists():
                         # Complete visit: create composite thumbnail
                         create_visit_thumbnail(arrival_thumb, departure_thumb, thumb_path)
-                    elif arrival_thumb.exists():
+                    elif arrival_thumb:
                         # In-progress visit: use arrival thumbnail as fallback
                         import shutil
 
@@ -443,9 +466,11 @@ def get_last_event(clips_path: str, stream_timezone: str = "UTC") -> Optional[di
     tz = get_stream_timezone(stream_timezone)
     now_local = datetime.now(tz)
 
-    # Pattern: falcon_HHMMSS_type.ext (mp4/jpg/etc.). Skip .tmp and .log.
+    # Pattern: falcon_HHMMSS[_FFFFFF]_type.ext (microseconds optional for
+    # backward compat with older recordings; see 021-I). Skip .tmp and .log.
     pattern = re.compile(
-        r"falcon_(\d{6})_(\w+)\.(mp4|jpg|jpeg|avi|mov|mkv|png)$",
+        r"falcon_(?P<time>\d{6})(?:_(?P<usec>\d{6}))?_(?P<type>[a-z]+)\."
+        r"(?P<ext>mp4|jpg|jpeg|avi|mov|mkv|png)$",
         re.IGNORECASE,
     )
 
@@ -470,7 +495,8 @@ def get_last_event(clips_path: str, stream_timezone: str = "UTC") -> Optional[di
             match = pattern.match(file.name)
             if not match:
                 continue
-            time_str, ev_type, _ext = match.groups()
+            time_str = match.group("time")
+            ev_type = match.group("type")
             try:
                 clip_dt = date_part.replace(
                     hour=int(time_str[:2]),

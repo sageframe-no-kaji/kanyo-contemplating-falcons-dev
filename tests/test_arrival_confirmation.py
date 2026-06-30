@@ -82,7 +82,9 @@ class TestArrivalConfirmation:
         result_path = save_thumbnail(mock_frame, "clips", timestamp, "arrival")
 
         assert result_path.endswith(".jpg")
-        assert "falcon_103000_arrival" in result_path
+        # 021-I: filename now includes microseconds: falcon_<HHMMSS>_<usec>_<type>
+        assert "falcon_103000_" in result_path
+        assert "_arrival.jpg" in result_path
 
     def test_visit_recorder_rename_to_final(self, tmp_path):
         """Test that visit recorder can rename .tmp file to final."""
