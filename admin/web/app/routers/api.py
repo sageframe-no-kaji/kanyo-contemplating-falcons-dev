@@ -76,7 +76,9 @@ async def restart_stream(stream_id: str):
     # Get clip info
     stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
     stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
+    stream["last_event"] = clip_service.get_last_event(
+        stream["clips_path"], stream.get("timezone", "UTC")
+    )
 
     return templates.TemplateResponse(
         "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
@@ -106,7 +108,9 @@ async def stop_stream(stream_id: str):
     # Get clip info
     stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
     stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
+    stream["last_event"] = clip_service.get_last_event(
+        stream["clips_path"], stream.get("timezone", "UTC")
+    )
 
     return templates.TemplateResponse(
         "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
@@ -136,7 +140,9 @@ async def start_stream(stream_id: str):
     # Get clip info
     stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
     stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
+    stream["last_event"] = clip_service.get_last_event(
+        stream["clips_path"], stream.get("timezone", "UTC")
+    )
 
     return templates.TemplateResponse(
         "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
