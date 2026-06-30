@@ -1,5 +1,9 @@
 """API router for JSON endpoints."""
 
+import html
+import json
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -16,6 +20,26 @@ from app.services import (
     system_service,
 )
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
+
+
+def _h(value) -> str:
+    """Escape value for HTML text/attribute context (covers both: quote=True)."""
+    return html.escape(str(value), quote=True)
+
+
+def _u(value) -> str:
+    """Percent-encode value for use as a URL path component (preserves '/')."""
+    return quote(str(value), safe="/")
+
+
+def _js(value) -> str:
+    """Render value as a JS literal safe for embedding inside an HTML attribute.
+
+    JSON-encoding handles JS-side escaping (quotes, backslashes, control chars);
+    html.escape then makes it safe inside an attribute value. Browser un-escapes
+    the attribute, JS parser sees a valid string literal.
+    """
+    return html.escape(json.dumps(str(value)), quote=True)
 
 
 router = APIRouter()
@@ -138,10 +162,10 @@ async def get_clips_for_date(request: Request, stream_id: str, hours: int = 24):
 
     # Render clips grid HTML
     if not clips:
-        return '<p class="text-zinc-400">No clips in the last ' + str(hours) + " hours</p>"
+        return f'<p class="text-zinc-400">No clips in the last {_h(hours)} hours</p>'
 
     # Render the clips grid (same as detail page)
-    html = """
+    html_out = """
     <!-- Legend -->
     <div class="flex gap-4 mb-4 text-xs">
         <span class="flex items-center gap-1">
@@ -158,6 +182,7 @@ async def get_clips_for_date(request: Request, stream_id: str, hours: int = 24):
     <div class="grid grid-cols-3 gap-3">
     """
 
+    stream_id_url = _u(stream_id)
     for clip in clips[:12]:
         thumb_name = clip["filename"].rsplit(".", 1)[0] + ".jpg"
         date_str = clip["date"]
@@ -167,14 +192,17 @@ async def get_clips_for_date(request: Request, stream_id: str, hours: int = 24):
             "visit": "bg-blue-600",
         }.get(clip["type"], "bg-zinc-600")
 
-        html += f"""
+        clip_url = f"/clips/{stream_id_url}/{_u(date_str)}/{_u(clip['filename'])}"
+        thumb_url = f"/clips/{stream_id_url}/{_u(date_str)}/{_u(thumb_name)}"
+        label = f"{clip['type']} at {clip['time']}"
+
+        html_out += f"""
         <div class="aspect-video bg-zinc-900 rounded overflow-hidden relative group cursor-pointer"
-             onclick="playClip('/clips/{stream_id}/{date_str}/{clip['filename']}', \
-'{clip['type']} at {clip['time']}')">
-            <img src="/clips/{stream_id}/{date_str}/{thumb_name}"
+             onclick="playClip({_js(clip_url)}, {_js(label)})">
+            <img src="{_h(thumb_url)}"
                  class="w-full h-full object-cover"
                  onerror="this.style.display='none'"
-                 alt="{clip['type']} at {clip['time']}">
+                 alt="{_h(label)}">
             <div class="absolute bottom-0 left-0 right-0 \
 bg-gradient-to-t from-black/80 to-transparent p-2">
                 <div class="flex flex-col gap-1">
@@ -185,11 +213,11 @@ VID</span>
                         </span>
                         <span class="px-1.5 py-0.5 rounded text-[10px] font-medium \
 {clip_type_color}">
-                            {clip['type']}
+                            {_h(clip['type'])}
                         </span>
                     </div>
                     <div class="text-[11px] text-white/90">
-                        {date_str} {clip['time']}
+                        {_h(date_str)} {_h(clip['time'])}
                     </div>
                 </div>
             </div>
@@ -200,8 +228,8 @@ group-hover:opacity-100 transition bg-black/30">
         </div>
         """
 
-    html += "</div>"
-    return html
+    html_out += "</div>"
+    return html_out
 
 
 @router.get("/streams/{stream_id}/events", response_class=HTMLResponse)
@@ -223,21 +251,25 @@ async def get_events_for_range(request: Request, stream_id: str, hours: int = 24
         else:
             days = hours // 24
             label = f"{days} days"
-        return f'<p class="text-zinc-500 text-sm">No events in the last {label}</p>'
+        return f'<p class="text-zinc-500 text-sm">No events in the last {_h(label)}</p>'
 
-    html = '<div class="space-y-2 max-h-96 overflow-y-auto">'
+    stream_id_url = _u(stream_id)
+    html_out = '<div class="space-y-2 max-h-96 overflow-y-auto">'
     for event in events:
-        html += f"""
+        clip_url = f"/clips/{stream_id_url}/{_u(event['date'])}/{_u(event['filename'])}"
+        label = f"{event['type']} at {event['time']}"
+        dt_attr = _h(event["datetime"].isoformat())
+        html_out += f"""
     <div class="text-sm hover:bg-zinc-700 rounded px-2 py-1 -mx-2 cursor-pointer transition"
-         onclick="playClip('/clips/{stream_id}/{event['date']}/{event['filename']}', '{event['type']} at {event['time']}')">
+         onclick="playClip({_js(clip_url)}, {_js(label)})">
         <span class="text-zinc-400">
-            {event['date']} {event['time']}
-            <span class="event-local-time text-zinc-500" data-datetime="{event['datetime'].isoformat()}"></span>
+            {_h(event['date'])} {_h(event['time'])}
+            <span class="event-local-time text-zinc-500" data-datetime="{dt_attr}"></span>
         </span>
-        <span class="text-white ml-2">{event['type']}</span>
+        <span class="text-white ml-2">{_h(event['type'])}</span>
     </div>"""
-    html += "</div>"
-    return html
+    html_out += "</div>"
+    return html_out
 
 
 @router.get("/streams/{stream_id}/logs")
@@ -297,12 +329,12 @@ async def get_logs(
         # Wrap level in span for highlighting
         level_padded = f"{level:<8}"
         formatted_line = (
-            f"{timestamp_str} (stream local) | "
-            f'<span class="log-level">{level_padded}</span> | '
-            f'{log_entry["module"]} | {log_entry["message"]}'
+            f"{_h(timestamp_str)} (stream local) | "
+            f'<span class="log-level">{_h(level_padded)}</span> | '
+            f'{_h(log_entry["module"])} | {_h(log_entry["message"])}'
         )
 
-        html_lines.append(f'<div class="log-line" data-level="{level}">{formatted_line}</div>')
+        html_lines.append(f'<div class="log-line" data-level="{_h(level)}">{formatted_line}</div>')
 
     return HTMLResponse("\n".join(html_lines))
 
@@ -342,7 +374,7 @@ async def update_config(
         if not stream:
             return HTMLResponse(
                 f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-                f"Error: Stream {stream_id} not found"
+                f"Error: Stream {_h(stream_id)} not found"
                 f"</div>",
                 status_code=404,
             )
@@ -435,7 +467,7 @@ async def update_config(
             return HTMLResponse(
                 f'<div class="bg-green-600/20 border-2 border-green-600 text-green-400 '
                 f'px-4 py-3 rounded font-medium">'
-                f"✓ {message}"
+                f"✓ {_h(message)}"
                 f"</div>"
                 f"<script>setTimeout(() => {{ "
                 f'document.getElementById("save-feedback").innerHTML = ""; '
@@ -443,13 +475,13 @@ async def update_config(
             )
         else:
             # Regular form POST - redirect back to config page
-            return RedirectResponse(url=f"/streams/{stream_id}/config", status_code=303)
+            return RedirectResponse(url=f"/streams/{_u(stream_id)}/config", status_code=303)
 
     except Exception as e:
         if request.headers.get("HX-Request"):
             return HTMLResponse(
                 f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded">'
-                f"Error: {str(e)}"
+                f"Error: {_h(str(e))}"
                 f"</div>",
                 status_code=500,
             )
@@ -496,7 +528,7 @@ async def create_new_stream(
     if not valid:
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
-            f"Error: {error}"
+            f"Error: {_h(error)}"
             f"</div>",
             status_code=400,
         )
@@ -514,7 +546,7 @@ async def create_new_stream(
         return HTMLResponse(
             f'<div class="bg-green-600/20 border border-green-600 text-green-400 '
             f'px-4 py-3 rounded mb-4">'
-            f'<p class="font-medium mb-2">✓ {message}</p>'
+            f'<p class="font-medium mb-2">✓ {_h(message)}</p>'
             f'<p class="text-sm mb-3">The detection container is now running. '
             f"Restart the admin to see the new stream in the overview.</p>"
             f'<button hx-post="/api/admin/restart" '
@@ -528,7 +560,7 @@ async def create_new_stream(
     else:
         return HTMLResponse(
             f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
-            f"Error: {message}"
+            f"Error: {_h(message)}"
             f"</div>",
             status_code=400,
         )
@@ -553,7 +585,7 @@ async def restart_admin():
         return HTMLResponse(
             '<div class="bg-red-600/20 border border-red-600 '
             'text-red-400 px-4 py-2 rounded">'
-            f"Error restarting: {message}<br>"
+            f"Error restarting: {_h(message)}<br>"
             '<span class="text-sm">Manual restart: '
             "<code>docker restart kanyo-admin-web</code></span>"
             "</div>",
