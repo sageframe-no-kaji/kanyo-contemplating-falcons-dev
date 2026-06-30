@@ -333,7 +333,11 @@ class FalconStateMachine:
             "awaiting confirmation..."
         )
 
-    def confirm_recovery_presence(self, timestamp: datetime) -> None:
+    def confirm_recovery_presence(
+        self,
+        timestamp: datetime,
+        latest_detection_time: datetime | None = None,
+    ) -> None:
         """
         Confirm falcon still present after stream recovery.
 
@@ -341,7 +345,13 @@ class FalconStateMachine:
         No notification is sent - falcon never actually left.
 
         Args:
-            timestamp: Confirmation time
+            timestamp: Confirmation time (end of the recovery window)
+            latest_detection_time: Actual timestamp of the latest detection
+                seen during the confirmation window. If provided, used as
+                last_detection so visit duration does not get inflated by
+                the confirmation window length. Falls back to `timestamp`
+                if None (safety fallback only — successful confirmation
+                should always carry at least one detection). See 021-J.
         """
         if self.state != FalconState.PENDING_RECOVERY:
             logger.warning(f"confirm_recovery_presence called in {self.state} state, ignoring")
@@ -354,7 +364,7 @@ class FalconStateMachine:
         else:
             self.state = FalconState.VISITING
 
-        self.last_detection = timestamp
+        self.last_detection = latest_detection_time or timestamp
         self.last_absence_start = None
         self.pre_outage_state = None
         self.pre_outage_roosting_start = None
