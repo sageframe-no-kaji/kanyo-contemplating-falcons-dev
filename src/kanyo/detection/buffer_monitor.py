@@ -722,6 +722,8 @@ class BufferMonitor:
         initialization_complete = False
         initialization_duration = 30
         initial_detections: list = []
+        initial_frame_count = 0  # frames processed during init
+        initial_detection_frame_count = 0  # init frames with >=1 detection
         max_birds_in_frame = 0
         last_heartbeat = time.time()
         heartbeat_interval = 300  # Log heartbeat every 5 minutes
@@ -822,11 +824,12 @@ class BufferMonitor:
                             )
 
                             # Start startup confirmation tracking (no telegram notification yet)
-                            # Use same confirmation window as arrival confirmation
+                            # Use same confirmation window as arrival confirmation.
+                            # Seed with frame-based counts so ratio stays in [0, 1].
                             self.startup_pending = True
                             self.startup_pending_start = now
-                            self.startup_detection_count = len(initial_detections)
-                            self.startup_frame_count = 1
+                            self.startup_detection_count = initial_detection_frame_count
+                            self.startup_frame_count = initial_frame_count
                             logger.info(
                                 f"⏳ Startup presence pending confirmation "
                                 f"({self.arrival_confirmation_seconds}s window)"
@@ -848,8 +851,10 @@ class BufferMonitor:
                             self._frame_size = (w, h)
 
                         detections = self.detector.detect_birds(frame.data, timestamp=now)
+                        initial_frame_count += 1
                         if detections:
                             initial_detections.extend(detections)
+                            initial_detection_frame_count += 1
                             max_birds_in_frame = max(max_birds_in_frame, len(detections))
                             # Store frame for startup notification photo
                             self.event_handler.update_frame(frame.data)
@@ -861,7 +866,7 @@ class BufferMonitor:
                         self._frame_counter = 0
                     self._frame_counter += 1
 
-                    if self._frame_counter % (self.process_interval + 1) != 0:
+                    if self._frame_counter % self.process_interval != 0:
                         # Still add to buffer even when skipping detection
                         now = get_now_tz(self.full_config)
                         self.frame_buffer.add_frame(frame.data, now, frame.frame_number)
@@ -1013,6 +1018,7 @@ def main():
             stream_recovery_threshold=config.get("stream_recovery_threshold", 30),
             stream_recovery_confirmation=config.get("stream_recovery_confirmation", 10),
             notify_on_startup=config.get("notify_on_startup", True),
+            record_arrival_on_startup=config.get("record_arrival_on_startup", False),
             max_runtime_seconds=config.get("max_runtime_seconds"),
             full_config=config,
         )
