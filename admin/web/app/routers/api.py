@@ -86,7 +86,9 @@ def _refresh_stream_card(stream: dict) -> None:
         stream["clips_path"], stream["id"]
     )
     stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(stream["clips_path"])
+    stream["last_event"] = clip_service.get_last_event(
+        stream["clips_path"], stream.get("timezone", "UTC")
+    )
 
 
 @router.post("/streams/{stream_id}/restart")
