@@ -53,6 +53,20 @@ async def get_stream(stream_id: str):
     return stream
 
 
+def _refresh_stream_card(stream: dict) -> None:
+    """Populate stream dict with current status + clip info for the card fragment."""
+    status = docker_service.get_container_status(stream["container_name"])
+    stream["status"] = status["status"]
+    stream["uptime"] = status.get("uptime", "")
+    stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(
+        stream["clips_path"], stream["id"]
+    )
+    stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
+    stream["last_event"] = clip_service.get_last_event(
+        stream["clips_path"], stream.get("timezone", "UTC")
+    )
+
+
 @router.post("/streams/{stream_id}/restart")
 async def restart_stream(stream_id: str):
     """Restart container and return HTML fragment."""
@@ -65,20 +79,7 @@ async def restart_stream(stream_id: str):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to restart container")
 
-    # Return updated stream card HTML fragment
-    from app.services import clip_service
-
-    # Get updated status
-    status = docker_service.get_container_status(stream["container_name"])
-    stream["status"] = status["status"]
-    stream["uptime"] = status.get("uptime", "")
-
-    # Get clip info
-    stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
-    stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(
-        stream["clips_path"], stream.get("timezone", "UTC")
-    )
+    _refresh_stream_card(stream)
 
     return templates.TemplateResponse(
         "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
@@ -97,20 +98,7 @@ async def stop_stream(stream_id: str):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to stop container")
 
-    # Return updated stream card HTML fragment
-    from app.services import clip_service
-
-    # Get updated status
-    status = docker_service.get_container_status(stream["container_name"])
-    stream["status"] = status["status"]
-    stream["uptime"] = status.get("uptime", "")
-
-    # Get clip info
-    stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
-    stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(
-        stream["clips_path"], stream.get("timezone", "UTC")
-    )
+    _refresh_stream_card(stream)
 
     return templates.TemplateResponse(
         "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
@@ -129,20 +117,7 @@ async def start_stream(stream_id: str):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to start container")
 
-    # Return updated stream card HTML fragment
-    from app.services import clip_service
-
-    # Get updated status
-    status = docker_service.get_container_status(stream["container_name"])
-    stream["status"] = status["status"]
-    stream["uptime"] = status.get("uptime", "")
-
-    # Get clip info
-    stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(stream["clips_path"])
-    stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
-    stream["last_event"] = clip_service.get_last_event(
-        stream["clips_path"], stream.get("timezone", "UTC")
-    )
+    _refresh_stream_card(stream)
 
     return templates.TemplateResponse(
         "components/stream_card.html", {"request": {}, "stream": stream}, media_type="text/html"
