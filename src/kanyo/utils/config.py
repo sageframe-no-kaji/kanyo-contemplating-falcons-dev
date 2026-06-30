@@ -38,6 +38,7 @@ DEFAULTS: dict[str, Any] = {
     # Arrival Confirmation
     "arrival_confirmation_seconds": 10,  # Time window to confirm arrival
     "arrival_confirmation_ratio": 0.3,  # Fraction of frames that must detect
+    "record_arrival_on_startup": False,  # Record arrival clip when bird present at startup
     # Output & Storage
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
