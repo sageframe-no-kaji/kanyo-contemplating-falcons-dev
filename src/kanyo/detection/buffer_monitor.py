@@ -491,7 +491,12 @@ class BufferMonitor:
             if self.roosting_recording_mode == "stop":
                 logger.event("🏠 Roosting mode=stop: finalizing visit recording")
                 if self.visit_recorder.is_recording:
-                    _, self._roosting_visit_metadata = self.visit_recorder.stop_recording(event_time)
+                    # Mark confirmed BEFORE stop so stop_recording() renames
+                    # .mp4.tmp → .mp4 and updates metadata["visit_file"].
+                    self.visit_recorder.rename_to_final()
+                    _, self._roosting_visit_metadata = self.visit_recorder.stop_recording(
+                        event_time
+                    )
                 self.roosting_mode_active = True
                 self.last_roosting_check = event_time
             else:
