@@ -18,6 +18,11 @@ def get_output_path(base_dir: str, timestamp: datetime, event_type: str, extensi
     """
     Generate date-organized output path for clips/thumbnails.
 
+    Includes microseconds in the filename so two events of the same type in
+    the same second do not collide (see 021-I). Format:
+
+        falcon_<HHMMSS>_<MICROSECONDS>_<type>.<ext>
+
     Args:
         base_dir: Base directory (e.g., 'clips')
         timestamp: Event timestamp
@@ -25,12 +30,12 @@ def get_output_path(base_dir: str, timestamp: datetime, event_type: str, extensi
         extension: 'mp4' or 'jpg'
 
     Returns:
-        Path like: clips/2025-12-24/falcon_143025_arrival.mp4
+        Path like: clips/2025-12-24/falcon_143025_123456_arrival.mp4
     """
     date_dir = Path(base_dir) / timestamp.strftime("%Y-%m-%d")
     date_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"falcon_{timestamp.strftime('%H%M%S')}_{event_type}.{extension}"
+    filename = f"falcon_{timestamp.strftime('%H%M%S_%f')}_{event_type}.{extension}"
     return date_dir / filename
 
 

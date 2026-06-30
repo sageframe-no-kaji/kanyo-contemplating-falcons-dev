@@ -39,22 +39,41 @@ class TestFormatDuration:
 
 class TestGetOutputPath:
     def test_creates_date_dir_and_correct_filename(self, tmp_path):
+        # microsecond=0 → "000000" in the %f slot (021-I format)
         ts = datetime(2026, 2, 26, 14, 30, 25)
         result = get_output_path(str(tmp_path), ts, "arrival", "mp4")
         expected_dir = tmp_path / "2026-02-26"
         assert expected_dir.exists()
-        assert result == expected_dir / "falcon_143025_arrival.mp4"
+        assert result == expected_dir / "falcon_143025_000000_arrival.mp4"
 
     def test_different_event_types(self, tmp_path):
         ts = datetime(2026, 2, 26, 8, 0, 0)
         for event_type, ext in [("departure", "mp4"), ("visit", "mp4"), ("arrival", "jpg")]:
             path = get_output_path(str(tmp_path), ts, event_type, ext)
-            assert path.name == f"falcon_080000_{event_type}.{ext}"
+            assert path.name == f"falcon_080000_000000_{event_type}.{ext}"
 
     def test_returns_path_object(self, tmp_path):
         ts = datetime(2026, 2, 26, 10, 0, 0)
         result = get_output_path(str(tmp_path), ts, "arrival", "jpg")
         assert isinstance(result, Path)
+
+    def test_same_second_different_microsecond_no_collision(self, tmp_path):
+        """021-I: two events with the same second but different microseconds
+        must produce different paths."""
+        ts1 = datetime(2026, 2, 26, 14, 30, 25, 100000)
+        ts2 = datetime(2026, 2, 26, 14, 30, 25, 200000)
+        p1 = get_output_path(str(tmp_path), ts1, "arrival", "mp4")
+        p2 = get_output_path(str(tmp_path), ts2, "arrival", "mp4")
+        assert p1 != p2
+        assert p1.name == "falcon_143025_100000_arrival.mp4"
+        assert p2.name == "falcon_143025_200000_arrival.mp4"
+
+    def test_microsecond_is_zero_padded_six_digits(self, tmp_path):
+        """Ensure the microsecond slot is exactly 6 digits (zero-padded)."""
+        ts = datetime(2026, 2, 26, 14, 30, 25, 42)  # 42 microseconds
+        result = get_output_path(str(tmp_path), ts, "visit", "mp4")
+        # %f always pads to 6 digits
+        assert result.name == "falcon_143025_000042_visit.mp4"
 
 
 class TestSaveThumbnail:
