@@ -1,0 +1,111 @@
+{
+  "keisaku": 1,
+  "works": [
+    {
+      "id": "kanyo",
+      "name": "Kanyō",
+      "native_script": "観鷹",
+      "native_translation": "Contemplating falcons",
+      "hero": "The existence proof.",
+      "importance": 8,
+      "featured": true,
+      "group": "production-systems",
+      "themes": [
+        "craft",
+        "attention"
+      ],
+      "sort_order_within_group": 10,
+      "tags": [
+        "software",
+        "production-system",
+        "computer-vision",
+        "yolov8",
+        "wildlife-monitoring",
+        "harvard"
+      ],
+      "media": [
+        "software"
+      ],
+      "status": "shipped",
+      "repo": "git@github-no-kaji:sageframe-no-kaji/kanyo-contemplating-falcons-dev.git",
+      "deployment": [
+        {
+          "label": "Live viewer",
+          "url": "https://kanyo.sageframe.net"
+        },
+        {
+          "label": "GitHub repo",
+          "url": "https://github.com/sageframe-no-kaji/kanyo"
+        }
+      ],
+      "tech_stack": "Python (opencv-python-headless, ultralytics, numpy, Pillow, yt-dlp, pyyaml, loguru, requests, jinja2, markdown, python-dateutil, tzdata)",
+      "created": "2026-01-20",
+      "last_updated": "2026-07-09",
+      "conceived": "2025-12-12",
+      "short_description": "Production computer vision pipeline for wildlife monitoring. Streams from YouTube (or any rtsp/http source), runs YOLOv8 bird detection with a debounced state machine to suppress false positives, records arrival/departure clips, sends Telegram notifications. Companion web viewer provides a public event archive with HKSV-style timeline, visit statistics, live stream embeds. Deployed at Harvard's Memorial Hall monitoring peregrine falcons, developed for Nobel laureate economist Claudia Goldin and Harvard FAS. Species-agnostic architecture. Built from zero development experience in six weeks using the Ho System. 114 passing tests.",
+      "substantive_description": [
+        "Kanyō is the existence proof. The methodology question — can a practitioner with strong systems thinking but no formal engineering background ship production AI? — needed an answer that wasn't a position paper. Six weeks. 114 tests. Deployed at Harvard, monitoring peregrine falcons through an academic partnership with a Nobel laureate. The system is real, and it works.",
+        "Beyond the personal evidence, Kanyō makes a more interesting argument: the kind of work this is — domain-specific computer vision with research-grade requirements — has historically required either a specialist engineering team or compromise on quality. The Ho System collapses the dichotomy. The deployment context matters: a peregrine falcon is not a benchmark. Harvard FAS is not a test environment. The system runs in production for a researcher who needed it to work. That's the evidence the methodology needed."
+      ],
+      "images": {
+        "gallery": []
+      },
+      "relationships": [
+        {
+          "edge_class": "narrative",
+          "target": "ho-system",
+          "type": "validates",
+          "articulated_in": "falcon-cameras",
+          "note": "Six weeks, 114 tests, deployed at Harvard — the methodology's first existence proof."
+        }
+      ],
+      "state": {
+        "stage": "production",
+        "last": "The bulk of the `021` sprint: a sequence of agent-task-driven fixes across admin timezone handling (021-G), arrival confirmation recording actual last detection time (021-J), buffer monitor startup / frame interval wiring (021-D), .mp4.tmp finalization in roosting-stop mode (021-E), stream data root unification (021-C), HTML/URL escaping in admin API handlers (021-H), admin restart/stop/start TypeError on thumbnail (021-B), EventMetadata/StateEvent type aliases bringing mypy to clean (021-K), pytest import without manual PYTHONPATH (021-A), CI build-cpu tag template fix (5557794), and output filename microsecond collision fix (021-I, commit a014025 — most recent merged). The ho-09 significance-filter doc was scaffolded (1e69053) but the ho is not yet authored or executed.",
+        "next": "Author and execute ho-09 (significance filter / event merging). The scaffold and motivating framing are in `devlog/ho-09-significance-filter.md`. Several Agent Tasks (013–020) also appear open in `devlog/Agent-Tasks/` and may be sequenced before or alongside ho-09; the practitioner should confirm priority on the next session.",
+        "holdup": "Agent Tasks 013–020 in `devlog/Agent-Tasks/` show no \"DONE\" suffix and appear open (Fix Arrival Clip Anchoring; Add Public Recent Changes Section; Upgrade YOLO Model; Generate Daily Timelapses; Multi-Bird Count Tracking; Clip Flagging / Best Of Page; Clip Retention and Cleanup; Roosting Mode and Documentation Update). Status of these tasks is uncertain from git history alone — practitioner to verify which are still active vs. superseded. No build blockers identified from evidence.",
+        "as_of": "2026-07-09"
+      },
+      "_keisaku": {
+        "generated_at": "2026-07-10T23:58:14",
+        "generator_version": "1",
+        "sources": {
+          "readme": "README.md",
+          "contract": "ho-process/kamae-6-kanyo-state-memory.md",
+          "manifest": "pyproject.toml"
+        },
+        "derived_defaults": {
+          "id": "kanyo-contemplating-falcons-dev",
+          "name": "Kanyō (観鷹)",
+          "media": [
+            "software"
+          ],
+          "status": "shipped",
+          "created": "2025-12-12",
+          "tags": [
+            "python",
+            "opencv-python-headless",
+            "ultralytics",
+            "numpy",
+            "pillow",
+            "yt-dlp",
+            "pyyaml",
+            "loguru",
+            "requests",
+            "jinja2",
+            "markdown",
+            "python-dateutil",
+            "tzdata"
+          ],
+          "deployment": [
+            {
+              "label": "kanyo.sageframe.net",
+              "url": "https://kanyo.sageframe.net"
+            }
+          ]
+        },
+        "contract_issues": []
+      }
+    }
+  ]
+}
