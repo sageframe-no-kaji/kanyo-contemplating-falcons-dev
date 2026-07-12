@@ -40,7 +40,7 @@
       ],
       "tech_stack": "Python (opencv-python-headless, ultralytics, numpy, Pillow, yt-dlp, pyyaml, loguru, requests, jinja2, markdown, python-dateutil, tzdata)",
       "created": "2026-01-20",
-      "last_updated": "2026-07-10",
+      "last_updated": "2026-07-09",
       "conceived": "2025-12-12",
       "short_description": "Production computer vision pipeline for wildlife monitoring. Streams from YouTube (or any rtsp/http source), runs YOLOv8 bird detection with a debounced state machine to suppress false positives, records arrival/departure clips, sends Telegram notifications. Companion web viewer provides a public event archive with HKSV-style timeline, visit statistics, live stream embeds. Deployed at Harvard's Memorial Hall monitoring peregrine falcons, developed for Nobel laureate economist Claudia Goldin and Harvard FAS. Species-agnostic architecture. Built from zero development experience in six weeks using the Ho System. 114 passing tests.",
       "substantive_description": [
@@ -67,7 +67,7 @@
         "as_of": "2026-07-09"
       },
       "_keisaku": {
-        "generated_at": "2026-07-11T13:34:15",
+        "generated_at": "2026-07-12T10:36:23",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
