@@ -1,11 +1,13 @@
 """Tests for FalconEventHandler."""
+
+import logging
 from datetime import datetime
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, call, patch
 
 import pytest
 
-from kanyo.detection.event_types import FalconEvent
 from kanyo.detection.event_handler import FalconEventHandler
+from kanyo.detection.event_types import FalconEvent
 
 
 class TestFalconEventHandlerInit:
@@ -49,14 +51,14 @@ class TestFalconEventHandlerArrival:
         mock_notifs = Mock()
         import numpy as np
 
-        handler = FalconEventHandler(
-            notifications=mock_notifs, clips_dir=str(tmp_path)
-        )
+        handler = FalconEventHandler(notifications=mock_notifs, clips_dir=str(tmp_path))
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         handler.update_frame(frame)
         ts = datetime(2026, 2, 26, 10, 0, 0)
 
-        with patch("kanyo.detection.event_handler.save_thumbnail", return_value="/tmp/thumb.jpg") as mock_save:
+        with patch(
+            "kanyo.detection.event_handler.save_thumbnail", return_value="/tmp/thumb.jpg"
+        ) as mock_save:
             handler.handle_event(FalconEvent.ARRIVED, ts, {})
 
         mock_save.assert_called_once()
@@ -91,9 +93,7 @@ class TestFalconEventHandlerDeparture:
         mock_notifs = Mock()
         import numpy as np
 
-        handler = FalconEventHandler(
-            notifications=mock_notifs, clips_dir=str(tmp_path)
-        )
+        handler = FalconEventHandler(notifications=mock_notifs, clips_dir=str(tmp_path))
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         handler.update_frame(frame)
         ts = datetime(2026, 2, 26, 10, 30, 0)
@@ -110,4 +110,25 @@ class TestFalconEventHandlerRoosting:
         handler = FalconEventHandler()
         ts = datetime(2026, 2, 26, 10, 0, 0)
         # Should not raise
-        handler.handle_event(FalconEvent.ROOSTING, ts, {"visit_duration": 3600})
+        handler.handle_event(FalconEvent.ROOSTING, ts, {"visit_duration_seconds": 3600})
+
+    def test_roosting_logs_real_visit_duration(self, caplog):
+        """ROOSTING reads visit_duration_seconds (the key falcon_state emits), not 0s.
+
+        Regression test for 022-B: the handler read the nonexistent
+        'visit_duration' key, so every ROOSTING line showed '(visit: 0s)'.
+        """
+        handler = FalconEventHandler()
+        ts = datetime(2026, 2, 26, 10, 0, 0)
+
+        with caplog.at_level(logging.INFO, logger="kanyo.detection.event_handler"):
+            handler.handle_event(
+                FalconEvent.ROOSTING,
+                ts,
+                {"visit_start": ts, "visit_duration_seconds": 1800, "roosting_start": ts},
+            )
+
+        roosting_lines = [r.message for r in caplog.records if "ROOSTING" in r.message]
+        assert roosting_lines, "expected a ROOSTING log line"
+        assert "(visit: 30m)" in roosting_lines[0]
+        assert "(visit: 0s)" not in roosting_lines[0]
