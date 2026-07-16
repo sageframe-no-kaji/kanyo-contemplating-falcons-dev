@@ -9,7 +9,7 @@ from datetime import datetime
 from kanyo.detection.event_types import FalconEvent
 from kanyo.utils.logger import get_logger
 from kanyo.utils.notifications import NotificationManager
-from kanyo.utils.output import save_thumbnail, format_duration
+from kanyo.utils.output import format_duration, save_thumbnail
 
 logger = get_logger(__name__)
 
@@ -99,5 +99,5 @@ class FalconEventHandler:
                 self.notifications.send_departure(timestamp, thumb_path, duration_str)
 
         elif event_type == FalconEvent.ROOSTING:
-            duration_str = format_duration(metadata.get("visit_duration", 0))
+            duration_str = format_duration(metadata.get("visit_duration_seconds", 0))
             logger.event(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")
