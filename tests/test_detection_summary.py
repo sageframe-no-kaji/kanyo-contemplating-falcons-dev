@@ -106,18 +106,15 @@ class TestSummaryCadence:
         now = datetime(2026, 7, 1, 10, 0, 0)
         frame = make_frame()
 
-        with (
-            patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now),
-            caplog.at_level(EVENT, logger=MONITOR_LOGGER),
-        ):
-            monitor.process_frame(frame, frame_number=0)
+        with caplog.at_level(EVENT, logger=MONITOR_LOGGER):
+            monitor.process_frame(frame, frame_number=0, timestamp=now)
             assert summary_lines(caplog) == []
 
             # Force the window to have elapsed before the second poll
             monitor._summary_window_start = real_time.time() - 301
-            monitor.process_frame(frame, frame_number=1)
+            monitor.process_frame(frame, frame_number=1, timestamp=now)
 
-            monitor.process_frame(frame, frame_number=2)
+            monitor.process_frame(frame, frame_number=2, timestamp=now)
 
         lines = summary_lines(caplog)
         assert len(lines) == 1
@@ -136,12 +133,9 @@ class TestSummaryCadence:
         now = datetime(2026, 7, 1, 10, 0, 0)
         frame = make_frame()
 
-        with (
-            patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now),
-            caplog.at_level(EVENT, logger=MONITOR_LOGGER),
-        ):
+        with caplog.at_level(EVENT, logger=MONITOR_LOGGER):
             for n in range(5):
-                monitor.process_frame(frame, frame_number=n)
+                monitor.process_frame(frame, frame_number=n, timestamp=now)
 
         assert summary_lines(caplog) == []
         assert monitor._summary_poll_count == 0

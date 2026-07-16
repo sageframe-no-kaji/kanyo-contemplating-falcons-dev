@@ -68,8 +68,7 @@ def run_poll(monitor, detections, now):
     monitor.detector.detect_birds.return_value = detections
     # Ensure the roosting interval gate lets the poll through
     monitor.last_roosting_check = now - timedelta(seconds=31)
-    with patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now):
-        monitor.process_frame(make_frame(), frame_number=1)
+    monitor.process_frame(make_frame(), frame_number=1, timestamp=now)
 
 
 class TestCandidateSnapshot:
