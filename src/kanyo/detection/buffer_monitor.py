@@ -91,6 +91,7 @@ class BufferMonitor:
         # Stream recovery settings
         stream_recovery_threshold: int = 30,
         stream_recovery_confirmation: int = 10,
+        stream_read_timeout_s: float = 10.0,
         # Notification settings
         notify_on_startup: bool = True,
         record_arrival_on_startup: bool = False,
@@ -121,10 +122,14 @@ class BufferMonitor:
         self._summary_detected_confidences: list[float] = []
         self._summary_window_start = time.time()
 
-        # Stream capture (NO tee mode)
+        # Stream capture (NO tee mode). Frames are stamped once, at read
+        # time, in the reader thread — in the stream's configured timezone
+        # so frame timestamps match every existing timestamp (ho-11).
         self.capture = StreamCapture(
             stream_url,
             use_tee=False,  # Key difference: no tee
+            read_timeout_s=stream_read_timeout_s,
+            now_fn=lambda: get_now_tz(self.full_config),
         )
 
         # Detector
@@ -1000,6 +1005,12 @@ class BufferMonitor:
                     logger.info("🛑 Graceful shutdown requested...")
                     break
 
+                # No-frame sentinel from the reader thread (ho-11). Full
+                # outage consumption (freeze-frame fill, outage accounting)
+                # lands in 023-B — until then the sentinel is skipped.
+                if frame is None:
+                    continue
+
                 frames_processed += 1
                 current_time = time.time()
 
@@ -1288,6 +1299,7 @@ def main():
             roosting_threshold=config.get("roosting_threshold", 1800),
             stream_recovery_threshold=config.get("stream_recovery_threshold", 30),
             stream_recovery_confirmation=config.get("stream_recovery_confirmation", 10),
+            stream_read_timeout_s=config.get("stream_read_timeout_s", 10.0),
             notify_on_startup=config.get("notify_on_startup", True),
             record_arrival_on_startup=config.get("record_arrival_on_startup", False),
             max_runtime_seconds=config.get("max_runtime_seconds"),
