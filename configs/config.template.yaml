@@ -53,12 +53,20 @@ video_source: "https://youtube.com/watch?v=YOUR_STREAM_ID"
 #   (bird, cat, dog, etc.) as a potential falcon presence. This catches cases
 #   where the model classifies the falcon as a generic "bird". Set false only
 #   if you have a custom model trained specifically for your species.
+#
+# detection_summary_interval — Seconds between rolling detection-confidence
+#   summary lines in the log (EVENT level). Each summary aggregates every
+#   detection poll since the last one: poll count, detection ratio, and
+#   min/median/max confidence across detected polls. This is the data source
+#   for tuning detection_confidence / detection_confidence_ir from production
+#   logs. 300 (5 minutes) is a good default; set 0 to disable entirely.
 
 detection_confidence: 0.3
 detection_confidence_ir: 0.25
 frame_interval: 3
 model_path: "models/yolov8n.pt"
 detect_any_animal: true
+detection_summary_interval: 300
 
 
 # ─────────────────────────────────────────────────────────────────────────────
