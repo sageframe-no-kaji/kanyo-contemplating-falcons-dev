@@ -117,24 +117,19 @@ class TestConnectionNotifications:
         # Should not raise error
         assert cap.on_connection_issue is None
 
-        # System should handle None callback gracefully - use counter to break loop
-        call_count = 0
-
-        def read_frame_then_exit():
-            nonlocal call_count
-            call_count += 1
-            if call_count > 2:
-                raise KeyboardInterrupt("Exit test")
-            return None
+        # A read failure followed by a good frame: the failure marker runs
+        # the reconnect path with no callback set, then the frame is yielded.
+        good_frame = MagicMock()
+        good_frame.frame_number = 1
 
         with patch.object(cap, "connect", return_value=True):
-            with patch.object(cap, "read_frame", side_effect=read_frame_then_exit):
-                with patch("kanyo.detection.capture.time.sleep"):
+            with patch.object(cap, "reconnect", return_value=True):
+                with patch.object(cap, "read_frame", side_effect=[None, good_frame]):
                     gen = cap.frames()
-                    try:
-                        next(gen)
-                    except KeyboardInterrupt:
-                        pass  # Expected exit
+                    frame = next(gen)
+                    gen.close()
+
+        assert frame is good_frame
 
     def test_exponential_backoff_implemented(self):
         """Connection retries should use exponential backoff."""

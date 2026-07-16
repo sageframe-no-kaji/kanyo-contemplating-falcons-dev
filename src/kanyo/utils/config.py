@@ -33,6 +33,7 @@ DEFAULTS: dict[str, Any] = {
     "model_path": "models/yolov8n.pt",  # YOLOv8 weights
     "detect_any_animal": True,  # treat any animal as falcon
     "detection_summary_interval": 300,  # seconds between confidence summaries (0 disables)
+    "stream_read_timeout_s": 10.0,  # seconds without a frame before the no-frame sentinel
     "exit_timeout": 300,  # 5 min - seconds before falcon "left" during visit
     "animal_classes": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],  # COCO animal IDs
     "timezone": "+00:00",  # GMT offset (e.g., -05:00 for NY, +10:00 for Sydney)
@@ -274,6 +275,11 @@ def _validate(cfg: dict[str, Any]) -> None:
             f"short_visit_threshold ({short_visit_threshold}s) is too short. "
             f"Minimum recommended value is 60 seconds."
         )
+
+    # stream_read_timeout_s sanity (ho-11)
+    read_timeout = cfg.get("stream_read_timeout_s", 10.0)
+    if not isinstance(read_timeout, (int, float)) or read_timeout <= 0:
+        raise ValueError("stream_read_timeout_s must be a positive number of seconds")
 
     # frame_interval sanity
     frame_interval = cfg.get("frame_interval", 3)

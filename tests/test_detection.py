@@ -144,12 +144,14 @@ class TestFrame:
         from kanyo.detection.capture import Frame
 
         data = np.zeros((480, 640, 3), dtype=np.uint8)
-        frame = Frame(data=data, frame_number=1, width=640, height=480)
+        stamp = datetime.now()
+        frame = Frame(data=data, frame_number=1, width=640, height=480, timestamp=stamp)
 
         assert frame.frame_number == 1
         assert frame.width == 640
         assert frame.height == 480
         assert frame.shape == (480, 640, 3)
+        assert frame.timestamp == stamp
 
 
 class TestStreamCapture:

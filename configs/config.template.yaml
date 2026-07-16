@@ -150,9 +150,19 @@ roosting_detection_interval: 30
 #   this many seconds and checks whether the bird is still present before
 #   resuming normal operation. Prevents a recovery attempt on a stream that
 #   immediately drops again.
+#
+# stream_read_timeout_s — Seconds without a frame from the stream reader
+#   thread before the monitor sees an explicit no-frame sentinel and starts
+#   outage handling (freeze-frame fill in active recordings, outage
+#   accounting). This is what makes a silently *blocked* read detectable —
+#   not just a failed one. Raise (e.g. 20) on streams that legitimately
+#   pause between frames; lower (e.g. 5) to react faster on reliable
+#   streams. Keep it below stream_recovery_threshold so short outages are
+#   seen in time to attempt recovery.
 
 stream_recovery_threshold: 30
 stream_recovery_confirmation: 10
+stream_read_timeout_s: 10.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
