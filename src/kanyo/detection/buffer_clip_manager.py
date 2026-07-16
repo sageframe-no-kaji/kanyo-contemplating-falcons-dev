@@ -8,7 +8,7 @@ No tee or segment files required - simple and reliable.
 from __future__ import annotations
 
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -293,6 +293,37 @@ class BufferClipManager:
             event_name,
         )
         return True
+
+    def extract_candidate_clip(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        clip_path: Path,
+    ) -> Future[str | None]:
+        """
+        Schedule extraction of a departure-candidate clip to an explicit path.
+
+        Used by the roosting-stop departure-candidate mechanism (022-C): the
+        caller names the target (a ``.mp4.tmp`` path) and holds the returned
+        future so it can later finalize (rename) or discard the file.
+
+        Args:
+            start_time: Clip start time
+            end_time: Clip end time
+            clip_path: Explicit output path (candidate ``.mp4.tmp``)
+
+        Returns:
+            Future resolving to the written path string, or None on failure
+        """
+        logger.event(f"📹 Snapshotting departure-candidate clip from buffer: {clip_path.name}")
+
+        return self._executor.submit(
+            self._extract_clip_from_buffer,
+            start_time,
+            end_time,
+            clip_path,
+            "departure-candidate",
+        )
 
     def _extract_clip_from_buffer(
         self,
