@@ -176,6 +176,15 @@ class BufferMonitor:
         self.last_detection_time: datetime | None = None
         self._frame_size: tuple[int, int] | None = None
 
+        # Visit-scoped peak detection confidence (022-A). Running max across
+        # all detection polls of the current visit; written into the
+        # FalconVisit row on departure. Reset on visit start and on every
+        # path that closes or cancels a visit.
+        self._visit_peak_confidence: float = 0.0
+        # Max confidence of the most recent detection poll (0.0 when the poll
+        # saw nothing) — used to seed the visit peak on ARRIVED.
+        self._frame_peak_confidence: float = 0.0
+
         # Arrival clip recorder (short-duration, parallel to visit recorder)
         self.arrival_clip_recorder = ArrivalClipRecorder(self.clip_manager)
         # Arrival confirmation state
@@ -209,8 +218,12 @@ class BufferMonitor:
         )
 
         # Roosting mode config
-        self.roosting_recording_mode = (full_config or {}).get("roosting_recording_mode", "continuous")
-        self.roosting_detection_interval = (full_config or {}).get("roosting_detection_interval", 30)
+        self.roosting_recording_mode = (full_config or {}).get(
+            "roosting_recording_mode", "continuous"
+        )
+        self.roosting_detection_interval = (full_config or {}).get(
+            "roosting_detection_interval", 30
+        )
         self.roosting_mode_active = False
         self.last_roosting_check: datetime | None = None
         self._roosting_visit_metadata: dict | None = None
@@ -266,6 +279,13 @@ class BufferMonitor:
             # Run detection
             detections = self.detector.detect_birds(frame_data, timestamp=now)
             falcon_detected = len(detections) > 0
+
+            # Track visit-scoped peak confidence (022-A)
+            self._frame_peak_confidence = max((d.confidence for d in detections), default=0.0)
+            if falcon_detected:
+                self._visit_peak_confidence = max(
+                    self._visit_peak_confidence, self._frame_peak_confidence
+                )
 
             # Startup confirmation logic (similar to arrival, but no telegram until confirmed)
             if self.startup_pending and self.startup_pending_start is not None:
@@ -366,6 +386,10 @@ class BufferMonitor:
             self.arrival_detection_count = 1
             self.arrival_frame_count = 1
 
+            # New visit: discard any stale peak and seed with the arriving
+            # frame's confidence (022-A)
+            self._visit_peak_confidence = self._frame_peak_confidence
+
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
                 event_time, self.visit_recorder.lead_in_seconds
@@ -402,8 +426,9 @@ class BufferMonitor:
             # Handle departure from roosting stop mode (visit recorder already stopped)
             if self.roosting_mode_active and self.roosting_recording_mode == "stop":
                 logger.event("🦅 DEPARTURE from roost — extracting departure clip from buffer")
-                self.clip_manager.create_clip_from_buffer(
-                    event_time, "departure",
+                departure_clip_scheduled = self.clip_manager.create_clip_from_buffer(
+                    event_time,
+                    "departure",
                     before_seconds=self.clip_manager.clip_departure_before,
                     after_seconds=self.clip_manager.clip_departure_after,
                 )
@@ -412,23 +437,36 @@ class BufferMonitor:
                     if isinstance(visit_start_dt, str):
                         visit_start_dt = datetime.fromisoformat(visit_start_dt)
                     last_detection_time = metadata.get("visit_end", event_time)
+                    visit_end_dt = last_detection_time
+                    if isinstance(visit_end_dt, str):
+                        visit_end_dt = datetime.fromisoformat(visit_end_dt)
                     arrival_clip_path = get_output_path(
                         self.clips_dir, visit_start_dt, "arrival", "mp4"
                     )
                     thumbnail_path = get_output_path(
                         self.clips_dir, visit_start_dt, "arrival", "jpg"
                     )
+                    # Departure clip path derived with the same expression the
+                    # clip manager uses, so the paths agree by construction.
+                    # Not gated on Path.exists() — extraction runs
+                    # asynchronously on the clip manager's executor (022-A).
+                    departure_clip_path = get_output_path(
+                        self.clips_dir, visit_end_dt, "departure", "mp4"
+                    )
                     visit = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=last_detection_time,
+                        peak_confidence=self._visit_peak_confidence,
                         arrival_clip_path=(
                             str(arrival_clip_path) if arrival_clip_path.exists() else None
                         ),
-                        thumbnail_path=(
-                            str(thumbnail_path) if thumbnail_path.exists() else None
+                        thumbnail_path=(str(thumbnail_path) if thumbnail_path.exists() else None),
+                        departure_clip_path=(
+                            str(departure_clip_path) if departure_clip_scheduled else None
                         ),
                     )
                     self.event_store.append(visit)
+                self._visit_peak_confidence = 0.0
                 self.roosting_mode_active = False
                 self.last_roosting_check = None
                 self._roosting_visit_metadata = None
@@ -456,13 +494,16 @@ class BufferMonitor:
                 visit_metadata["visit_end"] = last_detection_time
 
                 # Create departure clip
-                self.clip_manager.create_departure_clip(visit_metadata)
+                departure_clip_scheduled = self.clip_manager.create_departure_clip(visit_metadata)
 
                 # Save visit metadata to event store
                 if "visit_start" in metadata and "visit_end" in metadata:
                     visit_start_dt = metadata["visit_start"]
                     if isinstance(visit_start_dt, str):
                         visit_start_dt = datetime.fromisoformat(visit_start_dt)
+                    visit_end_dt = metadata["visit_end"]
+                    if isinstance(visit_end_dt, str):
+                        visit_end_dt = datetime.fromisoformat(visit_end_dt)
 
                     # Derive arrival clip and thumbnail paths from arrival timestamp
                     arrival_clip_path = get_output_path(
@@ -471,21 +512,33 @@ class BufferMonitor:
                     thumbnail_path = get_output_path(
                         self.clips_dir, visit_start_dt, "arrival", "jpg"
                     )
+                    # Departure clip path derived with the same expression the
+                    # clip manager uses, so the paths agree by construction.
+                    # Not gated on Path.exists() — extraction runs
+                    # asynchronously on the clip manager's executor (022-A).
+                    departure_clip_path = get_output_path(
+                        self.clips_dir, visit_end_dt, "departure", "mp4"
+                    )
 
                     visit = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=metadata["visit_end"],
+                        peak_confidence=self._visit_peak_confidence,
                         arrival_clip_path=(
                             str(arrival_clip_path) if arrival_clip_path.exists() else None
                         ),
-                        thumbnail_path=(
-                            str(thumbnail_path) if thumbnail_path.exists() else None
+                        thumbnail_path=(str(thumbnail_path) if thumbnail_path.exists() else None),
+                        departure_clip_path=(
+                            str(departure_clip_path) if departure_clip_scheduled else None
                         ),
                     )
                     self.event_store.append(visit)
 
                     duration = visit_metadata.get("duration_seconds", 0)
                     logger.event(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
+
+            # Visit is over — reset the visit-scoped peak (022-A)
+            self._visit_peak_confidence = 0.0
 
         elif event_type == FalconEvent.ROOSTING:
             if self.roosting_recording_mode == "stop":
@@ -560,6 +613,9 @@ class BufferMonitor:
 
         # Reset state machine to ABSENT
         self.state_machine.reset_to_absent()
+
+        # Cancelled visit — discard its peak confidence (022-A)
+        self._visit_peak_confidence = 0.0
 
         # Reset pending state
         self.arrival_pending = False
@@ -693,6 +749,10 @@ class BufferMonitor:
 
     def _reset_pending_states(self) -> None:
         """Reset all pending confirmation states (startup, arrival, and recovery)."""
+        # Any visit in progress is being abandoned (cancelled startup or
+        # outage-exceeded reset) — discard its peak confidence (022-A)
+        self._visit_peak_confidence = 0.0
+
         self.startup_pending = False
         self.startup_pending_start = None
         self.startup_detection_count = 0
@@ -799,6 +859,9 @@ class BufferMonitor:
                         state_name = initial_state.value
                         if falcon_detected:
                             max_conf = max(d.confidence for d in initial_detections)
+
+                            # Seed the visit peak from startup init detections (022-A)
+                            self._visit_peak_confidence = max_conf
 
                             # If falcon detected, state is PENDING_STARTUP
                             # We need to confirm presence before transitioning to ROOSTING
