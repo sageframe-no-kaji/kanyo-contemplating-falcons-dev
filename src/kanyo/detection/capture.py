@@ -78,6 +78,9 @@ class StreamCapture:
         self._ytdlp_fallback_used = False
         self.ytdlp_opts: dict = {}
         self._last_admin_notification_time: float = 0
+        # True only while a "lost" admin alert has been sent and not yet paired
+        # with a "reconnected" alert — keeps connectivity alerts in matched pairs.
+        self._outage_alert_sent: bool = False
         self._consecutive_failures = 0
         self._attempts_today = 0
         self._attempts_window_start = time.time()
@@ -268,13 +271,18 @@ class StreamCapture:
                     ):
                         self.on_connection_issue(f"Stream connection lost: {self.stream_url}")
                         self._last_admin_notification_time = time.time()
+                        self._outage_alert_sent = True
 
                     if not self.reconnect():
                         continue  # reconnect() sleeps via connect() backoff
 
                     logger.info("✅ Reconnected successfully!")
-                    if self.on_connection_issue:
+                    # Only send "reconnected" when a matching "lost" alert was
+                    # actually sent (the lost alert is throttled to 1/hour;
+                    # unpaired reconnect alerts were pure noise — see 022-D).
+                    if self.on_connection_issue and self._outage_alert_sent:
                         self.on_connection_issue("Stream reconnected")
+                        self._outage_alert_sent = False
                     continue
 
                 # Skip frames if requested

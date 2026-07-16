@@ -1,7 +1,8 @@
 """Tests for connection failure notification feature."""
 
-from unittest.mock import MagicMock, patch
 import time
+from unittest.mock import MagicMock, patch
+
 from kanyo.detection.capture import StreamCapture
 
 
@@ -161,6 +162,61 @@ class TestConnectionNotifications:
         # Seventh failure: capped at 300s
         backoff7 = min(5.0 * (2**6), max_backoff)
         assert backoff7 == 300.0
+
+
+class TestReconnectAlertGating:
+    """Reconnected alerts must come in matched pairs with sent lost alerts (022-D)."""
+
+    @staticmethod
+    def _fake_frame():
+        frame = MagicMock()
+        frame.frame_number = 1
+        return frame
+
+    def test_no_reconnected_alert_when_lost_alert_throttled(self):
+        """Reconnect after a throttled (unsent) lost alert produces no alert at all."""
+        messages = []
+        capture = StreamCapture(
+            "https://example.com/test.mp4",
+            on_connection_issue=messages.append,
+        )
+        # A lost alert went out recently — the next one is inside the throttle window
+        capture._last_admin_notification_time = time.time() - 60
+        capture._outage_alert_sent = False  # that outage already got its "reconnected"
+
+        # One read failure, then a good frame so the generator yields and we stop
+        with patch.object(capture, "connect", return_value=True):
+            with patch.object(capture, "reconnect", return_value=True):
+                with patch.object(capture, "read_frame", side_effect=[None, self._fake_frame()]):
+                    gen = capture.frames()
+                    next(gen)
+                    gen.close()
+
+        assert messages == []
+
+    def test_reconnected_alert_paired_with_sent_lost_alert(self):
+        """A sent lost alert is followed by exactly one reconnected alert; a
+        subsequent reconnect inside the throttle window produces nothing."""
+        messages = []
+        capture = StreamCapture(
+            "https://example.com/test.mp4",
+            on_connection_issue=messages.append,
+        )
+        capture._last_admin_notification_time = 0  # outside throttle window
+
+        # Two failure/recovery cycles: fail, frame, fail, frame
+        side_effects = [None, self._fake_frame(), None, self._fake_frame()]
+        with patch.object(capture, "connect", return_value=True):
+            with patch.object(capture, "reconnect", return_value=True):
+                with patch.object(capture, "read_frame", side_effect=side_effects):
+                    gen = capture.frames()
+                    next(gen)  # first cycle: lost alert sent → reconnected sent
+                    next(gen)  # second cycle: lost throttled → reconnected gated
+                    gen.close()
+
+        assert len(messages) == 2
+        assert "connection lost" in messages[0].lower()
+        assert "reconnected" in messages[1].lower()
 
 
 class TestNotificationManagerIntegration:
