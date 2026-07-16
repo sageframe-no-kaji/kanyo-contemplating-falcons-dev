@@ -136,6 +136,178 @@ class TestFalconDetector:
         assert len(detection.bbox) == 4
 
 
+def _mock_yolo_results(boxes):
+    """Build a fake ultralytics results list from (class_id, confidence, bbox) tuples."""
+    names = {0: "person", 14: "bird", 15: "cat", 20: "elephant"}
+    result = Mock()
+    result.names = names
+    mock_boxes = []
+    for class_id, confidence, bbox in boxes:
+        box = Mock()
+        box.cls = [class_id]
+        box.conf = [confidence]
+        xyxy_entry = Mock()
+        xyxy_entry.tolist.return_value = list(bbox)
+        box.xyxy = [xyxy_entry]
+        mock_boxes.append(box)
+    result.boxes = mock_boxes
+    return [result]
+
+
+def _color_frame():
+    """A frame that is NOT IR mode (R, G, B clearly distinct)."""
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    frame[:, :, 0] = 100  # Blue
+    frame[:, :, 1] = 150  # Green
+    frame[:, :, 2] = 200  # Red
+    return frame
+
+
+def _ir_frame():
+    """A grayscale frame that IS IR mode (R == G == B)."""
+    return np.ones((480, 640, 3), dtype=np.uint8) * 128
+
+
+class TestDetectWithRaw:
+    """Tests for the raw-detections path (024-A): one inference, two views."""
+
+    TS = datetime(2026, 7, 16, 12, 0, 0)
+
+    def _detector(self, **kwargs):
+        from kanyo.detection.detect import FalconDetector
+
+        return FalconDetector(confidence_threshold=0.5, **kwargs)
+
+    def test_filtered_raw_split(self):
+        """Low-confidence any-class boxes land in raw; filtered keeps today's semantics."""
+        detector = self._detector(raw_floor_confidence=0.15)
+        detector._model = Mock(
+            return_value=_mock_yolo_results(
+                [
+                    (14, 0.6, (100, 100, 150, 150)),  # bird above threshold -> both
+                    (20, 0.2, (200, 200, 300, 300)),  # elephant, low conf -> raw only
+                    (0, 0.89, (10, 10, 50, 50)),  # person, high conf, non-target -> raw only
+                    (14, 0.1, (400, 400, 420, 420)),  # bird below raw floor -> neither
+                ]
+            )
+        )
+
+        filtered, raw = detector.detect_with_raw(_color_frame(), timestamp=self.TS)
+
+        assert [(d.class_id, d.confidence) for d in filtered] == [(14, 0.6)]
+        assert [(d.class_id, d.confidence) for d in raw] == [(14, 0.6), (20, 0.2), (0, 0.89)]
+        # Detection objects carry the full field set
+        elephant = raw[1]
+        assert elephant.class_name == "elephant"
+        assert elephant.bbox == (200, 200, 300, 300)
+        assert elephant.timestamp == self.TS
+
+    def test_single_inference_at_min_conf(self):
+        """Exactly one model call per detect_with_raw, at min(floor, threshold)."""
+        detector = self._detector(raw_floor_confidence=0.15)
+        model = Mock(return_value=_mock_yolo_results([]))
+        detector._model = model
+
+        detector.detect_with_raw(_color_frame(), timestamp=self.TS)
+
+        assert model.call_count == 1
+        assert model.call_args.kwargs["conf"] == 0.15
+
+    def test_none_floor_preserves_existing_behavior(self):
+        """With raw_floor_confidence=None the model call and outputs match today's."""
+        boxes = [
+            (14, 0.6, (100, 100, 150, 150)),  # bird, target class
+            (20, 0.7, (200, 200, 300, 300)),  # elephant, target class (detect_any_animal)
+            (0, 0.89, (10, 10, 50, 50)),  # person, non-target -> excluded
+        ]
+        detector = self._detector()  # raw_floor_confidence defaults to None
+        model = Mock(return_value=_mock_yolo_results(boxes))
+        detector._model = model
+
+        detections = detector.detect(_color_frame(), timestamp=self.TS)
+
+        assert model.call_count == 1
+        assert model.call_args.kwargs["conf"] == 0.5  # unchanged model-call threshold
+        assert [(d.class_id, d.confidence) for d in detections] == [(14, 0.6), (20, 0.7)]
+
+        # detect_birds re-filters to the same set
+        model2 = Mock(return_value=_mock_yolo_results(boxes))
+        detector._model = model2
+        birds = detector.detect_birds(_color_frame(), timestamp=self.TS)
+        assert birds == detections
+
+    def test_none_floor_raw_falls_back_to_effective_threshold(self):
+        """Unset floor: raw contains any class at or above the effective threshold."""
+        detector = self._detector()
+        detector._model = Mock(
+            return_value=_mock_yolo_results(
+                [
+                    (14, 0.6, (100, 100, 150, 150)),
+                    (0, 0.89, (10, 10, 50, 50)),
+                ]
+            )
+        )
+
+        filtered, raw = detector.detect_with_raw(_color_frame(), timestamp=self.TS)
+
+        assert [(d.class_id, d.confidence) for d in filtered] == [(14, 0.6)]
+        assert [(d.class_id, d.confidence) for d in raw] == [(14, 0.6), (0, 0.89)]
+
+    def test_floor_set_filtered_equivalent_to_no_floor(self):
+        """Post-filtered view with a floor == historical output without one."""
+        # What the model returns at the low floor (superset)
+        low_floor_boxes = [
+            (14, 0.6, (100, 100, 150, 150)),
+            (20, 0.2, (200, 200, 300, 300)),
+            (14, 0.3, (400, 400, 420, 420)),
+        ]
+        # What the model would have returned at conf=0.5 (historical call)
+        high_conf_boxes = [(14, 0.6, (100, 100, 150, 150))]
+
+        with_floor = self._detector(raw_floor_confidence=0.15)
+        with_floor._model = Mock(return_value=_mock_yolo_results(low_floor_boxes))
+
+        without_floor = self._detector()
+        without_floor._model = Mock(return_value=_mock_yolo_results(high_conf_boxes))
+
+        frame = _color_frame()
+        assert with_floor.detect(frame, timestamp=self.TS) == without_floor.detect(
+            frame, timestamp=self.TS
+        )
+
+    def test_ir_mode_threshold_switch_in_filtered_view(self):
+        """IR frames use confidence_threshold_ir for the filtered view, unchanged."""
+        detector = self._detector(confidence_threshold_ir=0.25, raw_floor_confidence=0.15)
+        model = Mock(
+            return_value=_mock_yolo_results(
+                [
+                    (14, 0.3, (100, 100, 150, 150)),  # above IR threshold -> filtered
+                    (14, 0.2, (200, 200, 250, 250)),  # below IR threshold -> raw only
+                ]
+            )
+        )
+        detector._model = model
+
+        filtered, raw = detector.detect_with_raw(_ir_frame(), timestamp=self.TS)
+
+        assert model.call_args.kwargs["conf"] == 0.15  # min(floor, IR threshold)
+        assert [(d.class_id, d.confidence) for d in filtered] == [(14, 0.3)]
+        assert [(d.class_id, d.confidence) for d in raw] == [(14, 0.3), (14, 0.2)]
+
+    def test_detect_and_detect_with_raw_agree(self):
+        """detect() and detect_with_raw()'s filtered view are the same list."""
+        boxes = [
+            (14, 0.6, (100, 100, 150, 150)),
+            (20, 0.2, (200, 200, 300, 300)),
+        ]
+        detector = self._detector(raw_floor_confidence=0.15)
+        detector._model = Mock(return_value=_mock_yolo_results(boxes))
+
+        frame = _color_frame()
+        filtered, _ = detector.detect_with_raw(frame, timestamp=self.TS)
+        assert detector.detect(frame, timestamp=self.TS) == filtered
+
+
 class TestFrame:
     """Tests for Frame dataclass."""
 
