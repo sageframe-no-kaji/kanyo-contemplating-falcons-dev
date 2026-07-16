@@ -9,6 +9,7 @@ import os
 import signal
 
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+import statistics  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime  # noqa: E402
 
@@ -71,6 +72,8 @@ class BufferMonitor:
         process_interval_frames: int = 30,
         detect_any_animal: bool = True,
         animal_classes: list[int] | None = None,
+        # Instrumentation settings
+        detection_summary_interval: int = 300,
         # Buffer settings
         buffer_seconds: int = 60,
         # Clip timing
@@ -107,6 +110,14 @@ class BufferMonitor:
         # Stream recovery config
         self.stream_recovery_threshold = stream_recovery_threshold
         self.stream_recovery_confirmation = stream_recovery_confirmation
+
+        # Detection-confidence summary instrumentation (022-E). One EVENT-level
+        # rolling summary of detection polls every detection_summary_interval
+        # seconds (0 disables). Data source for threshold tuning (ho-12+).
+        self.detection_summary_interval = detection_summary_interval
+        self._summary_poll_count = 0
+        self._summary_detected_confidences: list[float] = []
+        self._summary_window_start = time.time()
 
         # Stream capture (NO tee mode)
         self.capture = StreamCapture(
@@ -287,6 +298,14 @@ class BufferMonitor:
                     self._visit_peak_confidence, self._frame_peak_confidence
                 )
 
+            # Accumulate detection-confidence summary data (022-E)
+            if self.detection_summary_interval > 0:
+                self._summary_poll_count += 1
+                if falcon_detected:
+                    self._summary_detected_confidences.append(self._frame_peak_confidence)
+                if time.time() - self._summary_window_start >= self.detection_summary_interval:
+                    self._emit_detection_summary()
+
             # Startup confirmation logic (similar to arrival, but no telegram until confirmed)
             if self.startup_pending and self.startup_pending_start is not None:
                 self.startup_frame_count += 1
@@ -364,6 +383,38 @@ class BufferMonitor:
 
         except Exception as e:
             logger.error(f"❌ Error processing frame {frame_number}: {e}", exc_info=True)
+
+    def _emit_detection_summary(self) -> None:
+        """Emit the rolling detection-confidence summary and reset the window (022-E).
+
+        One EVENT-level line per interval with a stable, parseable field order:
+        poll count, detected count, detection ratio, and min/median/max
+        confidence across detected polls (``conf=n/a`` when nothing was
+        detected — the line still appears so gaps stay visible).
+        """
+        polls = self._summary_poll_count
+        confidences = self._summary_detected_confidences
+        detected = len(confidences)
+        ratio = (detected / polls * 100) if polls else 0.0
+
+        if detected:
+            conf_fields = (
+                f"conf min={min(confidences):.2f} "
+                f"median={statistics.median(confidences):.2f} "
+                f"max={max(confidences):.2f}"
+            )
+        else:
+            conf_fields = "conf=n/a"
+
+        logger.event(
+            f"📊 Detection summary ({self.detection_summary_interval}s): "
+            f"polls={polls} detected={detected} ratio={ratio:.1f}% {conf_fields}"
+        )
+
+        # Reset the accumulator for the next window
+        self._summary_poll_count = 0
+        self._summary_detected_confidences = []
+        self._summary_window_start = time.time()
 
     def _handle_event(
         self,
@@ -1082,6 +1133,7 @@ def main():
             process_interval_frames=config.get("frame_interval", 30),
             detect_any_animal=config.get("detect_any_animal", True),
             animal_classes=config.get("animal_classes"),
+            detection_summary_interval=config.get("detection_summary_interval", 300),
             buffer_seconds=config.get("buffer_seconds", 60),
             clip_arrival_before=config.get("clip_arrival_before", 15),
             clip_arrival_after=config.get("clip_arrival_after", 30),

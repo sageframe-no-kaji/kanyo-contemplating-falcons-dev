@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
     "frame_interval": 30,  # process every Nth frame (30 = 2fps at 60fps)
     "model_path": "models/yolov8n.pt",  # YOLOv8 weights
     "detect_any_animal": True,  # treat any animal as falcon
+    "detection_summary_interval": 300,  # seconds between confidence summaries (0 disables)
     "exit_timeout": 300,  # 5 min - seconds before falcon "left" during visit
     "animal_classes": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],  # COCO animal IDs
     "timezone": "+00:00",  # GMT offset (e.g., -05:00 for NY, +10:00 for Sydney)
