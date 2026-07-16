@@ -11,7 +11,9 @@ import signal
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 import statistics  # noqa: E402
 import time  # noqa: E402
-from datetime import datetime  # noqa: E402
+from concurrent.futures import Future  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
@@ -239,6 +241,15 @@ class BufferMonitor:
         self.last_roosting_check: datetime | None = None
         self._roosting_visit_metadata: dict | None = None
 
+        # Roosting-stop departure-candidate clip (022-C). At the first missed
+        # roosting poll the departure window is still in the buffer, so a
+        # candidate clip is snapshotted to the final departure path with a
+        # .mp4.tmp suffix. DEPARTED finalizes it (rename); a re-confirming
+        # bird discards it. Candidate = (extraction future, tmp path, final
+        # path).
+        self._roosting_last_poll_detected = False
+        self._departure_candidate: tuple[Future[str | None], Path, Path] | None = None
+
         logger.info("BufferMonitor initialized (no tee mode)")
 
     def process_frame(self, frame_data, frame_number: int) -> None:
@@ -305,6 +316,28 @@ class BufferMonitor:
                     self._summary_detected_confidences.append(self._frame_peak_confidence)
                 if time.time() - self._summary_window_start >= self.detection_summary_interval:
                     self._emit_detection_summary()
+
+            # Roosting-stop departure-candidate snapshot/discard (022-C).
+            # Runs before the state machine update so state_machine
+            # .last_detection still refers to the last successful poll.
+            if self.roosting_mode_active and self.roosting_recording_mode == "stop":
+                if falcon_detected:
+                    if not self._roosting_last_poll_detected and self._departure_candidate:
+                        # Bird re-confirmed after a miss — the candidate was
+                        # not a departure. Discard it; a later first-miss
+                        # snapshots a fresh one.
+                        logger.event(
+                            "🦅 Roosting bird re-confirmed — discarding departure-candidate clip"
+                        )
+                        self._discard_departure_candidate()
+                    self._roosting_last_poll_detected = True
+                else:
+                    if self._roosting_last_poll_detected:
+                        # First missed poll — the departure window is still in
+                        # the buffer. Snapshot it now; DEPARTED (if it fires)
+                        # finalizes it, a re-confirmation discards it.
+                        self._snapshot_departure_candidate(now)
+                    self._roosting_last_poll_detected = False
 
             # Startup confirmation logic (similar to arrival, but no telegram until confirmed)
             if self.startup_pending and self.startup_pending_start is not None:
@@ -416,6 +449,107 @@ class BufferMonitor:
         self._summary_detected_confidences = []
         self._summary_window_start = time.time()
 
+    def _snapshot_departure_candidate(self, now: datetime) -> None:
+        """Snapshot a departure-candidate clip at the first missed roosting poll (022-C).
+
+        The actual departure lies between the last successful roosting poll
+        and this first miss — and right now that window is still in the
+        buffer (polls are roosting_detection_interval apart, well inside
+        buffer_seconds). The candidate covers
+        [last_detection − clip_departure_before, now] and is written to the
+        final departure path for last_detection with a .mp4.tmp suffix —
+        last_detection at snapshot time is exactly what becomes visit_end if
+        DEPARTED later fires, so the final name is already known.
+        """
+        last_detection = self.state_machine.last_detection
+        if last_detection is None:
+            logger.warning("Cannot snapshot departure candidate: no last_detection on hand")
+            return
+
+        # Any stale candidate should have been discarded on re-confirmation;
+        # be defensive so miss/re-confirm cycles never accumulate .tmp files.
+        if self._departure_candidate is not None:
+            self._discard_departure_candidate()
+
+        final_path = get_output_path(self.clips_dir, last_detection, "departure", "mp4")
+        tmp_path = final_path.with_suffix(".mp4.tmp")
+        start_time = last_detection - timedelta(seconds=self.clip_manager.clip_departure_before)
+
+        future = self.clip_manager.extract_candidate_clip(start_time, now, tmp_path)
+        self._departure_candidate = (future, tmp_path, final_path)
+
+    def _discard_departure_candidate(self) -> None:
+        """Discard an outstanding departure-candidate clip, deleting its .tmp file (022-C)."""
+        candidate = self._departure_candidate
+        self._departure_candidate = None
+        if candidate is None:
+            return
+
+        future, tmp_path, _ = candidate
+        future.cancel()
+        try:
+            # If extraction is still running, wait for it so the .tmp file is
+            # not recreated after we delete it.
+            future.result(timeout=30)
+        except Exception:
+            # Cancelled or extraction failed — either way only the file matters.
+            pass
+
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+                logger.debug(f"Deleted departure-candidate clip: {tmp_path.name}")
+        except OSError as e:
+            logger.warning(f"Could not delete departure-candidate clip {tmp_path.name}: {e}")
+
+    def _finalize_departure_candidate(self, event_time: datetime) -> bool:
+        """Finalize the departure-candidate clip on a roosting-stop DEPARTED (022-C).
+
+        Renames the candidate .mp4.tmp to its final .mp4 name, waiting on the
+        extraction future (bounded) if it is still running. With no candidate
+        on hand (e.g. process restarted mid-roost) falls back to the direct
+        buffer extraction, whose window is by construction usually already
+        evicted — the fallback is logged loudly and never fails the departure
+        handling.
+
+        Returns:
+            True if a departure clip was produced/scheduled, False otherwise.
+        """
+        candidate = self._departure_candidate
+        self._departure_candidate = None
+
+        if candidate is None:
+            logger.warning(
+                "No departure-candidate clip on hand — falling back to direct buffer "
+                "extraction; the clip window may already be evicted"
+            )
+            return self.clip_manager.create_clip_from_buffer(
+                event_time,
+                "departure",
+                before_seconds=self.clip_manager.clip_departure_before,
+                after_seconds=self.clip_manager.clip_departure_after,
+            )
+
+        future, tmp_path, final_path = candidate
+        try:
+            result = future.result(timeout=30)
+        except Exception as e:
+            logger.error(f"Departure-candidate extraction failed: {e}")
+            result = None
+
+        if result is None or not tmp_path.exists():
+            logger.warning("Departure-candidate clip missing — no departure clip for this visit")
+            return False
+
+        try:
+            tmp_path.rename(final_path)
+        except OSError as e:
+            logger.error(f"Could not finalize departure clip {tmp_path.name}: {e}")
+            return False
+
+        logger.event(f"✅ Departure clip finalized from candidate: {final_path.name}")
+        return True
+
     def _handle_event(
         self,
         event_type: FalconEvent,
@@ -476,13 +610,12 @@ class BufferMonitor:
 
             # Handle departure from roosting stop mode (visit recorder already stopped)
             if self.roosting_mode_active and self.roosting_recording_mode == "stop":
-                logger.event("🦅 DEPARTURE from roost — extracting departure clip from buffer")
-                departure_clip_scheduled = self.clip_manager.create_clip_from_buffer(
-                    event_time,
-                    "departure",
-                    before_seconds=self.clip_manager.clip_departure_before,
-                    after_seconds=self.clip_manager.clip_departure_after,
-                )
+                logger.event("🦅 DEPARTURE from roost — finalizing departure-candidate clip")
+                # Finalize the candidate snapshotted at the first missed poll
+                # (022-C). The direct buffer extraction this replaces could
+                # never work here: event_time is last_detection, which is
+                # ≥ exit_timeout in the past — always outside the buffer.
+                departure_clip_scheduled = self._finalize_departure_candidate(event_time)
                 if self._roosting_visit_metadata and "visit_start" in metadata:
                     visit_start_dt = metadata["visit_start"]
                     if isinstance(visit_start_dt, str):
@@ -521,6 +654,9 @@ class BufferMonitor:
                 self.roosting_mode_active = False
                 self.last_roosting_check = None
                 self._roosting_visit_metadata = None
+                # Roosting mode over — reset candidate poll tracking (022-C).
+                # The candidate itself was consumed by the finalize above.
+                self._roosting_last_poll_detected = False
                 return
 
             # Stop recording and create clips
@@ -603,6 +739,9 @@ class BufferMonitor:
                     )
                 self.roosting_mode_active = True
                 self.last_roosting_check = event_time
+                # Roosting starts on a detected poll — the candidate mechanism
+                # (022-C) begins from a "detected" state.
+                self._roosting_last_poll_detected = True
             else:
                 # continuous mode: recording continues uninterrupted
                 if self.visit_recorder.is_recording:
@@ -1076,6 +1215,10 @@ class BufferMonitor:
                 self.arrival_clip_recorder.rename_to_final()  # Sets _confirmed flag
                 self.arrival_clip_recorder.stop_recording(now)
                 logger.info("✅ Final arrival clip saved")
+
+            # Clean up an outstanding departure-candidate clip (022-C) —
+            # no orphan .tmp files across restarts.
+            self._discard_departure_candidate()
 
             # Shutdown clip manager
             self.clip_manager.shutdown()
