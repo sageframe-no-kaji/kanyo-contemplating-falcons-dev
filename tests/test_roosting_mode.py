@@ -72,7 +72,10 @@ class TestRoostingEventHandler:
         now = datetime(2026, 4, 21, 10, 0, 0)
 
         monitor.visit_recorder.is_recording = True
-        monitor.visit_recorder.stop_recording.return_value = ("/fake/visit.mp4", {"visit_start": now})
+        monitor.visit_recorder.stop_recording.return_value = (
+            "/fake/visit.mp4",
+            {"visit_start": now},
+        )
 
         monitor._handle_event(FalconEvent.ROOSTING, now, {})
 
@@ -84,7 +87,10 @@ class TestRoostingEventHandler:
         now = datetime(2026, 4, 21, 10, 0, 0)
 
         monitor.visit_recorder.is_recording = True
-        monitor.visit_recorder.stop_recording.return_value = ("/fake/visit.mp4", {"visit_start": now})
+        monitor.visit_recorder.stop_recording.return_value = (
+            "/fake/visit.mp4",
+            {"visit_start": now},
+        )
 
         monitor._handle_event(FalconEvent.ROOSTING, now, {})
 
@@ -133,6 +139,7 @@ class TestRoostingYOLOGating:
 
     def _make_frame(self):
         import numpy as np
+
         return np.zeros((720, 1280, 3), dtype="uint8")
 
     def test_yolo_skipped_within_interval(self):
@@ -144,9 +151,8 @@ class TestRoostingYOLOGating:
         monitor.roosting_mode_active = True
         monitor.last_roosting_check = now  # just checked
 
-        # Call process_frame 5 seconds later
-        with patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now + timedelta(seconds=5)):
-            monitor.process_frame(frame, frame_number=1)
+        # Call process_frame 5 seconds later (frame read-time stamp, ho-11)
+        monitor.process_frame(frame, frame_number=1, timestamp=now + timedelta(seconds=5))
 
         monitor.detector.detect_birds.assert_not_called()
 
@@ -165,8 +171,7 @@ class TestRoostingYOLOGating:
         monitor.arrival_clip_recorder.is_recording.return_value = False
         monitor.frame_buffer.add_frame.return_value = None
 
-        with patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now):
-            monitor.process_frame(frame, frame_number=1)
+        monitor.process_frame(frame, frame_number=1, timestamp=now)
 
         monitor.detector.detect_birds.assert_called_once()
 
@@ -184,8 +189,7 @@ class TestRoostingYOLOGating:
         monitor.arrival_clip_recorder.is_recording.return_value = False
         monitor.frame_buffer.add_frame.return_value = None
 
-        with patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now):
-            monitor.process_frame(frame, frame_number=1)
+        monitor.process_frame(frame, frame_number=1, timestamp=now)
 
         monitor.detector.detect_birds.assert_called_once()
 
@@ -213,7 +217,8 @@ class TestRoostingDeparture:
             monitor._handle_event(FalconEvent.DEPARTED, now, metadata)
 
         monitor.clip_manager.create_clip_from_buffer.assert_called_once_with(
-            now, "departure",
+            now,
+            "departure",
             before_seconds=30,
             after_seconds=15,
         )

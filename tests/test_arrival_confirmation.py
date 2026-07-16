@@ -212,7 +212,7 @@ class TestArrivalConfirmationIntegration:
         monitor.arrival_frame_count = 10
 
         # Trigger cancellation
-        monitor._cancel_arrival(0.2)
+        monitor._cancel_arrival(0.2, now)
 
         # Should reset state machine
         monitor.state_machine.reset_to_absent.assert_called_once()

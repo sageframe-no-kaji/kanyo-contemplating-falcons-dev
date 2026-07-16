@@ -69,9 +69,8 @@ class TestPeakConfidenceTracking:
         now = datetime(2026, 7, 1, 10, 0, 0)
         frame = MagicMock()
         frame.shape = (720, 1280, 3)
-        with patch("kanyo.detection.buffer_monitor.get_now_tz", return_value=now):
-            for n in range(4):
-                monitor.process_frame(frame, frame_number=n)
+        for n in range(4):
+            monitor.process_frame(frame, frame_number=n, timestamp=now)
 
         assert monitor._visit_peak_confidence == 0.8
 
@@ -92,7 +91,7 @@ class TestPeakConfidenceTracking:
         monitor.arrival_clip_recorder.get_temp_path.return_value = None
         monitor.visit_recorder.get_temp_path.return_value = None
 
-        monitor._cancel_arrival(ratio=0.1)
+        monitor._cancel_arrival(ratio=0.1, now=datetime(2026, 7, 1, 10, 0, 5))
 
         assert monitor._visit_peak_confidence == 0.0
 

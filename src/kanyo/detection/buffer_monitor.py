@@ -227,6 +227,17 @@ class BufferMonitor:
         # inflated by the confirmation window length. See 021-J.
         self.recovery_latest_detection: datetime | None = None
 
+        # Outage tracking driven by the no-frame sentinel from capture
+        # (ho-11 / 023-B). The sentinel is the ONLY outage signal — the old
+        # wall-clock gap heuristic was blind to a blocked read and
+        # false-positived on slow processing. Duration is measured from the
+        # last real frame's read-time stamp to the first frame after the
+        # outage, matching the old gap semantics with trustworthy times.
+        self.stream_read_timeout_s = stream_read_timeout_s
+        self._outage_start: datetime | None = None
+        self._outage_sentinel_count = 0
+        self._last_frame_timestamp: datetime | None = None
+
         # Load arrival confirmation config
         self.arrival_confirmation_seconds = (
             full_config.get("arrival_confirmation_seconds", 10) if full_config else 10
@@ -257,17 +268,21 @@ class BufferMonitor:
 
         logger.info("BufferMonitor initialized (no tee mode)")
 
-    def process_frame(self, frame_data, frame_number: int) -> None:
+    def process_frame(self, frame_data, frame_number: int, timestamp: datetime) -> None:
         """Process a single frame for falcon detection.
 
         Args:
             frame_data: Frame image data
             frame_number: Frame sequence number
+            timestamp: The frame's read-time stamp — the single time
+                authority for everything derived from this frame (ho-11).
+                Frames that queued during a stall carry the times they were
+                actually read, so burst-stamping cannot occur here.
         """
         try:
-            now = get_now_tz(self.full_config)
+            now = timestamp
 
-            # Always add frame to buffer (use real time, not adjusted)
+            # Always add frame to buffer (read time, not processing time)
             self.frame_buffer.add_frame(frame_data, now, frame_number)
 
             # Store frame size for recorder initialization
@@ -356,10 +371,10 @@ class BufferMonitor:
 
                     if ratio >= self.arrival_confirmation_ratio:
                         # SUCCESS - confirm startup presence
-                        self._confirm_startup_presence()
+                        self._confirm_startup_presence(now)
                     else:
                         # FAILURE - not enough detections
-                        self._cancel_startup_presence(ratio)
+                        self._cancel_startup_presence(ratio, now)
 
             # Arrival confirmation logic
             if self.arrival_pending and self.arrival_pending_start is not None:
@@ -376,7 +391,7 @@ class BufferMonitor:
                         self._confirm_arrival()
                     else:
                         # FAILURE
-                        self._cancel_arrival(ratio)
+                        self._cancel_arrival(ratio, now)
 
             # Recovery confirmation logic (after stream outage)
             if self.recovery_pending and self.recovery_pending_start is not None:
@@ -391,10 +406,10 @@ class BufferMonitor:
 
                     if ratio >= self.arrival_confirmation_ratio:
                         # SUCCESS - bird still present
-                        self._confirm_recovery()
+                        self._confirm_recovery(now)
                     else:
                         # FAILURE - bird left during outage
-                        self._cancel_recovery(ratio)
+                        self._cancel_recovery(ratio, now)
 
             # Debug logging for detection tracking
             if falcon_detected:
@@ -606,7 +621,7 @@ class BufferMonitor:
             if self.arrival_pending:
                 # Bird left before confirmation - treat as failed confirmation
                 ratio = self.arrival_detection_count / max(self.arrival_frame_count, 1)
-                self._cancel_arrival(ratio)
+                self._cancel_arrival(ratio, event_time)
                 return  # Do not process departure normally
 
             # Stop arrival clip if still active (short visit may not have hit its time limit)
@@ -780,8 +795,14 @@ class BufferMonitor:
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
 
-    def _cancel_arrival(self, ratio: float) -> None:
-        """Cancel arrival - insufficient detections or early departure."""
+    def _cancel_arrival(self, ratio: float, now: datetime) -> None:
+        """Cancel arrival - insufficient detections or early departure.
+
+        Args:
+            ratio: Detection ratio that failed the confirmation threshold
+            now: The driving timestamp (frame read time or event time) —
+                no re-stamping at processing time (ho-11).
+        """
         logger.warning(
             f"⚠️  ARRIVAL CANCELLED - detection ratio: {ratio:.1%} "
             f"({self.arrival_detection_count}/{self.arrival_frame_count} frames, "
@@ -793,7 +814,6 @@ class BufferMonitor:
         visit_tmp = self.visit_recorder.get_temp_path()
 
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
-        now = get_now_tz(self.full_config)
         self.arrival_clip_recorder.stop_recording(now)
         self.visit_recorder.stop_recording(now)  # Ignore return value
 
@@ -818,12 +838,15 @@ class BufferMonitor:
         self.arrival_detection_count = 0
         self.arrival_frame_count = 0
 
-    def _confirm_startup_presence(self) -> None:
+    def _confirm_startup_presence(self, now: datetime) -> None:
         """Confirm startup presence after passing detection threshold.
 
         Similar to _confirm_arrival but:
         - Transitions from PENDING_STARTUP to ROOSTING
         - Only sends notification if notify_on_startup is enabled
+
+        Args:
+            now: The driving frame timestamp (read time, ho-11).
         """
         ratio = self.startup_detection_count / self.startup_frame_count
         logger.event(
@@ -838,7 +861,6 @@ class BufferMonitor:
         self.visit_recorder.rename_to_final()
 
         # Transition from PENDING_STARTUP to ROOSTING
-        now = get_now_tz(self.full_config)
         self.state_machine.confirm_startup_presence(now)
 
         # Send notification only if notify_on_startup is enabled
@@ -856,8 +878,13 @@ class BufferMonitor:
         self.startup_detection_count = 0
         self.startup_frame_count = 0
 
-    def _cancel_startup_presence(self, ratio: float) -> None:
-        """Cancel startup presence - insufficient detections during confirmation window."""
+    def _cancel_startup_presence(self, ratio: float, now: datetime) -> None:
+        """Cancel startup presence - insufficient detections during confirmation window.
+
+        Args:
+            ratio: Detection ratio that failed the confirmation threshold
+            now: The driving frame timestamp (read time, ho-11).
+        """
         logger.warning(
             f"⚠️  STARTUP PRESENCE CANCELLED - detection ratio: {ratio:.1%} "
             f"({self.startup_detection_count}/{self.startup_frame_count} frames, "
@@ -869,7 +896,6 @@ class BufferMonitor:
         visit_tmp = self.visit_recorder.get_temp_path()
 
         # Stop recordings WITHOUT renaming (keeps .tmp extension)
-        now = get_now_tz(self.full_config)
         self.arrival_clip_recorder.stop_recording(now)
         self.visit_recorder.stop_recording(now)
 
@@ -888,11 +914,14 @@ class BufferMonitor:
         # Reset pending state
         self._reset_pending_states()
 
-    def _confirm_recovery(self) -> None:
+    def _confirm_recovery(self, now: datetime) -> None:
         """Confirm falcon still present after stream recovery.
 
         Transitions from PENDING_RECOVERY back to previous state (VISITING/ROOSTING).
         No notification - falcon never actually left.
+
+        Args:
+            now: The driving frame timestamp (read time, ho-11).
         """
         ratio = self.recovery_detection_count / max(self.recovery_frame_count, 1)
         logger.event(
@@ -903,7 +932,6 @@ class BufferMonitor:
         # Confirm recovery in state machine (restores previous state).
         # Pass the actual latest detection time so visit duration isn't
         # inflated by the recovery window length (see 021-J).
-        now = get_now_tz(self.full_config)
         self.state_machine.confirm_recovery_presence(
             now, latest_detection_time=self.recovery_latest_detection
         )
@@ -915,10 +943,14 @@ class BufferMonitor:
         self.recovery_frame_count = 0
         self.recovery_latest_detection = None
 
-    def _cancel_recovery(self, ratio: float) -> None:
+    def _cancel_recovery(self, ratio: float, now: datetime) -> None:
         """Cancel recovery - falcon left during the stream outage.
 
         Generates DEPARTED event with proper clip timing.
+
+        Args:
+            ratio: Detection ratio that failed the confirmation threshold
+            now: The driving frame timestamp (read time, ho-11).
         """
         logger.warning(
             f"⚠️  RECOVERY CANCELLED - falcon left during outage, ratio: {ratio:.1%} "
@@ -927,7 +959,6 @@ class BufferMonitor:
         )
 
         # Get departure events from state machine (uses last_detection from before outage)
-        now = get_now_tz(self.full_config)
         events = self.state_machine.cancel_recovery(now)
 
         # Handle deparure event (create clips, notify, etc.)
@@ -964,6 +995,96 @@ class BufferMonitor:
         self.recovery_frame_count = 0
         self.recovery_latest_detection = None
 
+    def _handle_no_frame_sentinel(self) -> None:
+        """Consume a ``None`` sentinel from the capture (ho-11 / 023-B).
+
+        Called from run() when frames() yields None — no frame arrived
+        within stream_read_timeout_s, including when the underlying read is
+        *blocked*, not just returning failure. This finally engages the
+        long-dormant visit_recorder.write_frame(None) freeze-frame path and
+        its stream_outage_exceeded accounting.
+
+        Uses the wall clock: there is no frame to take a timestamp from —
+        one of the legitimately non-frame contexts.
+        """
+        now = get_now_tz(self.full_config)
+
+        if self._outage_start is None:
+            self._outage_start = now
+            logger.warning(
+                f"⚠️  No frames for {self.stream_read_timeout_s:.0f}s - stream outage in progress"
+            )
+        self._outage_sentinel_count += 1
+
+        if self.visit_recorder.is_recording:
+            # Freeze-frame fill and outage accounting (existing contract —
+            # consumed here, not modified).
+            self.visit_recorder.write_frame(None)
+
+            if self.visit_recorder.stream_outage_exceeded:
+                logger.warning(
+                    "⚠️  Stream outage exceeded during recording - "
+                    "stopping recording and resetting state"
+                )
+                # Stop recording WITHOUT renaming (keeps .tmp extension)
+                self.visit_recorder.stop_recording(now)
+                self.arrival_clip_recorder.stop_recording(now)
+
+                # Reset state machine and pending confirmations
+                self.state_machine.reset_to_absent()
+                self._reset_pending_states()
+
+    def _handle_outage_recovery(self, now: datetime) -> None:
+        """Run outage accounting on the first real frame after a sentinel stretch.
+
+        Args:
+            now: The first post-outage frame's read-time stamp.
+
+        Outage duration is the gap between the last real frame's read time
+        and this frame's read time (falling back to the first-sentinel wall
+        time plus the read timeout when no frame was ever seen). Recovery
+        confirmation entry is unchanged from before ho-11: bird present,
+        outage within stream_recovery_threshold, and a recording active.
+        """
+        if self._last_frame_timestamp is not None:
+            outage_duration = (now - self._last_frame_timestamp).total_seconds()
+        else:
+            # Outage from startup: no frame ever seen. The stretch began
+            # ~read_timeout_s before the first sentinel.
+            assert self._outage_start is not None
+            outage_duration = (
+                now - self._outage_start
+            ).total_seconds() + self.stream_read_timeout_s
+
+        sentinel_count = self._outage_sentinel_count
+        self._outage_start = None
+        self._outage_sentinel_count = 0
+
+        self.state_machine.add_outage(outage_duration)
+        logger.info(
+            f"⚠️  Stream outage detected: {outage_duration:.1f}s ({sentinel_count} sentinel(s))"
+        )
+
+        # Check if bird was present before outage and outage is recoverable
+        if (
+            self.state_machine.is_falcon_present()
+            and outage_duration <= self.stream_recovery_threshold
+            and self.visit_recorder.is_recording
+        ):
+            # Short outage - start recovery confirmation
+            self.state_machine.set_pending_recovery(now)
+
+            self.recovery_pending = True
+            self.recovery_pending_start = now
+            self.recovery_detection_count = 0
+            self.recovery_frame_count = 0
+            self.recovery_latest_detection = None
+
+            logger.info(
+                f"🔄 Starting recovery confirmation "
+                f"({self.stream_recovery_confirmation}s window)"
+            )
+
     def run(self) -> None:
         """Main monitoring loop."""
         logger.info("=" * 60)
@@ -995,8 +1116,6 @@ class BufferMonitor:
         last_heartbeat = time.time()
         heartbeat_interval = 300  # Log heartbeat every 5 minutes
         frames_processed = 0
-        last_frame_time = time.time()
-        frame_timeout = 60  # Warn if no frames for 60 seconds
 
         try:
             for frame in self.capture.frames(skip=0):
@@ -1005,44 +1124,31 @@ class BufferMonitor:
                     logger.info("🛑 Graceful shutdown requested...")
                     break
 
-                # No-frame sentinel from the reader thread (ho-11). Full
-                # outage consumption (freeze-frame fill, outage accounting)
-                # lands in 023-B — until then the sentinel is skipped.
+                # No-frame sentinel from the reader thread (ho-11 / 023-B).
+                # The ONLY outage signal — no second watchdog in this loop.
+                # Sentinels never reach frame processing.
                 if frame is None:
+                    self._handle_no_frame_sentinel()
                     continue
 
                 frames_processed += 1
                 current_time = time.time()
 
-                # Detect if we just recovered from an outage (skip during init)
-                time_since_last_frame = current_time - last_frame_time
-                if initialization_complete and time_since_last_frame > 10:
-                    outage_duration = time_since_last_frame
-                    self.state_machine.add_outage(outage_duration)
-                    logger.info(f"⚠️  Stream outage detected: {outage_duration:.1f}s")
+                # First real frame after an outage stretch: outage accounting
+                # and (for short outages while recording) recovery
+                # confirmation entry — same flow as before ho-11, now keyed
+                # off sentinel data instead of a wall-clock gap heuristic
+                # that was blind to blocked reads.
+                if self._outage_start is not None:
+                    if initialization_complete:
+                        self._handle_outage_recovery(frame.timestamp)
+                    else:
+                        # Outage during startup init — no state to recover
+                        # yet (parity with the pre-ho-11 init skip).
+                        self._outage_start = None
+                        self._outage_sentinel_count = 0
 
-                    # Check if bird was present before outage and outage is recoverable
-                    if (
-                        self.state_machine.is_falcon_present()
-                        and outage_duration <= self.stream_recovery_threshold
-                        and self.visit_recorder.is_recording
-                    ):
-                        # Short outage - start recovery confirmation
-                        now = get_now_tz(self.full_config)
-                        self.state_machine.set_pending_recovery(now)
-
-                        self.recovery_pending = True
-                        self.recovery_pending_start = now
-                        self.recovery_detection_count = 0
-                        self.recovery_frame_count = 0
-                        self.recovery_latest_detection = None
-
-                        logger.info(
-                            f"🔄 Starting recovery confirmation "
-                            f"({self.stream_recovery_confirmation}s window)"
-                        )
-
-                last_frame_time = current_time
+                self._last_frame_timestamp = frame.timestamp
                 elapsed = current_time - start_time
 
                 # Initialization phase - process every frame
@@ -1051,11 +1157,10 @@ class BufferMonitor:
                         initialization_complete = True
                         falcon_detected = len(initial_detections) > 0
 
-                        now = get_now_tz(self.full_config)
+                        # Frame read time drives the init transition too —
+                        # single time authority (ho-11).
+                        now = frame.timestamp
                         initial_state = self.state_machine.initialize_state(falcon_detected, now)
-
-                        # Reset frame time to prevent false outage detection
-                        last_frame_time = current_time
 
                         state_name = initial_state.value
                         if falcon_detected:
@@ -1117,7 +1222,7 @@ class BufferMonitor:
                         logger.info(f"🎯 Normal operation (every {self.process_interval} frames)")
                     else:
                         # Still initializing - detect but don't process events
-                        now = get_now_tz(self.full_config)
+                        now = frame.timestamp
 
                         # Add to buffer
                         self.frame_buffer.add_frame(frame.data, now, frame.frame_number)
@@ -1145,7 +1250,8 @@ class BufferMonitor:
 
                     if self._frame_counter % self.process_interval != 0:
                         # Still add to buffer even when skipping detection
-                        now = get_now_tz(self.full_config)
+                        # (read-time stamp — the single time authority, ho-11)
+                        now = frame.timestamp
                         self.frame_buffer.add_frame(frame.data, now, frame.frame_number)
 
                         # Still write to visit recording
@@ -1172,8 +1278,8 @@ class BufferMonitor:
 
                         continue
 
-                    # Pass outage compensation to process_frame
-                    self.process_frame(frame.data, frame.frame_number)
+                    # Process with the frame's read-time stamp (ho-11)
+                    self.process_frame(frame.data, frame.frame_number, frame.timestamp)
 
                 # Heartbeat logging
                 now_time = time.time()
@@ -1186,14 +1292,8 @@ class BufferMonitor:
                     )
                     last_heartbeat = now_time
 
-                # Watchdog: warn if no frames received recently
-                time_since_frame = now_time - last_frame_time
-                if time_since_frame > frame_timeout:
-                    logger.warning(
-                        f"⚠️  No frames received for {int(time_since_frame)}s - "
-                        f"stream may be stalled"
-                    )
-                    last_frame_time = now_time  # Reset to avoid spam
+                # (No wall-clock frame watchdog here: the no-frame sentinel
+                # from capture is the only outage signal — ho-11.)
 
                 time.sleep(0.01)
 
