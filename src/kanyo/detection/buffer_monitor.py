@@ -285,6 +285,11 @@ class BufferMonitor:
         # segments merge into it: the row is the unit of meaning, the visit
         # files remain the unit of storage.
         self._pending_visit_row: FalconVisit | None = None
+        # The provisional row written at visit confirmation (end_time null —
+        # the viewer's "ongoing visit" state) and replaced in place at visit
+        # close. Same id as the final row by construction (both derive it
+        # from visit_start, microseconds included).
+        self._provisional_visit: FalconVisit | None = None
 
         # State tracking
         self.current_visit: FalconVisit | None = None
@@ -656,6 +661,30 @@ class BufferMonitor:
             )
             self._execute_decisions(decisions)
 
+    def _write_provisional_visit(self, start_time: datetime) -> None:
+        """Write the provisional visit row at confirmation (viewer contract).
+
+        The row goes to the event store with ``end_time`` null — exactly the
+        viewer's "ongoing visit" state — and is replaced in place (same id,
+        derived from the same ``start_time``) when the visit closes. The
+        thumbnail may not exist yet at confirmation time; the finalized row
+        re-derives every path field, so the provisional's nulls are
+        temporary by design.
+        """
+        arrival_clip_path = get_output_path(self.clips_dir, start_time, "arrival", "mp4")
+        thumbnail_path = get_output_path(self.clips_dir, start_time, "arrival", "jpg")
+        row = FalconVisit(
+            start_time=start_time,
+            end_time=None,
+            peak_confidence=self._visit_peak_confidence,
+            arrival_clip_path=(str(arrival_clip_path) if arrival_clip_path.exists() else None),
+            thumbnail_path=(str(thumbnail_path) if thumbnail_path.exists() else None),
+            max_concurrent_birds=self._visit_max_birds(),
+        )
+        self._provisional_visit = row
+        self.event_store.upsert(row)
+        logger.debug(f"Provisional visit row written: {row.id} (end_time null)")
+
     def _visit_max_birds(self) -> int | None:
         """The max_concurrent_birds value for a closing visit's row (issue #3).
 
@@ -896,6 +925,10 @@ class BufferMonitor:
                     departure_clip_path = get_output_path(
                         self.clips_dir, visit_end_dt, "departure", "mp4"
                     )
+                    # The roosting-stop visit file was finalized at the
+                    # roosting threshold; its path lives in the metadata
+                    # captured then.
+                    roost_visit_file = self._roosting_visit_metadata.get("visit_file")
                     visit_row = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=last_detection_time,
@@ -908,6 +941,7 @@ class BufferMonitor:
                             str(departure_clip_path) if departure_clip_scheduled else None
                         ),
                         max_concurrent_birds=self._visit_max_birds(),
+                        visit_clip_paths=([str(roost_visit_file)] if roost_visit_file else []),
                     )
                 self._visit_peak_confidence = 0.0
                 self._visit_max_concurrent = 0
@@ -983,6 +1017,7 @@ class BufferMonitor:
                             str(departure_clip_path) if departure_clip_scheduled else None
                         ),
                         max_concurrent_birds=self._visit_max_birds(),
+                        visit_clip_paths=[str(visit_path)],
                     )
 
                     duration = visit_metadata.get("duration_seconds", 0)
@@ -1074,6 +1109,9 @@ class BufferMonitor:
         pending.end_time = visit_row.end_time
         pending.peak_confidence = max(pending.peak_confidence, visit_row.peak_confidence)
         pending.departure_clip_path = visit_row.departure_clip_path
+        # Each segment contributes its visit recording — the merged row lists
+        # every file that together covers the stay, in order.
+        pending.visit_clip_paths.extend(visit_row.visit_clip_paths)
         # Merged visit spans several segments: the row's max concurrent count
         # is the max across them (issue #3). None stays None (count disabled).
         if pending.max_concurrent_birds is not None or visit_row.max_concurrent_birds is not None:
@@ -1113,7 +1151,17 @@ class BufferMonitor:
                 row.insignificant = decision.insignificant
                 row.merged_segments = decision.merged_segments
                 if decision.record:
-                    self.event_store.append(row)
+                    # Replaces the provisional row written at confirmation
+                    # (same id); appends when none exists — a finalize can
+                    # never fail on a missing provisional.
+                    self.event_store.upsert(row)
+                self._provisional_visit = None
+            elif self._provisional_visit is not None:
+                # The departure produced no row (recorder yielded no file or
+                # metadata) — remove the provisional so it doesn't sit as a
+                # forever-ongoing visit.
+                self.event_store.discard(self._provisional_visit)
+                self._provisional_visit = None
         elif decision.event_type is not None and decision.notify:
             self.event_handler.handle_event(
                 decision.event_type, decision.event_time, decision.metadata
@@ -1183,7 +1231,8 @@ class BufferMonitor:
                 (FalconEvent.ARRIVED, self.arrival_pending_start, {}), now
             )
 
-        if any(d.discard_arrival_clip for d in decisions):
+        continuation = any(d.discard_arrival_clip for d in decisions)
+        if continuation:
             # Continuation of a merged visit: drop the arrival clip instead
             # of finalizing it. The visit recording still finalizes below —
             # a merged visit may span multiple visit files by design.
@@ -1196,6 +1245,13 @@ class BufferMonitor:
 
         # Rename visit recording from .tmp to final
         self.visit_recorder.rename_to_final()
+
+        # A fresh (non-continuation) confirmed visit gets its provisional row
+        # now — end_time null, the viewer's "ongoing visit" state. A
+        # continuation's row of record is the held first segment's row, whose
+        # provisional is already on file.
+        if not continuation and self.arrival_pending_start is not None:
+            self._write_provisional_visit(self.arrival_pending_start)
 
         # NOW send the notification — if the filter's decision says so
         # (pass-through when the filter is disabled)
@@ -1279,6 +1335,12 @@ class BufferMonitor:
 
         # Transition from PENDING_STARTUP to ROOSTING
         self.state_machine.confirm_startup_presence(now)
+
+        # Startup-confirmed visits get a provisional row too: the state
+        # machine's visit_start is the startup_pending_start timestamp, so
+        # the finalized row at departure replaces this one by id.
+        if self.startup_pending_start is not None:
+            self._write_provisional_visit(self.startup_pending_start)
 
         # Send notification only if notify_on_startup is enabled — routed
         # through the significance filter like every confirmed arrival
@@ -1427,6 +1489,16 @@ class BufferMonitor:
 
         # Tracker and state machine reset together (ho-12 / 024-C)
         self._reset_presence()
+
+        # A confirmed visit abandoned without a departure event (outage
+        # exceeded): its provisional row would sit as forever-ongoing —
+        # discard it, unless the row of record is already held for release
+        # (pending row with the same id finalizes it later).
+        if self._provisional_visit is not None:
+            pending = self._pending_visit_row
+            if pending is None or pending.id != self._provisional_visit.id:
+                self.event_store.discard(self._provisional_visit)
+            self._provisional_visit = None
 
         self.startup_pending = False
         self.startup_pending_start = None

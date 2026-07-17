@@ -365,7 +365,7 @@ class TestDepartedEvent:
         assert not arrival_tmp.exists()  # deletable .tmp removed
         visit_tmp.unlink.assert_called_once()  # stuck .tmp only logged
         # The departure was NOT surfaced as a real visit
-        monitor.event_store.append.assert_not_called()
+        monitor.event_store.upsert.assert_not_called()
         monitor.event_handler.handle_event.assert_not_called()
 
     def test_roosting_stop_departure_with_string_timestamps(self, tmp_path):
@@ -394,7 +394,7 @@ class TestDepartedEvent:
         assert cand_final.exists()
         assert monitor.roosting_mode_active is False
         assert monitor._roosting_visit_metadata is None
-        row = monitor.event_store.append.call_args[0][0]
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.peak_confidence == 0.77
         assert row.departure_clip_path is not None
         monitor.event_handler.handle_event.assert_called_once()
@@ -418,7 +418,7 @@ class TestDepartedEvent:
         monitor._frame_now = BASE
         monitor._handle_event(FalconEvent.DEPARTED, BASE, metadata)
 
-        row = monitor.event_store.append.call_args[0][0]
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.peak_confidence == 0.66
         assert row.departure_clip_path is not None
         monitor.clip_manager.create_departure_clip.assert_called_once()

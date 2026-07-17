@@ -185,7 +185,7 @@ class TestCandidateFinalize:
         assert not tmp_clip.exists()
         monitor.clip_manager.create_clip_from_buffer.assert_not_called()
         # 022-A integration: the appended row carries the finalized clip path
-        visit = monitor.event_store.append.call_args[0][0]
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert visit.departure_clip_path == str(final_path)
         assert monitor._departure_candidate is None
         assert monitor.roosting_mode_active is False
@@ -206,7 +206,7 @@ class TestCandidateFinalize:
             after_seconds=15,
         )
         # Visit row still appended, with no departure clip path
-        visit = monitor.event_store.append.call_args[0][0]
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert visit.departure_clip_path is None
 
     def test_departed_with_failed_extraction_appends_row(self, tmp_path):
@@ -222,7 +222,7 @@ class TestCandidateFinalize:
         self._departed(monitor, visit_start, last_det)
 
         assert not final_path.exists()
-        visit = monitor.event_store.append.call_args[0][0]
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert visit.departure_clip_path is None
 
 

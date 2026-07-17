@@ -252,8 +252,14 @@ class TestVisitRowMax:
         return t
 
     def _recorded_row(self, monitor: BufferMonitor) -> FalconVisit:
-        monitor.event_store.append.assert_called_once()
-        row = monitor.event_store.append.call_args[0][0]
+        """The finalized visit row (the confirm also upserts a provisional)."""
+        finalized = [
+            call.args[0]
+            for call in monitor.event_store.upsert.call_args_list
+            if call.args[0].end_time is not None
+        ]
+        assert len(finalized) == 1
+        row = finalized[0]
         assert isinstance(row, FalconVisit)
         return row
 
