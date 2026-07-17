@@ -462,6 +462,42 @@ log_file: "logs/kanyo.log"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CHICK SEASON PRESET (issue #1)
+# ─────────────────────────────────────────────────────────────────────────────
+# When chicks or fledglings are in the nest, the nest is never truly empty:
+# growing chicks trigger YOLO once they're large enough, fledglings move
+# constantly, and binary presence/absence stops meaning "adult activity".
+# No special mode is needed — the existing layers already carry the load:
+#
+#   - The presence layer keeps the occupied nest PRESENT through chick
+#     wriggling and recognition flicker (departure needs positive exit
+#     evidence, which a chick-filled nest never produces). The system settles
+#     into ROOSTING and stays there — no arrival/departure churn.
+#   - The significance filter damps whatever residual event noise fledgling
+#     activity produces (merge window + activity damping).
+#   - Bird count tracking is how you see ADULT comings and goings on top of
+#     the chick baseline: chicks hold the count at its baseline (1, 2, ...);
+#     a sustained count increase is an adult arriving, a sustained decrease
+#     is one leaving. Count notifications fire on those changes even though
+#     ARRIVED/DEPARTED never fire on an always-occupied nest.
+#
+# Recommended overrides for a nest with visible chicks:
+#
+#   bird_count_enabled: true          # adult activity = count changes now
+#   bird_count_confirmation_seconds: 20   # chicks huddle/overlap; be patient
+#   roosting_recording_mode: stop     # nest occupied 24/7 — cap visit files
+#   roosting_detection_interval: 30   # low-rate polling during the long roost
+#   merge_window_seconds: 600         # feeding visits cluster; merge them
+#   min_significant_seconds: 60       # fledgling hops aren't visits
+#   damping_arrivals_threshold: 6     # summary mode kicks in earlier
+#   notification_cooldown_minutes: 10 # calmer public channel
+#
+# Revert to your normal profile once the young disperse. Adult-vs-chick
+# discrimination by bounding-box size or a dedicated classifier is future
+# work (needs real chick-season footage to calibrate — see issue #2).
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # HOBBY vs RESEARCH
 # ─────────────────────────────────────────────────────────────────────────────
 # Default settings are optimised for a hobby monitoring setup:
