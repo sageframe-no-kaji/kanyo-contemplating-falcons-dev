@@ -117,6 +117,22 @@ See **[QUICKSTART.md](QUICKSTART.md)** for the full walkthrough, including Teleg
 | [QUICKSTART.md](QUICKSTART.md)                   | Get running in 10 minutes             |
 | [docs/adding-streams.md](docs/adding-streams.md) | Multi-stream deployment guide         |
 | [docs/sensing-logic.md](docs/sensing-logic.md)   | How the detection state machine works |
+| [docs/youtube-stream-constraints.md](docs/youtube-stream-constraints.md) | YouTube access constraints and operational expectations |
+
+---
+
+## YouTube Stream Access
+
+Kanyō sources video from public YouTube live streams via yt-dlp, and that access comes with real operational constraints. Continuous 24/7 HLS fetching from a single IP eventually triggers YouTube's anti-abuse systems — in production this has meant an IP-level 403 block on all segment requests, and residential IPs are far more vulnerable than datacenter IPs. Google's blocking also appears to use TLS fingerprinting alongside IP reputation, so a Linux client may be blocked where a browser on the same IP is not.
+
+The system is built to live inside these limits:
+
+- **Exponential backoff** on reconnection: 60s doubling to a 30-minute ceiling, ±20% jitter, and a hard cap of 50 connection attempts per stream per 24 hours, after which the stream goes dormant until the window resets. Watch for `Backoff: sleeping Ns` and `Daily attempt cap (50) reached` in the logs.
+- **Automatic recovery** from routine drops — YouTube encoder restarts and network blips happen many times a day and self-heal. Persistent 403s across all streams mean an IP ban and require intervention (stop containers, run `ops/ban-watch.sh`, wait it out).
+- **yt-dlp freshness** — YouTube changes its API periodically and old yt-dlp versions stop working. Minimum `yt-dlp>=2024.12.01`; the Docker images upgrade yt-dlp at build time, so pulling a fresh image is the first fix for fleet-wide resolution failures.
+- **No guaranteed uptime.** YouTube can change its abuse detection at any time. The system degrades gracefully and keeps its records honest through gaps, but 100% capture on YouTube-sourced streams is not a promise anyone can make.
+
+Full detail — failure modes seen in production, log signatures, ban recovery procedure, and network-placement guidance — in **[docs/youtube-stream-constraints.md](docs/youtube-stream-constraints.md)**.
 
 ---
 
