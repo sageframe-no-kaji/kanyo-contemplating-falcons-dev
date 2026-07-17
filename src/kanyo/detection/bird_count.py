@@ -7,12 +7,11 @@ parallel judgment, never a new state (the 017 spec's core structural rule,
 kept). The tracker consumes a per-frame *candidate count* the monitor derives
 from the detection views:
 
-- Filtered (full-confidence, target-class) detections are the strongest count
-  evidence: candidate = number of filtered boxes.
-- Sustain-level raw boxes carry the count through recognition dropouts the
-  presence layer already tolerates (an at-lens bird classified "elephant" is
-  still one bird): candidate = number of sustain-level boxes when the
-  filtered view is empty.
+- Any boxes → the raw (sustain-floor) box count, a superset of the filtered
+  view. Counting the raw view is what makes mixed-confidence groups come out
+  right: an adult at full confidence plus chicks at sustain level is three
+  birds, not one, and an at-lens bird classified "elephant" is still one
+  bird carrying the count through a recognition dropout.
 - No boxes at all while presence holds (the parked-bird signature) is NO
   evidence about count — the candidate is ``None`` and the confirmed count
   holds, mirroring the presence layer's "absence of recognition is not

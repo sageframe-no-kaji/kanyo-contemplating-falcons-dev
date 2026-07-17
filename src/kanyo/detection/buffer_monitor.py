@@ -610,18 +610,23 @@ class BufferMonitor:
     ) -> None:
         """Derive the per-frame candidate count and feed the tracker (issue #3).
 
-        Candidate derivation, strongest evidence first:
+        Candidate derivation:
 
         - Presence absent → candidate 0 (the count lives inside a presence
           episode; the exit-timeout debounce means a wrong 0 here confirms
           only after sustained absence, and 0-boundary changes never surface
           as count notifications anyway).
-        - Filtered (full-confidence) detections → their box count.
-        - Sustain-level raw boxes with no filtered hit → their box count:
-          continuity through the recognition dropouts the presence layer
-          already tolerates.
+        - Any boxes → the raw (sustain-floor) box count. The raw view is a
+          superset of the filtered view in presence mode, so this counts
+          mixed-confidence groups correctly: an adult at full confidence
+          plus chicks at sustain level is 3 birds, not 1 (the chick-season
+          scenario, issue #1/#2). With presence disabled the raw view
+          collapses onto the filtered one, so this is the filtered count.
         - Present with no boxes at all (parked bird) → no evidence; the
           confirmed count holds.
+
+        Per-frame noise in the raw view is absorbed by the tracker's
+        sustained-confirmation window, never by dropping evidence here.
 
         Confirmed changes update the visit max; changes between nonzero
         counts route through the significance filter as COUNT_CHANGED (the
@@ -633,10 +638,10 @@ class BufferMonitor:
         candidate: int | None
         if not falcon_detected:
             candidate = 0
-        elif detections:
-            candidate = len(detections)
-        elif raw_detections:
-            candidate = len(raw_detections)
+        elif raw_detections or detections:
+            # max() is defensive: raw should always superset filtered, but a
+            # detector misconfiguration must not undercount confirmed birds.
+            candidate = max(len(raw_detections), len(detections))
         else:
             candidate = None
 
