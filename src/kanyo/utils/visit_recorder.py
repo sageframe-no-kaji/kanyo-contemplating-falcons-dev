@@ -26,6 +26,30 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def ffmpeg_log_path(recording_path: Path) -> Path:
+    """
+    Return the ffmpeg stderr log path for a recording.
+
+    The log always lives at ``<name>.mp4.ffmpeg.log``, whether the
+    recording is still at its ``.mp4.tmp`` working path or has been
+    renamed to its final ``.mp4``. Every creation and cleanup site must
+    compute the log path through this function — recordings are renamed
+    from ``.tmp`` to ``.mp4`` on confirmation, and computing the name
+    ad hoc with ``with_suffix`` (which replaces only the last suffix)
+    made the two sides of the create/delete pair disagree.
+
+    Args:
+        recording_path: Recording path, either ``.mp4`` or ``.mp4.tmp``
+
+    Returns:
+        Path of the stderr log beside the final recording
+    """
+    name = recording_path.name
+    if name.endswith(".tmp"):
+        name = name[: -len(".tmp")]
+    return recording_path.with_name(name + ".ffmpeg.log")
+
+
 class VisitRecorder:
     """
     Records entire falcon visits to video files.
@@ -272,7 +296,7 @@ class VisitRecorder:
             # Pipe buffers are finite (~64KB); if ffmpeg writes more than that
             # and we don't read it, ffmpeg blocks, which backs up stdin, which
             # blocks our write_frame() calls forever.
-            stderr_log = self._visit_path.with_suffix(".ffmpeg.log")
+            stderr_log = ffmpeg_log_path(self._visit_path)
             self._stderr_file = open(stderr_log, "w")
 
             self._process = subprocess.Popen(
@@ -490,7 +514,7 @@ class VisitRecorder:
 
         # Delete FFmpeg log file after successful recording (if confirmed)
         if self._confirmed and result_path:
-            ffmpeg_log = result_path.with_suffix(".ffmpeg.log")
+            ffmpeg_log = ffmpeg_log_path(result_path)
             if ffmpeg_log.exists():
                 try:
                     ffmpeg_log.unlink()
@@ -579,7 +603,7 @@ class VisitRecorder:
         logger.info(f"Extracting clip: {start_offset:.1f}s + {duration:.1f}s → {output_path}")
 
         # Write ffmpeg stderr to log file
-        ffmpeg_log = output_path.with_suffix(".ffmpeg.log")
+        ffmpeg_log = ffmpeg_log_path(output_path)
         try:
             with open(ffmpeg_log, "w") as stderr_file:
                 result = subprocess.run(

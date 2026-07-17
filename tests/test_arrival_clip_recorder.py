@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder
+from kanyo.utils.visit_recorder import ffmpeg_log_path
 
 
 def make_clip_manager() -> Mock:
@@ -125,7 +126,8 @@ class TestStopRecording:
         """The renamed final path wins, and its ffmpeg log is cleaned up."""
         final_path = tmp_path / "falcon_100000_000000_arrival.mp4"
         final_path.write_text("clip")
-        ffmpeg_log = final_path.with_suffix(".ffmpeg.log")
+        # The log is created against the .mp4.tmp path -> X.mp4.ffmpeg.log
+        ffmpeg_log = ffmpeg_log_path(final_path)
         ffmpeg_log.write_text("ffmpeg output")
 
         acr = ArrivalClipRecorder(make_clip_manager())
@@ -145,7 +147,7 @@ class TestStopRecording:
         final_path = tmp_path / "falcon_100000_000000_arrival.mp4"
         final_path.write_text("clip")
         # A directory at the log path makes unlink() raise
-        ffmpeg_log = final_path.with_suffix(".ffmpeg.log")
+        ffmpeg_log = ffmpeg_log_path(final_path)
         ffmpeg_log.mkdir()
 
         acr = ArrivalClipRecorder(make_clip_manager())
@@ -161,7 +163,7 @@ class TestStopRecording:
         """Without a rename, cleanup targets the .tmp clip path."""
         clip_path = tmp_path / "falcon_100000_000000_arrival.mp4.tmp"
         clip_path.write_text("clip")
-        ffmpeg_log = clip_path.with_suffix(".ffmpeg.log")
+        ffmpeg_log = ffmpeg_log_path(clip_path)
         ffmpeg_log.write_text("ffmpeg output")
 
         acr = ArrivalClipRecorder(make_clip_manager())

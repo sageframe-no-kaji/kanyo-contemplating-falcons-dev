@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from kanyo.detection.buffer_clip_manager import BufferClipManager
-from kanyo.utils.visit_recorder import VisitRecorder
+from kanyo.utils.visit_recorder import VisitRecorder, ffmpeg_log_path
 
 
 def make_manager(tmp_path, **kwargs):
@@ -557,6 +557,28 @@ class TestCreateStandaloneArrivalClip:
         ]
         assert recorder._process is mock_popen.return_value
         self._close_stderr(recorder)
+
+    @patch("kanyo.detection.buffer_clip_manager.subprocess.Popen")
+    def test_confirmed_stop_deletes_stderr_log(self, mock_popen, tmp_path):
+        """Regression (027): the log created for a standalone arrival clip
+        (X.mp4.ffmpeg.log, from the .tmp path) is deleted on confirmed stop."""
+        mock_popen.return_value.poll.return_value = None  # recorder is "running"
+        mock_popen.return_value.wait.return_value = 0
+        clip_path, recorder, _ = self._create(tmp_path, mock_popen, "libx264")
+
+        log_file = ffmpeg_log_path(clip_path)
+        assert log_file.exists()  # really opened by create_standalone_arrival_clip
+        assert log_file.name.endswith(".mp4.ffmpeg.log")
+
+        clip_path.write_bytes(b"fake mp4 data")
+        recorder.rename_to_final()  # confirm while recording
+        expected_final = recorder._final_path
+
+        final_path, _ = recorder.stop_recording(self.ARRIVAL + timedelta(seconds=45))
+
+        assert final_path == expected_final
+        assert expected_final is not None and expected_final.exists()
+        assert not log_file.exists()
 
     @patch("kanyo.detection.buffer_clip_manager.subprocess.Popen")
     def test_videotoolbox_encoder_command(self, mock_popen, tmp_path):

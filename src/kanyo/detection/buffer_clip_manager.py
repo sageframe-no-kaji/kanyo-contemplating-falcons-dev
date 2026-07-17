@@ -403,7 +403,7 @@ class BufferClipManager:
         Returns:
             Tuple of (clip_path, recorder) or (None, None) if failed
         """
-        from kanyo.utils.visit_recorder import VisitRecorder
+        from kanyo.utils.visit_recorder import VisitRecorder, ffmpeg_log_path
 
         # Create clip path with .tmp extension while recording
         final_clip_path = get_output_path(
@@ -527,7 +527,7 @@ class BufferClipManager:
         logger.event(f"📹 Starting arrival clip recording: {clip_path}")
 
         try:
-            stderr_log = clip_path.with_suffix(".ffmpeg.log")
+            stderr_log = ffmpeg_log_path(clip_path)
             temp_recorder._stderr_file = open(stderr_log, "w")
 
             temp_recorder._process = subprocess.Popen(

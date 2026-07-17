@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kanyo.utils.logger import get_logger
+from kanyo.utils.visit_recorder import ffmpeg_log_path
 
 if TYPE_CHECKING:
     from kanyo.detection.buffer_clip_manager import BufferClipManager
@@ -66,7 +67,9 @@ class ArrivalClipRecorder:
         """
         if self._recorder is not None:
             # Rapid swap or slow-stream starvation left previous clip open; close it first.
-            logger.warning("Arrival clip still active on new arrival — stopping before starting new one")
+            logger.warning(
+                "Arrival clip still active on new arrival — stopping before starting new one"
+            )
             self.stop_recording(datetime.now(timezone.utc))
 
         clip_duration = self.clip_manager.clip_arrival_before + self.clip_manager.clip_arrival_after
@@ -138,9 +141,11 @@ class ArrivalClipRecorder:
         if final_path:
             clip_path = final_path
 
-        # Delete FFmpeg log file after successful recording
+        # Delete FFmpeg log file after successful recording. The log was
+        # created against the .mp4.tmp path; ffmpeg_log_path() resolves the
+        # same name whether clip_path is the renamed final .mp4 or the .tmp.
         if clip_path:
-            ffmpeg_log = clip_path.with_suffix(".ffmpeg.log")
+            ffmpeg_log = ffmpeg_log_path(clip_path)
             if ffmpeg_log.exists():
                 try:
                     ffmpeg_log.unlink()

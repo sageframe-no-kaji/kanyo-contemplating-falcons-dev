@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from kanyo.utils.visit_recorder import VisitRecorder
+from kanyo.utils.visit_recorder import VisitRecorder, ffmpeg_log_path
 
 
 def _make_recording_recorder(
@@ -709,8 +709,9 @@ class TestStopRecordingEdgeCases:
         final_file = recorder._final_path
         assert tmp_file is not None and final_file is not None
         tmp_file.write_bytes(b"fake mp4 data")
-        # Log file at the post-rename path so the deletion branch runs
-        final_file.with_suffix(".ffmpeg.log").write_text("ffmpeg output")
+        # start_recording created the log at the real name; the deletion
+        # branch must run against that file
+        assert ffmpeg_log_path(final_file).exists()
         recorder.rename_to_final()
 
         with patch.object(Path, "unlink", side_effect=OSError("busy")):
@@ -718,6 +719,84 @@ class TestStopRecordingEdgeCases:
 
         assert path == final_file
         assert metadata["visit_file"] == str(final_file)
+        assert ffmpeg_log_path(final_file).exists()  # unlink failed, log kept
+
+
+class TestFfmpegLogPath:
+    """Tests for the shared ffmpeg log naming convention."""
+
+    def test_tmp_path_maps_to_final_log_name(self):
+        """A .mp4.tmp working path yields the log beside the final .mp4."""
+        log = ffmpeg_log_path(Path("/clips/2026-01-03/falcon_arrival.mp4.tmp"))
+        assert log == Path("/clips/2026-01-03/falcon_arrival.mp4.ffmpeg.log")
+
+    def test_final_path_maps_to_same_log_name(self):
+        """The renamed final .mp4 path yields the identical log name."""
+        log = ffmpeg_log_path(Path("/clips/2026-01-03/falcon_arrival.mp4"))
+        assert log == Path("/clips/2026-01-03/falcon_arrival.mp4.ffmpeg.log")
+
+
+class TestConfirmedStopLogCleanup:
+    """Regression tests (027): success-path cleanup targets the real log."""
+
+    @patch("subprocess.Popen")
+    def test_confirmed_stop_deletes_the_log_it_created(self, mock_popen, tmp_path):
+        """The log created at start (X.mp4.ffmpeg.log) is gone after a
+        confirmed stop.
+
+        Before 027 the cleanup computed X.ffmpeg.log from the renamed
+        final path — a name that never exists — so logs accumulated on
+        every successful recording.
+        """
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+        tmp_file = recorder._visit_path
+        final_file = recorder._final_path
+        assert tmp_file is not None and final_file is not None
+        log_file = ffmpeg_log_path(tmp_file)
+        assert log_file.exists()  # start_recording really opened it
+        assert log_file == ffmpeg_log_path(final_file)  # same name both sides
+        tmp_file.write_bytes(b"fake mp4 data")
+        recorder.rename_to_final()  # confirm while recording
+
+        path, _ = recorder.stop_recording(datetime(2024, 1, 15, 15, 0, 0))
+
+        assert path == final_file
+        assert final_file.exists()
+        assert not log_file.exists()
+
+    @patch("subprocess.Popen")
+    def test_unconfirmed_stop_keeps_the_log(self, mock_popen, tmp_path):
+        """An unconfirmed (cancelled) recording keeps its log for debugging."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+        tmp_file = recorder._visit_path
+        assert tmp_file is not None
+        log_file = ffmpeg_log_path(tmp_file)
+
+        recorder.stop_recording(datetime(2024, 1, 15, 15, 0, 0))
+
+        assert log_file.exists()
 
 
 class TestExtractClipDelegation:
