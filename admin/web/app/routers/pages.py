@@ -1,14 +1,13 @@
 """Page router for HTML templates."""
 
+import socket
 from datetime import datetime
-from fastapi import APIRouter, Request, HTTPException
+from pathlib import Path
+
+from app.services import clip_service, config_service, docker_service, stream_service
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
-import socket
-
-from app.services import stream_service, docker_service, clip_service, config_service
-
 
 router = APIRouter()
 
@@ -32,7 +31,9 @@ async def overview(request: Request):
         stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(
             stream["clips_path"], stream["id"]
         )
-        stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
+        stream["today_visits"] = clip_service.get_today_visits(
+            stream["clips_path"], stream.get("timezone", "UTC")
+        )
         stream["last_event"] = clip_service.get_last_event(
             stream["clips_path"], stream.get("timezone", "UTC")
         )
@@ -164,13 +165,17 @@ async def stream_files(request: Request, stream_id: str, path: str = ""):
     file_content = None
 
     if current_path.is_dir():
+        # Render mtimes in the STREAM's timezone, not the server's (026,
+        # completes 021-G). Naive fromtimestamp() is server-local — UTC in
+        # production containers.
+        tz = clip_service.get_stream_timezone(stream.get("timezone", "UTC"))
         for item in sorted(current_path.iterdir()):
             items.append(
                 {
                     "name": item.name,
                     "is_dir": item.is_dir(),
                     "size": item.stat().st_size if item.is_file() else None,
-                    "modified": datetime.fromtimestamp(item.stat().st_mtime),
+                    "modified": datetime.fromtimestamp(item.stat().st_mtime, tz=tz),
                     "path": str(item.relative_to(base_path)),
                 }
             )

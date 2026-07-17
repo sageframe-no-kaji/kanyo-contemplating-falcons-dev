@@ -2,24 +2,23 @@
 
 import html
 import json
+from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from pathlib import Path
-from pydantic import BaseModel
-
 from app.services import (
-    stream_service,
-    docker_service,
-    config_service,
     clip_service,
-    log_service,
+    config_service,
+    docker_service,
     file_service,
+    log_service,
+    stream_service,
     system_service,
 )
 from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 
 def _h(value) -> str:
@@ -85,7 +84,9 @@ def _refresh_stream_card(stream: dict) -> None:
     stream["latest_thumbnail"] = clip_service.get_latest_thumbnail(
         stream["clips_path"], stream["id"]
     )
-    stream["today_visits"] = clip_service.get_today_visits(stream["clips_path"])
+    stream["today_visits"] = clip_service.get_today_visits(
+        stream["clips_path"], stream.get("timezone", "UTC")
+    )
     stream["last_event"] = clip_service.get_last_event(
         stream["clips_path"], stream.get("timezone", "UTC")
     )
