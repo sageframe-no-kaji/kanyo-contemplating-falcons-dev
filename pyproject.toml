@@ -31,6 +31,7 @@ module = [
     "kanyo.utils.visit_recorder",
     "kanyo.utils.arrival_clip_recorder",
     "kanyo.detection.event_handler",
+    "kanyo.detection.significance_filter",
     "kanyo.detection.buffer_monitor",
     "kanyo.detection.buffer_clip_manager",
 ]
