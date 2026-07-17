@@ -6,8 +6,9 @@
 # Every section below is documented with what the setting does, valid values,
 # and when you'd want to change it.
 #
-# TIMING CONSTRAINT (enforced at load):
+# TIMING CONSTRAINTS (enforced at load):
 #   roosting_threshold > exit_timeout
+#   presence_absence_failsafe_seconds > exit_timeout  (when presence_enabled)
 #
 # Thumbnail Image (for viewer landing page):
 #   Place a static thumbnail at:
@@ -105,6 +106,71 @@ timezone: "UTC"
 
 exit_timeout: 90
 roosting_threshold: 1800
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Presence Layer
+# ─────────────────────────────────────────────────────────────────────────────
+# Presence is a reasoned judgment over richer evidence, not a per-frame YOLO
+# bit. While a bird is present, presence is sustained by low-confidence
+# detections of ANY class overlapping the bird's region (an at-lens falcon
+# that YOLO calls "elephant" is still evidence of a bird) and by cheap motion
+# differencing inside the region. A motionless bird that YOLO stops seeing —
+# no detection, no motion — is exactly the signature of a sleeping bird and
+# stays PRESENT. Departure requires positive evidence: motion leaving the
+# region followed by quiet, after which the normal exit_timeout runs.
+#
+# Entering presence is unchanged: it still takes a full-confidence detection
+# (detection_confidence) plus the arrival confirmation window. The presence
+# layer only changes how presence is SUSTAINED and how departure is judged.
+#
+# presence_enabled — Master switch. false restores the legacy behavior
+#   exactly (presence = per-frame detection). Disable only to compare
+#   behavior or debug; the presence layer is the fix for false
+#   departed/arrived pairs on roosting birds.
+#
+# presence_sustain_confidence — Any-class confidence floor (0.0–1.0) for a
+#   detection box to sustain presence when it overlaps the bird's region.
+#   YOLO runs once per poll at this floor; full-confidence semantics for
+#   arrivals are reconstructed in code — no extra inference cost. Lower
+#   (e.g. 0.10) on Harvard-style cameras where birds walk up to the lens and
+#   misclassify badly; raise (e.g. 0.25) if unrelated objects near the nest
+#   keep presence alive too long.
+#
+# presence_region_margin_frac — The presence region is the last confirmed
+#   detection box expanded by this fraction of its size on each side
+#   (0.0–1.0). Larger margins tolerate more bird movement between polls but
+#   accept evidence from a wider area. 0.25 suits nest boxes; consider 0.5
+#   on wide scenes where the bird ranges within view.
+#
+# presence_motion_pixel_threshold — Per-pixel grayscale difference (0–255)
+#   between consecutive polls to count a pixel as "changed". Raise (e.g. 35)
+#   on noisy/low-light cameras that shimmer; lower (e.g. 15) on clean feeds
+#   where subtle movement should register.
+#
+# presence_motion_min_area_frac — Fraction of the region (0.0–1.0) that must
+#   change to count as motion. 0.02 catches a head turn on a mostly-still
+#   bird. Raise if wind-blown nest material reads as bird motion.
+#
+# presence_global_change_frac — If more than this fraction of the WHOLE frame
+#   changed (0.0–1.0), the poll's motion evidence is discarded entirely:
+#   IR/day flips, exposure swings, and camera adjustments must not read as
+#   bird motion or as departures. Raise toward 0.7 on cameras whose IR
+#   transition flickers repeatedly; lower toward 0.3 if genuine whole-scene
+#   changes are rare and you want stricter discounting.
+#
+# presence_absence_failsafe_seconds — Ceiling on a missed departure: zero
+#   evidence of any kind (no detection at any threshold, no motion) for this
+#   long forces absence, so presence can never be held forever. Must be
+#   greater than exit_timeout (enforced at load). Default 3600 (1 hour).
+
+presence_enabled: true
+presence_sustain_confidence: 0.15
+presence_region_margin_frac: 0.25
+presence_motion_pixel_threshold: 25
+presence_motion_min_area_frac: 0.02
+presence_global_change_frac: 0.5
+presence_absence_failsafe_seconds: 3600
 
 
 # ─────────────────────────────────────────────────────────────────────────────

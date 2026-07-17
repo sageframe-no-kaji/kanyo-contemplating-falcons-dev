@@ -31,6 +31,10 @@ def make_monitor(clips_dir: str = "clips", roosting_recording_mode: str = "conti
         monitor = BufferMonitor(
             stream_url="test",
             clips_dir=clips_dir,
+            # Legacy-path fixture (mocked detect_birds, MagicMock frames);
+            # the presence-enabled path is covered by
+            # test_presence_integration.py (024-C).
+            presence_enabled=False,
             full_config={
                 "roosting_recording_mode": roosting_recording_mode,
                 "roosting_detection_interval": 30,

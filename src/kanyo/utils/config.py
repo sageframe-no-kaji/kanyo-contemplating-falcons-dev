@@ -41,6 +41,14 @@ DEFAULTS: dict[str, Any] = {
     "arrival_confirmation_seconds": 10,  # Time window to confirm arrival
     "arrival_confirmation_ratio": 0.3,  # Fraction of frames that must detect
     "record_arrival_on_startup": False,  # Record arrival clip when bird present at startup
+    # Presence Layer (ho-12)
+    "presence_enabled": True,  # presence layer on/off (off = legacy per-frame behavior)
+    "presence_sustain_confidence": 0.15,  # any-class floor to sustain presence in region
+    "presence_region_margin_frac": 0.25,  # region = last bbox + this fraction of bbox size
+    "presence_motion_pixel_threshold": 25,  # grayscale absdiff threshold per pixel
+    "presence_motion_min_area_frac": 0.02,  # changed fraction of region to count as motion
+    "presence_global_change_frac": 0.5,  # whole-frame change above this = discard motion evidence
+    "presence_absence_failsafe_seconds": 3600,  # zero-evidence ceiling before forced absence
     # Output & Storage
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
@@ -275,6 +283,35 @@ def _validate(cfg: dict[str, Any]) -> None:
             f"short_visit_threshold ({short_visit_threshold}s) is too short. "
             f"Minimum recommended value is 60 seconds."
         )
+
+    # Presence layer validation (ho-12 / 024-C)
+    presence_fraction_keys = (
+        "presence_sustain_confidence",
+        "presence_region_margin_frac",
+        "presence_motion_min_area_frac",
+        "presence_global_change_frac",
+    )
+    for key in presence_fraction_keys:
+        value = cfg.get(key, DEFAULTS[key])
+        if not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
+            raise ValueError(f"{key} must be between 0.0 and 1.0")
+
+    pixel_threshold = cfg.get("presence_motion_pixel_threshold", 25)
+    if not isinstance(pixel_threshold, (int, float)) or not 0 <= pixel_threshold <= 255:
+        raise ValueError("presence_motion_pixel_threshold must be between 0 and 255")
+
+    # The failsafe is the ceiling on a missed departure; the state machine's
+    # exit_timeout debounces below it. A failsafe at or under exit_timeout
+    # would let the failsafe race the debounce. Only enforced when the
+    # presence layer is on — disabled, the key is inert and must not block
+    # an otherwise-valid legacy config.
+    if cfg.get("presence_enabled", DEFAULTS["presence_enabled"]):
+        failsafe = cfg.get("presence_absence_failsafe_seconds", 3600)
+        if not isinstance(failsafe, (int, float)) or failsafe <= exit_timeout:
+            raise ValueError(
+                f"presence_absence_failsafe_seconds ({failsafe}) must be greater than "
+                f"exit_timeout ({exit_timeout}s)"
+            )
 
     # stream_read_timeout_s sanity (ho-11)
     read_timeout = cfg.get("stream_read_timeout_s", 10.0)
