@@ -21,8 +21,8 @@ Describes how the Docker services are organized across the two repos and what ea
 │   ├── docker-compose.yml
 │   └── ban-watch.sh           ← IP ban detection script (runs in tmux, not Docker)
 │
-├── kanyo-code/                ← source checkout — mounted live into stream containers
-│   ├── src/
+├── kanyo-code/                ← source checkout — admin build source + ops scripts
+│   ├── src/                   ← NOT mounted into containers (image-based deploy)
 │   └── cookies.txt            ← shared YouTube auth cookies for all streams
 │
 ├── kanyo-harvard/             ← stream data (ZFS dataset)
@@ -55,31 +55,27 @@ Describes how the Docker services are organized across the two repos and what ea
 
 ## Services
 
-### Detection streams (5 active)
+### Detection streams (4 running, bigbear defined-but-stopped)
 
-**Containers:** `kanyo-harvard-gpu`, `kanyo-nsw-gpu`, `kanyo-fortwayne-gpu`, `kanyo-umass-gpu`, `kanyo-bigbear-gpu`  
-**Image:** `ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia`  
-**Managed by:** `kanyo-admin/docker-compose.yml`
+**Containers:** `kanyo-harvard-gpu`, `kanyo-nsw-gpu`, `kanyo-fortwayne-gpu`, `kanyo-umass-gpu` (+ `kanyo-bigbear-gpu`, defined behind the `bigbear` compose profile, not normally running)  
+**Image:** `ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:<version>-nvidia` (pinned semver, selected by `KANYO_IMAGE` in `.env`)  
+**Managed by:** `kanyo-admin/docker-compose.yml` (host copy of [docker/docker-compose.yml](../docker/docker-compose.yml))
 
-All five stream containers are defined in one compose file using a YAML anchor (`x-kanyo-gpu-service`) so they share the same GPU config, resource limits, and logging settings. Only the container name and data volume paths differ per stream.
+All stream containers are defined in one compose file using a YAML anchor (`x-kanyo-gpu-service`) so they share the same GPU config, resource limits, and logging settings. Only the container name and data volume paths differ per stream.
 
-**Source code is volume-mounted** from `kanyo-code/src` into every container at `/app/src`, overriding the code baked into the image. This means a `git pull` in `kanyo-code/` + compose restart picks up changes in ~10 seconds with no image rebuild.
+**Deployment is image-based** — the detectors run the code baked into the pinned release image; no source is mounted. Upgrades and rollbacks are image-tag repoints (see [docker/DOCKER-DEPLOYMENT.md](../docker/DOCKER-DEPLOYMENT.md)). A live `src/` mount from `kanyo-code` remains available as a dev-only override, documented in the compose template.
 
 **`cookies.txt` is shared** — a single file at `kanyo-code/cookies.txt` is mounted into all stream containers. Used for YouTube streams that require authenticated access.
 
 ```yaml
 x-kanyo-gpu-service: &kanyo-gpu-service
-  image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia
-  volumes:
-    - ${KANYO_CODE_ROOT}/src:/app/src:ro        # live source mount
-    - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+  image: ${KANYO_IMAGE:-ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:1.0.0-nvidia}
 
 services:
   harvard-gpu:
     <<: *kanyo-gpu-service
     container_name: kanyo-harvard-gpu
     volumes:
-      - ${KANYO_CODE_ROOT}/src:/app/src:ro
       - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
       - ${KANYO_CAM1_ROOT}/config.yaml:/app/config.yaml:ro
       - ${KANYO_CAM1_ROOT}/clips:/app/clips
@@ -193,7 +189,7 @@ YouTube live stream
         ▼
 [kanyo-{stream}-gpu]  ←── config.yaml    (stream settings)
         │              ←── cookies.txt   (shared from kanyo-code/)
-        │              ←── src/          (live volume mount from kanyo-code/)
+        │              (code baked into pinned image — no src mount)
         │
         ▼
 /opt/services/kanyo-{stream}/

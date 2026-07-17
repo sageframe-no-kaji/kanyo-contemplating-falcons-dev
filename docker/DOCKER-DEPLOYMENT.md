@@ -1,395 +1,199 @@
 # Kanyo Docker Deployment Guide
 
-This guide covers deploying Kanyo with Docker, from single-stream to multi-stream production setups.
+How Kanyo deploys with Docker. **The deployment path is image-based**: detectors
+run a pinned, semver-tagged image pulled from GHCR. The legacy source-mount
+route is a development-only option, documented at the end.
+
+For the full production deploy plan for kanyo.lan, see
+[docs/deployment-kanyo.md](../docs/deployment-kanyo.md).
 
 ---
 
-## Quick Start (Single Stream)
+## Images and Tags
 
-### Prerequisites
+CI ([.github/workflows/build.yml](../.github/workflows/build.yml)) builds and
+publishes to `ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev` on
+every push to `main` and on every `v*` git tag.
 
-- Docker and Docker Compose
-- NVIDIA GPU with drivers (or see [CPU/Intel variants](#hardware-variants))
-- NVIDIA Container Toolkit installed
+| Tag | Built from | Meaning |
+|-----|-----------|---------|
+| `1.0.0-nvidia`, `1.0-nvidia` | `Dockerfile.nvidia` | Pinned release, NVIDIA GPU flavor — **what production runs** |
+| `1.0.0-cpu`, `1.0-cpu` | `Dockerfile.cpu` | Pinned release, CPU flavor |
+| `nvidia`, `cpu` | respective Dockerfile | Floating tip of `main` — do not pin production to these |
+| `nvidia-<sha>`, `cpu-<sha>` | respective Dockerfile | Exact-commit builds, for forensic pinning |
 
-### Step 1: Create Deployment Directory
+Semver tags are always flavor-suffixed; there is no bare `:1.0.0` tag, so a
+version tag can never be ambiguous about hardware flavor.
+
+Model weights (`yolov8n`) are baked into the image at build time; `/app/models`
+is not mounted. A model change is an image change and ships as a new version.
+
+The `vaapi` (Intel iGPU) flavor exists as `Dockerfile.vaapi` but is not built
+by CI; build it locally with `ops/build/build-vaapi.sh` if needed.
+
+---
+
+## Production Deployment (image-based)
+
+### Layout
+
+One compose project drives the whole fleet:
+
+```
+/opt/services/
+├── kanyo-admin/               ← compose project (docker-compose.yml + .env)
+├── kanyo-code/                ← host checkout: admin build source, cookies.txt, ops
+├── kanyo-harvard/             ← per-site: config.yaml, clips/, logs/
+├── kanyo-nsw/
+├── kanyo-fortwayne/
+├── kanyo-umass/
+└── kanyo-bigbear/             ← defined in compose, not normally running
+```
+
+The canonical compose template is [docker/docker-compose.yml](docker-compose.yml)
+in this repo; the live copy at `/opt/services/kanyo-admin/docker-compose.yml`
+is a gitignored host copy of it. Edit in the repo, copy to the host.
+
+The image is selected by `KANYO_IMAGE` in `/opt/services/kanyo-admin/.env`:
 
 ```bash
-mkdir -p /opt/services/kanyo-mystream
-cd /opt/services/kanyo-mystream
+KANYO_IMAGE=ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:1.0.0-nvidia
+TELEGRAM_BOT_TOKEN=...
+KANYO_CODE_ROOT=/opt/services/kanyo-code
+KANYO_CAM1_ROOT=/opt/services/kanyo-harvard
+KANYO_CAM2_ROOT=/opt/services/kanyo-nsw
+KANYO_CAM4_ROOT=/opt/services/kanyo-fortwayne
+KANYO_CAM5_ROOT=/opt/services/kanyo-umass
+KANYO_CAM6_ROOT=/opt/services/kanyo-bigbear
 ```
 
-### Step 2: Get Docker Compose File
+### Upgrade
+
+Releases are cut by pushing a git tag (`git tag v1.1.0 && git push origin v1.1.0`);
+CI publishes `1.1.0-nvidia` / `1.1.0-cpu`. Then, from the Mac:
 
 ```bash
-curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/docker/docker-compose.yml
+./ops/update-code.sh 1.1.0-nvidia          # canary harvard, confirm, then fleet
 ```
 
-### Step 3: Create Configuration
+Or manually on the host:
 
 ```bash
-curl -O https://raw.githubusercontent.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev/main/configs/config.template.yaml
-mv config.template.yaml config.yaml
+cd /opt/services/kanyo-admin
+sed -i 's|^KANYO_IMAGE=.*|KANYO_IMAGE=ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:1.1.0-nvidia|' .env
+sudo docker compose pull harvard-gpu
+sudo docker compose up -d --force-recreate harvard-gpu     # canary
+# verify logs (see deploy plan), then:
+sudo docker compose pull && sudo docker compose up -d --force-recreate
 ```
 
-Edit `config.yaml`:
-```yaml
-video_source: "https://www.youtube.com/watch?v=YOUR_VIDEO_ID"
-timezone: "America/New_York"
-stream_name: "My Falcon Cam"
-telegram_enabled: false  # Set to true after configuring Telegram
-```
+`--force-recreate` matters: `restart` does not pick up a new image.
 
-### Step 4: Create Directories and Environment
+### Rollback
+
+Rollback is the same move with the previous tag — repoint and recreate:
 
 ```bash
-mkdir -p clips logs
-
-# If using Telegram notifications:
-echo "TELEGRAM_BOT_TOKEN=your_token_here" > .env
+sed -i 's|^KANYO_IMAGE=.*|KANYO_IMAGE=ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:1.0.0-nvidia|' .env
+sudo docker compose up -d --force-recreate
 ```
 
-### Step 5: Start
+Previously-pulled images are still on the host, so rollback needs no pull and
+completes in seconds.
+
+### Admin dashboard (host-built, unchanged)
+
+The dashboard is the one service still built on the host, from
+`${KANYO_CODE_ROOT}/admin/web`. Update it with:
 
 ```bash
-docker compose up -d
+./ops/update-admin.sh          # git pull kanyo-code + rebuild dashboard
 ```
 
-### Step 6: Verify
+The `kanyo-code` checkout stays on the host for three reasons: it is the admin
+dashboard build source, it holds the shared `cookies.txt`, and it carries the
+`ops/` scripts. It is **not** mounted into the detector containers.
 
-```bash
-docker logs kanyo-detection --tail 50 -f
-```
+---
 
-You should see:
-```
-INFO | ✅ Connected to stream
-INFO | Frame 100: bird detected (confidence: 0.67)
-```
+## Configuration
+
+Each site mounts a single `config.yaml` read-only from its site directory.
+All keys are documented in
+[configs/config.template.yaml](../configs/config.template.yaml) — that file is
+the config-key reference; this guide does not duplicate it.
+
+Config changes do not require a new image: edit
+`/opt/services/kanyo-<site>/config.yaml` and `docker compose restart <site>-gpu`.
 
 ---
 
 ## Hardware Variants
 
-Three Docker images are available:
+| Flavor | Hardware | Dockerfile |
+|--------|----------|------------|
+| `nvidia` | NVIDIA GPU | `Dockerfile.nvidia` — production |
+| `cpu` | Any CPU | `Dockerfile.cpu` |
+| `vaapi` | Intel iGPU | `Dockerfile.vaapi` — not CI-built |
 
-| Image Tag | Hardware | Use Case |
-|-----------|----------|----------|
-| `:nvidia` | NVIDIA GPU | Fastest, recommended |
-| `:vaapi` | Intel iGPU | Good for Intel systems |
-| `:cpu` | CPU only | Works anywhere, slower |
-
-To use a different variant, change the image in `docker-compose.yml`:
-
-```yaml
-x-kanyo-gpu-service: &kanyo-gpu-service
-  image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:vaapi  # or :cpu
-```
-
-For Intel iGPU, also remove the NVIDIA `deploy` section and add device access:
+For CPU-only, remove the `deploy.resources.reservations` block from the
+compose anchor. For VAAPI, additionally add:
 
 ```yaml
-x-kanyo-service: &kanyo-service
-  image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:vaapi
-  devices:
-    - /dev/dri:/dev/dri
-  # ... rest of config (no deploy.resources.reservations)
+devices:
+  - /dev/dri:/dev/dri
 ```
-
-For CPU-only, remove the entire `deploy` section.
-
----
-
-## Multi-Stream Deployment
-
-For monitoring multiple camera streams, use the YAML anchor pattern.
-
-### Directory Structure
-
-```
-/opt/services/
-├── kanyo-admin/              # Docker Compose, .env
-│   ├── docker-compose.yml
-│   └── .env
-├── kanyo-harvard/            # Stream 1
-│   ├── config.yaml
-│   ├── clips/
-│   └── logs/
-├── kanyo-nsw/                # Stream 2
-│   ├── config.yaml
-│   ├── clips/
-│   └── logs/
-└── kanyo-code/               # Source code (for development)
-    └── src/
-```
-
-### Multi-Stream docker-compose.yml
-
-```yaml
-x-kanyo-gpu-service: &kanyo-gpu-service
-  image: ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:nvidia
-  pull_policy: if_not_present
-  env_file: .env
-  shm_size: '2gb'
-  environment:
-    - PYTHONUNBUFFERED=1
-    - MALLOC_ARENA_MAX=2
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
-  restart: unless-stopped
-  logging:
-    driver: "json-file"
-    options:
-      max-size: "10m"
-      max-file: "3"
-
-services:
-  harvard-gpu:
-    <<: *kanyo-gpu-service
-    container_name: kanyo-harvard-gpu
-    command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
-    volumes:
-      - ${KANYO_CAM1_ROOT}/config.yaml:/app/config.yaml:ro
-      - ${KANYO_CAM1_ROOT}/clips:/app/clips
-      - ${KANYO_CAM1_ROOT}/logs:/app/logs
-
-  nsw-gpu:
-    <<: *kanyo-gpu-service
-    container_name: kanyo-nsw-gpu
-    command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
-    volumes:
-      - ${KANYO_CAM2_ROOT}/config.yaml:/app/config.yaml:ro
-      - ${KANYO_CAM2_ROOT}/clips:/app/clips
-      - ${KANYO_CAM2_ROOT}/logs:/app/logs
-```
-
-### Environment File (.env)
-
-```bash
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-KANYO_CAM1_ROOT=/opt/services/kanyo-harvard
-KANYO_CAM2_ROOT=/opt/services/kanyo-nsw
-```
-
-### Adding a New Stream
-
-1. Create stream directory:
-   ```bash
-   mkdir -p /opt/services/kanyo-newstream/{clips,logs}
-   ```
-
-2. Create `config.yaml` for the stream
-
-3. Add to `.env`:
-   ```bash
-   KANYO_CAM3_ROOT=/opt/services/kanyo-newstream
-   ```
-
-4. Add service to `docker-compose.yml`:
-   ```yaml
-   newstream-gpu:
-     <<: *kanyo-gpu-service
-     container_name: kanyo-newstream-gpu
-     command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
-     volumes:
-       - ${KANYO_CAM3_ROOT}/config.yaml:/app/config.yaml:ro
-       - ${KANYO_CAM3_ROOT}/clips:/app/clips
-       - ${KANYO_CAM3_ROOT}/logs:/app/logs
-   ```
-
-5. Start:
-   ```bash
-   docker compose up -d newstream-gpu
-   ```
-
----
-
-## Development Workflow
-
-For rapid iteration during development, mount source code from the host instead of using the code baked into the image.
-
-### Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/sageframe-no-kaji/kanyo-contemplating-falcons-dev.git /opt/services/kanyo-code
-   ```
-
-2. Add code volume to your services:
-   ```yaml
-   services:
-     harvard-gpu:
-       <<: *kanyo-gpu-service
-       volumes:
-         - /opt/services/kanyo-code/src:/app/src:ro    # ADD THIS
-         - ${KANYO_CAM1_ROOT}/config.yaml:/app/config.yaml:ro
-         - ${KANYO_CAM1_ROOT}/clips:/app/clips
-         - ${KANYO_CAM1_ROOT}/logs:/app/logs
-   ```
-
-### Update Cycle
-
-With volume-mounted code, updates are instant:
-
-```bash
-# On your development machine
-git add -A && git commit -m "Fix bug" && git push
-
-# On the server
-cd /opt/services/kanyo-code && git pull
-cd /opt/services/kanyo-admin && docker compose restart
-```
-
-Total time: ~10 seconds vs ~45 minutes for image rebuilds.
-
-### When to Rebuild Images
-
-Only rebuild images when:
-- `requirements.txt` changes
-- Dockerfile changes
-- Creating a production release
-
-```bash
-# Rebuild locally
-docker build -f docker/Dockerfile.nvidia -t kanyo:nvidia .
-
-# Or pull updated image
-docker compose pull
-```
-
----
-
-## ZFS Storage (Optional)
-
-For production deployments, ZFS provides snapshots, compression, and quotas.
-
-### Create Datasets
-
-```bash
-# Parent dataset
-sudo zfs create rpool/kanyo
-
-# Per-stream datasets
-sudo zfs create rpool/kanyo/harvard
-sudo zfs create rpool/kanyo/nsw
-
-# Set quotas (optional)
-sudo zfs set quota=500G rpool/kanyo/harvard
-sudo zfs set quota=500G rpool/kanyo/nsw
-
-# Enable compression
-sudo zfs set compression=lz4 rpool/kanyo
-```
-
-### Snapshots
-
-```bash
-# Manual snapshot
-sudo zfs snapshot -r rpool/kanyo@backup-$(date +%Y%m%d)
-
-# Automated daily snapshots (add to crontab)
-0 2 * * * /usr/sbin/zfs snapshot -r rpool/kanyo@daily-$(date +\%Y\%m\%d)
-
-# Keep last 7 days
-0 3 * * * /usr/sbin/zfs list -t snapshot -o name | grep 'daily' | head -n -7 | xargs -n1 /usr/sbin/zfs destroy
-```
-
-### Restore
-
-```bash
-# List snapshots
-zfs list -t snapshot | grep kanyo
-
-# Rollback (destructive)
-sudo zfs rollback rpool/kanyo/harvard@daily-20260123
-
-# Or restore specific files
-cp /opt/services/kanyo-harvard/.zfs/snapshot/daily-20260123/clips/2026-01-22/* \
-   /opt/services/kanyo-harvard/clips/2026-01-22/
-```
-
----
-
-## Admin Dashboard (Optional)
-
-The admin dashboard provides a web UI for managing streams.
-
-Add to `docker-compose.yml`:
-
-```yaml
-services:
-  # ... detection services ...
-
-  dashboard:
-    build: /opt/services/kanyo-code/admin/web
-    container_name: kanyo-admin-web
-    ports:
-      - "5000:5000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${KANYO_CAM1_ROOT}:/data/harvard
-      - ${KANYO_CAM2_ROOT}:/data/nsw
-    restart: unless-stopped
-```
-
-Access at `http://your-server:5000`
 
 ---
 
 ## Operations
 
-### Common Commands
-
 ```bash
-# Start all
-docker compose up -d
+cd /opt/services/kanyo-admin
 
-# Stop all
-docker compose down
-
-# Restart specific stream
-docker compose restart harvard-gpu
-
-# View logs
-docker logs kanyo-harvard-gpu --tail 100 -f
-
-# View all container status
-docker compose ps
-
-# Resource usage
-docker stats
+sudo docker compose ps                          # fleet status
+sudo docker compose up -d                       # start all
+sudo docker compose restart harvard-gpu         # restart one site (same image)
+sudo docker logs kanyo-harvard-gpu --tail 100 -f
+docker image inspect --format '{{index .RepoTags}}' \
+  $(docker inspect --format '{{.Image}}' kanyo-harvard-gpu)   # what's running?
 ```
 
-### Health Checks
+Health checks:
 
 ```bash
-# Check containers running
-docker compose ps
-
-# Check recent clips
-ls -la /opt/services/kanyo-harvard/clips/$(date +%Y-%m-%d)/
-
-# Check disk usage
-du -sh /opt/services/kanyo-*/clips/
-
-# Check ZFS (if using)
-zfs list | grep kanyo
+sudo docker compose ps                                        # everything Up?
+ls -la /opt/services/kanyo-harvard/clips/$(date +%Y-%m-%d)/   # clips flowing?
+du -sh /opt/services/kanyo-*/clips/                           # disk
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5000/   # admin up?
 ```
 
-### Maintenance
+---
+
+## Development Workflow (dev-only route)
+
+For rapid iteration on a **development** host, the legacy source-mount route is
+still available: mount `src/` from a checkout over the baked image code, then
+`git pull` + `docker compose restart` picks up changes in ~10 seconds.
+
+The exact override block is documented (commented out) at the bottom of
+[docker-compose.yml](docker-compose.yml). Enable it per-service by adding:
+
+```yaml
+volumes:
+  - ${KANYO_CODE_ROOT}/src:/app/src:ro     # DEV ONLY
+```
+
+Do not run production this way. With a src mount, the image tag no longer
+tells you what code is running, upgrades and rollbacks stop being atomic, and
+a host-side `git pull` can silently change production behavior. Production
+moved to pinned images at v1.0.0 precisely to close that gap.
+
+When developing, rebuild the image (rather than mounting) when any of these
+change: `requirements*.txt`, the Dockerfiles, or the model download step.
 
 ```bash
-# Delete clips older than 30 days
-find /opt/services/kanyo-*/clips/ -name "*.mp4" -mtime +30 -delete
-find /opt/services/kanyo-*/clips/ -name "*.jpg" -mtime +30 -delete
-
-# Prune Docker resources
-docker system prune -f
+docker build -f docker/Dockerfile.nvidia -t kanyo:nvidia-dev .
 ```
 
 ---
@@ -399,44 +203,31 @@ docker system prune -f
 ### Container won't start
 
 ```bash
-docker logs kanyo-detection --tail 100
+sudo docker logs kanyo-<site>-gpu --tail 100
 ```
 
-Common issues:
-- **"No such file or directory"** — Check volume paths exist
-- **"Permission denied"** — Run `sudo chown -R 1000:1000 /opt/services/kanyo-*`
-- **"NVIDIA driver"** — Install NVIDIA Container Toolkit
+- **"No such file or directory"** — a volume path in `.env` doesn't exist on the host
+- **"Permission denied"** — site dirs must be owned `1000:1000` (`sudo chown -R 1000:1000 /opt/services/kanyo-<site>`)
+- **"could not select device driver nvidia"** — NVIDIA Container Toolkit missing/broken; verify with `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi`
 
 ### YouTube stream fails
 
-```bash
-# Rebuild with latest yt-dlp
-docker compose build --no-cache
-docker compose up -d
-```
+yt-dlp is upgraded at image build time. If YouTube changes break stream capture,
+a floating-tip image (`:nvidia`) or a new release usually carries the fixed
+yt-dlp. Persistent 403s across all streams usually mean an IP ban — see
+`ops/ban-watch.sh`.
 
 ### High memory usage
 
-The `shm_size: '2gb'` setting is important for YOLO. If you see OOM errors:
-
-```yaml
-shm_size: '4gb'  # Increase shared memory
-```
-
-### GPU not detected
-
-```bash
-# Verify NVIDIA runtime
-docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
-
-# If that fails, install NVIDIA Container Toolkit:
-# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
-```
+`shm_size: '2gb'` is required for YOLO. If you see OOM errors, raise it to
+`'4gb'` in the anchor.
 
 ---
 
 ## See Also
 
-- [QUICKSTART.md](../QUICKSTART.md) — Quick setup guide
-- [docs/adding-streams.md](../docs/adding-streams.md) — Detailed stream configuration
-- [docs/sensing-logic.md](../docs/sensing-logic.md) — How detection works
+- [docs/deployment-kanyo.md](../docs/deployment-kanyo.md) — production deploy plan (kanyo.lan)
+- [docs/docker-architecture.md](../docs/docker-architecture.md) — what runs where on the host
+- [docs/adding-streams.md](../docs/adding-streams.md) — adding a stream
+- [configs/config.template.yaml](../configs/config.template.yaml) — config-key reference
+- [Quickstart.md](../Quickstart.md) — single-stream quick start
