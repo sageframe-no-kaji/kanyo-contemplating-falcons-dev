@@ -312,9 +312,15 @@ async def get_logs(
     # Parse levels parameter
     level_list = [level.strip() for level in levels.split(",") if level.strip()] if levels else None
 
-    # Get logs from file (timestamps are UTC-aware)
+    # Get logs from file (timestamps are UTC-aware); logs dir comes from
+    # stream discovery (issue #5) so both mount layouts work.
     logs = log_service.get_logs(
-        stream_id, since=since, lines=lines, levels=level_list, show_context=show_context
+        stream_id,
+        since=since,
+        lines=lines,
+        levels=level_list,
+        show_context=show_context,
+        log_dir=Path(stream["data_path"]) / "logs",
     )
 
     # Format as HTML with data attributes, converting timestamps to stream local time
@@ -603,8 +609,8 @@ async def cleanup_temp_files(stream_id: str):
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    # Run cleanup
-    result = file_service.cleanup_temp_files(stream_id)
+    # Run cleanup (clips dir from stream discovery, issue #5)
+    result = file_service.cleanup_temp_files(stream_id, clips_path=stream["clips_path"])
 
     # Format bytes for display
     mb_freed = result["bytes_freed"] / (1024 * 1024)
@@ -625,8 +631,8 @@ async def cleanup_log_files(stream_id: str):
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    # Run cleanup
-    result = file_service.cleanup_log_files(stream_id)
+    # Run cleanup (clips dir from stream discovery, issue #5)
+    result = file_service.cleanup_log_files(stream_id, clips_path=stream["clips_path"])
 
     # Format bytes for display
     mb_freed = result["bytes_freed"] / (1024 * 1024)

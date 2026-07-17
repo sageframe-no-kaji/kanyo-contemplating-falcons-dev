@@ -342,7 +342,9 @@ class TestShowContext:
             assert "Some other log" in logs[7]["message"]
 
         finally:
-            # Cleanup
+            # Restore the real Path so the monkeypatch cannot leak into
+            # later tests (it did, pre-issue-#5).
+            log_service.Path = Path
             import shutil
 
             shutil.rmtree(data_dir)
@@ -376,6 +378,9 @@ class TestShowContext:
             assert logs[0]["level"] == "EVENT"
 
         finally:
+            # Restore the real Path so the monkeypatch cannot leak into
+            # later tests (it did, pre-issue-#5).
+            log_service.Path = Path
             import shutil
 
             shutil.rmtree(data_dir)
@@ -415,6 +420,42 @@ class TestShowContext:
             assert debug_count >= 2  # At least some DEBUG context lines
 
         finally:
+            # Restore the real Path so the monkeypatch cannot leak into
+            # later tests (it did, pre-issue-#5).
+            log_service.Path = Path
             import shutil
 
             shutil.rmtree(data_dir)
+
+
+class TestExplicitLogDir:
+    """log_dir override (issue #5): get_logs reads the discovered logs dir
+    directly, so parent-mount layouts (/data/kanyo-<id>/logs) work."""
+
+    def test_reads_logs_from_custom_dir(self, tmp_path):
+        log_dir = tmp_path / "kanyo-harvard" / "logs"
+        log_dir.mkdir(parents=True)
+        with open(log_dir / "kanyo.log", "w") as f:
+            for i in range(3):
+                f.write(f"{_recent_ts(i)} | INFO     | kanyo | Log {i}\n")
+
+        result = log_service.get_logs("harvard", since="1h", lines=100, log_dir=log_dir)
+
+        assert len(result) == 3
+        assert result[0]["message"] == "Log 0"
+
+    def test_accepts_string_log_dir(self, tmp_path):
+        log_dir = tmp_path / "kanyo-nsw" / "logs"
+        log_dir.mkdir(parents=True)
+        with open(log_dir / "kanyo.log", "w") as f:
+            f.write(f"{_recent_ts(0)} | EVENT    | kanyo | Something happened\n")
+
+        result = log_service.get_logs("nsw", since="1h", log_dir=str(log_dir))
+
+        assert len(result) == 1
+        assert result[0]["level"] == "EVENT"
+
+    def test_legacy_default_when_log_dir_omitted(self):
+        """Without log_dir the legacy /data/<id>/logs layout is used — which
+        does not exist in the test environment, so no files are found."""
+        assert log_service._get_log_files("no-such-stream", "1h") == []

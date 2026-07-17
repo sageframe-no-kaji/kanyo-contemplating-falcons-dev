@@ -2,10 +2,9 @@
 Tests for file service cleanup functionality.
 """
 
+import sys
 import tempfile
 from pathlib import Path
-
-import sys
 
 # Import from admin web app
 sys.path.insert(0, str(Path(__file__).parent.parent / "admin" / "web"))
@@ -203,3 +202,41 @@ class TestCleanupLogFiles:
             assert result["bytes_freed"] == 1200
             assert not log1.exists()
             assert not log2.exists()
+
+
+class TestExplicitClipsPath:
+    """clips_path override (issue #5): cleanup uses the discovered clips dir
+    directly, so parent-mount layouts (/data/kanyo-<id>/clips) work."""
+
+    def test_cleanup_temp_files_with_clips_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clips_dir = Path(temp_dir) / "kanyo-harvard" / "clips"
+            day = clips_dir / "2026-07-16"
+            day.mkdir(parents=True)
+            tmp_file = day / "visit_1.mp4.tmp"
+            keep_file = day / "visit_1.mp4"
+            tmp_file.write_bytes(b"x" * 100)
+            keep_file.write_bytes(b"x" * 100)
+
+            result = file_service.cleanup_temp_files("harvard", clips_path=str(clips_dir))
+
+            assert result["files_deleted"] == 1
+            assert not tmp_file.exists()
+            assert keep_file.exists()
+
+    def test_cleanup_log_files_with_clips_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clips_dir = Path(temp_dir) / "kanyo-harvard" / "clips"
+            clips_dir.mkdir(parents=True)
+            log_file = clips_dir / "visit_1.mp4.ffmpeg.log"
+            log_file.write_bytes(b"x" * 300)
+
+            result = file_service.cleanup_log_files("harvard", clips_path=str(clips_dir))
+
+            assert result["files_deleted"] == 1
+            assert result["bytes_freed"] == 300
+            assert not log_file.exists()
+
+    def test_missing_clips_path_returns_zero(self):
+        result = file_service.cleanup_temp_files("harvard", clips_path="/nonexistent/clips")
+        assert result == {"files_deleted": 0, "bytes_freed": 0, "deleted_files": []}
