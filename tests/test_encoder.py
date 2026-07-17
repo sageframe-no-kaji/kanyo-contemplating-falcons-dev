@@ -122,3 +122,92 @@ class TestDetectHardwareEncoder:
         assert result in valid_encoders
 
         encoder_module._detected_encoder = None
+
+
+class TestDetectHardwareEncoderBranches:
+    """Tests for encoder-specific detection branches (fully mocked subprocess)."""
+
+    @patch("subprocess.run")
+    def test_vaapi_uses_vaapi_device_test_command(self, mock_run, monkeypatch):
+        """VAAPI detection builds a test command with -vaapi_device."""
+        import kanyo.utils.encoder as encoder_module
+
+        monkeypatch.setattr(encoder_module, "_detected_encoder", None)
+
+        test_commands = []
+
+        def fake_run(cmd, **kwargs):
+            if "-encoders" in cmd:
+                # Only VAAPI is listed as available in ffmpeg
+                return MagicMock(stdout="h264_vaapi", returncode=0)
+            test_commands.append(cmd)
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_run
+
+        result = detect_hardware_encoder()
+
+        assert result == "h264_vaapi"
+        assert len(test_commands) == 1
+        assert "-vaapi_device" in test_commands[0]
+        assert "/dev/dri/renderD128" in test_commands[0]
+        assert "format=nv12,hwupload" in test_commands[0]
+
+    @patch("subprocess.run")
+    def test_test_encode_failure_falls_back_to_libx264(self, mock_run, monkeypatch, capsys):
+        """Encoder listed by ffmpeg but failing its test encode is skipped."""
+        import kanyo.utils.encoder as encoder_module
+
+        monkeypatch.setattr(encoder_module, "_detected_encoder", None)
+
+        def fake_run(cmd, **kwargs):
+            if "-encoders" in cmd:
+                return MagicMock(stdout="h264_nvenc", returncode=0)
+            return MagicMock(returncode=1)  # Test encode fails
+
+        mock_run.side_effect = fake_run
+
+        result = detect_hardware_encoder(verbose=True)
+
+        assert result == "libx264"
+        captured = capsys.readouterr()
+        assert "available but test failed" in captured.out
+
+    @patch("subprocess.run")
+    def test_timeout_during_test_encode_falls_back(self, mock_run, monkeypatch, capsys):
+        """A test encode that hangs (TimeoutExpired) is treated as unavailable."""
+        import subprocess
+
+        import kanyo.utils.encoder as encoder_module
+
+        monkeypatch.setattr(encoder_module, "_detected_encoder", None)
+
+        def fake_run(cmd, **kwargs):
+            if "-encoders" in cmd:
+                return MagicMock(stdout="h264_videotoolbox", returncode=0)
+            raise subprocess.TimeoutExpired(cmd="ffmpeg", timeout=10)
+
+        mock_run.side_effect = fake_run
+
+        result = detect_hardware_encoder(verbose=True)
+
+        assert result == "libx264"
+        captured = capsys.readouterr()
+        assert "timeout during test" in captured.out
+
+    @patch("subprocess.run")
+    def test_ffmpeg_not_found_verbose_reports_and_falls_back(self, mock_run, monkeypatch, capsys):
+        """Missing ffmpeg binary is reported in verbose mode and detection stops."""
+        import kanyo.utils.encoder as encoder_module
+
+        monkeypatch.setattr(encoder_module, "_detected_encoder", None)
+
+        mock_run.side_effect = FileNotFoundError("ffmpeg not found")
+
+        result = detect_hardware_encoder(verbose=True)
+
+        assert result == "libx264"
+        captured = capsys.readouterr()
+        assert "ffmpeg not found" in captured.out
+        # The loop breaks on the first FileNotFoundError instead of retrying
+        assert mock_run.call_count == 1
