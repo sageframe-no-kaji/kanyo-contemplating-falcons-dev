@@ -1,10 +1,11 @@
 """Clip browsing and management service."""
 
-from pathlib import Path
+import re
 from datetime import datetime, timedelta, timezone, tzinfo
+from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
-import re
+
 from PIL import Image, ImageDraw
 
 # DUPLICATE — keep in sync with src/kanyo/utils/config.py OFFSET_TO_TZ.
@@ -22,6 +23,7 @@ OFFSET_TO_TZ = {
     "-10:00": "Pacific/Honolulu",
     "+00:00": "UTC",
 }
+
 
 def _find_thumbnail_at_time(date_path: Path, time_str: str, event_type: str) -> Optional[Path]:
     """Locate a thumbnail file for the given HHMMSS and event type.
@@ -427,17 +429,22 @@ def get_latest_thumbnail(clips_path: str, stream_id: str) -> Optional[str]:
     return None
 
 
-def get_today_visits(clips_path: str) -> int:
+def get_today_visits(clips_path: str, stream_timezone: str = "UTC") -> int:
     """
-    Count arrival clips for today.
+    Count arrival clips for today in the stream's timezone.
+
+    "Today" is the stream-local date, not the server's — a server in UTC
+    must still read the Harvard-dated folder during Harvard evenings.
+    See 026 (completes 021-G).
 
     Args:
         clips_path: Path to clips directory
+        stream_timezone: Stream's timezone (IANA name or legacy offset)
 
     Returns:
-        Number of arrival clips today
+        Number of arrival clips today (stream-local)
     """
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = get_stream_today(stream_timezone)
     clips = list_clips(clips_path, today)
 
     # Count clips with type 'arrival'
