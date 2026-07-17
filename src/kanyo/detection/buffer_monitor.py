@@ -23,12 +23,16 @@ from kanyo.detection.event_types import FalconEvent  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
 from kanyo.detection.presence import PresenceTracker  # noqa: E402
+from kanyo.detection.significance_filter import (  # noqa: E402
+    EventSignificanceFilter,
+    FilterDecision,
+)
 from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder  # noqa: E402
 from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
-from kanyo.utils.output import get_output_path  # noqa: E402
+from kanyo.utils.output import format_duration, get_output_path  # noqa: E402
 from kanyo.utils.visit_recorder import VisitRecorder  # noqa: E402
 
 logger = get_logger(__name__)
@@ -101,6 +105,15 @@ class BufferMonitor:
         presence_motion_min_area_frac: float = 0.02,
         presence_global_change_frac: float = 0.5,
         presence_absence_failsafe_seconds: float = 3600.0,
+        # Significance filter settings (ho-09 / 025-B). The constructor
+        # default is False so direct construction (tests, embedders) keeps
+        # today's surface behavior; production configs carry the DEFAULTS
+        # (enabled) and main() wires them through.
+        significance_filter_enabled: bool = False,
+        merge_window_seconds: float = 300,
+        min_significant_seconds: float = 30,
+        damping_arrivals_threshold: int = 8,
+        damping_window_hours: float = 1,
         # Notification settings
         notify_on_startup: bool = True,
         record_arrival_on_startup: bool = False,
@@ -225,6 +238,32 @@ class BufferMonitor:
             }
         )
 
+        # Significance filter (ho-09 / 025-B): the judgment layer between
+        # state-machine events and their surface (notifications, event-store
+        # rows, clip retention). Recording mechanics keep running on raw
+        # events; only the surface flows through filter decisions. Disabled,
+        # its pass-through decisions reproduce today's behavior exactly.
+        self.significance_filter = EventSignificanceFilter(
+            merge_window_seconds=merge_window_seconds,
+            min_significant_seconds=min_significant_seconds,
+            damping_arrivals_threshold=damping_arrivals_threshold,
+            damping_window_hours=damping_window_hours,
+            enabled=significance_filter_enabled,
+        )
+        if significance_filter_enabled:
+            logger.info(
+                "🔎 Significance filter ENABLED (ho-09): departures may surface up to "
+                f"{merge_window_seconds:.0f}s late by design (merge window)"
+            )
+        # The frame time driving filter decisions (ho-11 time authority):
+        # set per processed frame; direct _handle_event calls fall back to
+        # the event's own timestamp.
+        self._frame_now: datetime | None = None
+        # The visit row awaiting a released departure decision. Continuation
+        # segments merge into it: the row is the unit of meaning, the visit
+        # files remain the unit of storage.
+        self._pending_visit_row: FalconVisit | None = None
+
         # State tracking
         self.current_visit: FalconVisit | None = None
         self.last_detection_time: datetime | None = None
@@ -317,6 +356,8 @@ class BufferMonitor:
         """
         try:
             now = timestamp
+            # Frame time drives significance-filter decisions too (025-B)
+            self._frame_now = now
 
             # Always add frame to buffer (read time, not processing time)
             self.frame_buffer.add_frame(frame_data, now, frame_number)
@@ -508,13 +549,18 @@ class BufferMonitor:
             # Update state machine
             events = self.state_machine.update(falcon_detected, now)
 
-            # Handle events
+            # Handle events. ARRIVED keeps deferring its surface to
+            # confirmation; DEPARTED/ROOSTING notifications and event-store
+            # rows now flow through the significance filter inside
+            # _handle_event (ho-09 / 025-B) — recording mechanics still run
+            # on the raw events immediately.
             for event_type, event_time, metadata in events:
-                # For arrival confirmation, don't notify immediately
-                # Skip notification for ARRIVED events (will notify after confirmation)
-                if event_type != FalconEvent.ARRIVED:
-                    self.event_handler.handle_event(event_type, event_time, metadata)
                 self._handle_event(event_type, event_time, metadata)
+
+            # Advance the significance filter once per poll: release held
+            # departures whose merge window expired and emit due damping
+            # summaries (025-B).
+            self._execute_decisions(self.significance_filter.tick(now))
 
         except Exception as e:
             logger.error(f"❌ Error processing frame {frame_number}: {e}", exc_info=True)
@@ -724,6 +770,7 @@ class BufferMonitor:
                 # never work here: event_time is last_detection, which is
                 # ≥ exit_timeout in the past — always outside the buffer.
                 departure_clip_scheduled = self._finalize_departure_candidate(event_time)
+                visit_row: FalconVisit | None = None
                 if self._roosting_visit_metadata and "visit_start" in metadata:
                     visit_start_dt = metadata["visit_start"]
                     if isinstance(visit_start_dt, str):
@@ -745,7 +792,7 @@ class BufferMonitor:
                     departure_clip_path = get_output_path(
                         self.clips_dir, visit_end_dt, "departure", "mp4"
                     )
-                    visit = FalconVisit(
+                    visit_row = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=last_detection_time,
                         peak_confidence=self._visit_peak_confidence,
@@ -757,7 +804,6 @@ class BufferMonitor:
                             str(departure_clip_path) if departure_clip_scheduled else None
                         ),
                     )
-                    self.event_store.append(visit)
                 self._visit_peak_confidence = 0.0
                 self.roosting_mode_active = False
                 self.last_roosting_check = None
@@ -765,6 +811,9 @@ class BufferMonitor:
                 # Roosting mode over — reset candidate poll tracking (022-C).
                 # The candidate itself was consumed by the finalize above.
                 self._roosting_last_poll_detected = False
+                # Surface (notification + event-store row) flows through the
+                # significance filter (ho-09 / 025-B)
+                self._route_departure_surface(event_time, metadata, visit_row)
                 return
 
             # Stop recording and create clips
@@ -772,6 +821,7 @@ class BufferMonitor:
 
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
+            visit_row = None
             if visit_path and visit_metadata:
                 # Use last_detection_time from state machine instead of departure_time
                 # This ensures departure clip shows actual departure, not empty nest
@@ -815,7 +865,7 @@ class BufferMonitor:
                         self.clips_dir, visit_end_dt, "departure", "mp4"
                     )
 
-                    visit = FalconVisit(
+                    visit_row = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=metadata["visit_end"],
                         peak_confidence=self._visit_peak_confidence,
@@ -827,13 +877,18 @@ class BufferMonitor:
                             str(departure_clip_path) if departure_clip_scheduled else None
                         ),
                     )
-                    self.event_store.append(visit)
 
                     duration = visit_metadata.get("duration_seconds", 0)
                     logger.event(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
 
             # Visit is over — reset the visit-scoped peak (022-A)
             self._visit_peak_confidence = 0.0
+
+            # Surface (notification + event-store row) flows through the
+            # significance filter (ho-09 / 025-B). Runs even without a row —
+            # the departure notification does not depend on the recorder
+            # having produced a visit file.
+            self._route_departure_surface(event_time, metadata, visit_row)
 
         elif event_type == FalconEvent.ROOSTING:
             if self.roosting_recording_mode == "stop":
@@ -859,6 +914,142 @@ class BufferMonitor:
                         metadata,
                     )
 
+            # ROOSTING surface passes through the filter untouched (ho-09):
+            # notify=True, no event-store row — same as today, one path.
+            self._execute_decisions(
+                self.significance_filter.process(
+                    (event_type, event_time, metadata), self._frame_now or event_time
+                )
+            )
+
+    def _route_departure_surface(
+        self,
+        event_time: datetime,
+        metadata: dict,
+        visit_row: FalconVisit | None,
+    ) -> None:
+        """Route a DEPARTED's surface through the significance filter (025-B).
+
+        Recording mechanics have already run on the raw event. The segment
+        row merges into the pending row; the filter decides when (and how)
+        the row and the departure notification surface.
+
+        Args:
+            event_time: The DEPARTED event time (visit_end).
+            metadata: The raw state-machine event metadata.
+            visit_row: The segment's FalconVisit row, or None when the
+                recorder produced no visit file.
+        """
+        self._merge_pending_visit_row(visit_row)
+        now = self._frame_now or event_time
+        decisions = self.significance_filter.process(
+            (FalconEvent.DEPARTED, event_time, metadata), now
+        )
+        self._execute_decisions(decisions)
+
+    def _merge_pending_visit_row(self, visit_row: FalconVisit | None) -> None:
+        """Merge a departure segment's row into the pending visit row (025-B).
+
+        The row is the unit of meaning, the files the unit of storage: a
+        continuation segment extends the pending row's span, takes the max
+        peak confidence, and supplies the (new) departure clip; the arrival
+        clip, thumbnail, start time, and id stay with the first segment.
+        """
+        if visit_row is None:
+            return
+        if self._pending_visit_row is None:
+            self._pending_visit_row = visit_row
+            return
+
+        pending = self._pending_visit_row
+        pending.end_time = visit_row.end_time
+        pending.peak_confidence = max(pending.peak_confidence, visit_row.peak_confidence)
+        pending.departure_clip_path = visit_row.departure_clip_path
+
+    def _execute_decisions(self, decisions: list[FilterDecision]) -> None:
+        """Execute significance-filter decisions (025-B)."""
+        for decision in decisions:
+            self._execute_decision(decision)
+
+    def _execute_decision(self, decision: FilterDecision) -> None:
+        """Execute one significance-filter decision.
+
+        Notifications go through the event handler; released departure rows
+        pick up the filter's flags before the event-store append. Swallowed
+        continuation arrivals (discard_arrival_clip) are zero-surface here —
+        their clip discard happens at the confirmation site, where the
+        recorder still holds the file.
+        """
+        if decision.is_summary:
+            self._send_activity_summary(decision)
+            return
+
+        if decision.discard_arrival_clip:
+            return
+
+        if decision.event_type == FalconEvent.DEPARTED:
+            if decision.notify:
+                self.event_handler.handle_event(
+                    FalconEvent.DEPARTED, decision.event_time, decision.metadata
+                )
+            row = self._pending_visit_row
+            self._pending_visit_row = None
+            if row is not None:
+                row.insignificant = decision.insignificant
+                row.merged_segments = decision.merged_segments
+                if decision.record:
+                    self.event_store.append(row)
+        elif decision.event_type is not None and decision.notify:
+            self.event_handler.handle_event(
+                decision.event_type, decision.event_time, decision.metadata
+            )
+
+    def _send_activity_summary(self, decision: FilterDecision) -> None:
+        """Send a damped-mode activity summary notification (ho-09 / 025-B)."""
+        count = decision.metadata.get("count", 0)
+        median_str = format_duration(decision.metadata.get("median_duration_seconds", 0.0))
+        window_hours = decision.metadata.get("window_hours", 1)
+        window_str = f"{window_hours:g} hour" + ("s" if window_hours != 1 else "")
+        message = f"🦅 Busy nest: {count} visits in the last {window_str} (median {median_str})"
+        logger.event(f"📊 Activity summary: {message}")
+
+        notifications = self.event_handler.notifications
+        if notifications:
+            notifications.send_activity_summary(message)
+
+    def _discard_continuation_arrival_clip(self, now: datetime) -> None:
+        """Discard the continuation's arrival clip on a merged re-arrival (025-B).
+
+        Called at confirmation time, when the arrival clip recorder is
+        normally still writing: stop it without renaming and delete the .tmp
+        (plus any already-final clip/thumbnail for that arrival, defensively).
+        Data is not lost — the visit recording continues; only the redundant
+        arrival clip of a continuation segment goes.
+
+        Args:
+            now: The driving frame timestamp.
+        """
+        tmp_path = self.arrival_clip_recorder.get_temp_path()
+        final_paths: list[Path] = []
+        if self.arrival_pending_start is not None:
+            final_paths = [
+                get_output_path(self.clips_dir, self.arrival_pending_start, "arrival", "mp4"),
+                get_output_path(self.clips_dir, self.arrival_pending_start, "arrival", "jpg"),
+            ]
+
+        if self.arrival_clip_recorder.is_recording():
+            self.arrival_clip_recorder.stop_recording(now)
+
+        for path in [tmp_path, *final_paths]:
+            if path and path.exists():
+                try:
+                    path.unlink()
+                    logger.debug(f"Deleted continuation arrival file: {path.name}")
+                except OSError as e:
+                    logger.warning(f"Could not delete continuation arrival file {path.name}: {e}")
+
+        logger.event("🔗 Continuation arrival clip discarded (merged visit)")
+
     def _confirm_arrival(self) -> None:
         """Confirm arrival after passing detection threshold."""
         ratio = self.arrival_detection_count / self.arrival_frame_count
@@ -867,15 +1058,33 @@ class BufferMonitor:
             f"({self.arrival_detection_count}/{self.arrival_frame_count} frames)"
         )
 
-        # Rename arrival clip from .tmp to final
-        self.arrival_clip_recorder.rename_to_final()
+        # Route the confirmed arrival through the significance filter
+        # (ho-09 / 025-B): a re-arrival inside the merge window is a
+        # continuation — no notification, arrival clip discarded.
+        decisions: list[FilterDecision] = []
+        if self.arrival_pending_start is not None:
+            now = self._frame_now or self.arrival_pending_start
+            decisions = self.significance_filter.process(
+                (FalconEvent.ARRIVED, self.arrival_pending_start, {}), now
+            )
+
+        if any(d.discard_arrival_clip for d in decisions):
+            # Continuation of a merged visit: drop the arrival clip instead
+            # of finalizing it. The visit recording still finalizes below —
+            # a merged visit may span multiple visit files by design.
+            self._discard_continuation_arrival_clip(
+                self._frame_now or self.arrival_pending_start or get_now_tz(self.full_config)
+            )
+        else:
+            # Rename arrival clip from .tmp to final
+            self.arrival_clip_recorder.rename_to_final()
 
         # Rename visit recording from .tmp to final
         self.visit_recorder.rename_to_final()
 
-        # NOW send notification and handle event
-        if self.arrival_pending_start is not None:
-            self.event_handler.handle_event(FalconEvent.ARRIVED, self.arrival_pending_start, {})
+        # NOW send the notification — if the filter's decision says so
+        # (pass-through when the filter is disabled)
+        self._execute_decisions(decisions)
 
         # Reset pending state
         self.arrival_pending = False
@@ -954,12 +1163,17 @@ class BufferMonitor:
         # Transition from PENDING_STARTUP to ROOSTING
         self.state_machine.confirm_startup_presence(now)
 
-        # Send notification only if notify_on_startup is enabled
+        # Send notification only if notify_on_startup is enabled — routed
+        # through the significance filter like every confirmed arrival
+        # (ho-09 / 025-B; nothing is ever held at startup, so this is a
+        # pass-through that also seeds the damping arrival count)
         if self.notify_on_startup and self.startup_pending_start is not None:
             logger.info("📲 Sending startup arrival notification")
-            self.event_handler.handle_event(
-                FalconEvent.ARRIVED, self.startup_pending_start, {"startup": True}
+            decisions = self.significance_filter.process(
+                (FalconEvent.ARRIVED, self.startup_pending_start, {"startup": True}),
+                now,
             )
+            self._execute_decisions(decisions)
         else:
             logger.info("📴 Skipping startup arrival notification (notify_on_startup=false)")
 
@@ -1055,9 +1269,10 @@ class BufferMonitor:
         # Tracker resets with the state machine (ho-12 / 024-C)
         self._reset_presence()
 
-        # Handle deparure event (create clips, notify, etc.)
+        # Handle departure event (create clips; the notification and row
+        # flow through the significance filter inside _handle_event, 025-B)
+        self._frame_now = now
         for event_type, event_time, metadata in events:
-            self.event_handler.handle_event(event_type, event_time, metadata)
             self._handle_event(event_type, event_time, metadata)
 
         # Reset recovery pending state
@@ -1448,6 +1663,11 @@ class BufferMonitor:
                 self.arrival_clip_recorder.stop_recording(now)
                 logger.info("✅ Final arrival clip saved")
 
+            # Flush any held significance-filter decision so no row is lost
+            # on SIGTERM (ho-09 / 025-B): a departure held for its merge
+            # window is released immediately at shutdown.
+            self._execute_decisions(self.significance_filter.flush(get_now_tz(self.full_config)))
+
             # Clean up an outstanding departure-candidate clip (022-C) —
             # no orphan .tmp files across restarts.
             self._discard_departure_candidate()
@@ -1528,6 +1748,11 @@ def main():
             presence_motion_min_area_frac=config.get("presence_motion_min_area_frac", 0.02),
             presence_global_change_frac=config.get("presence_global_change_frac", 0.5),
             presence_absence_failsafe_seconds=config.get("presence_absence_failsafe_seconds", 3600),
+            significance_filter_enabled=config.get("significance_filter_enabled", True),
+            merge_window_seconds=config.get("merge_window_seconds", 300),
+            min_significant_seconds=config.get("min_significant_seconds", 30),
+            damping_arrivals_threshold=config.get("damping_arrivals_threshold", 8),
+            damping_window_hours=config.get("damping_window_hours", 1),
             notify_on_startup=config.get("notify_on_startup", True),
             record_arrival_on_startup=config.get("record_arrival_on_startup", False),
             max_runtime_seconds=config.get("max_runtime_seconds"),

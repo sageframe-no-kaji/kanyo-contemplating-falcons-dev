@@ -49,6 +49,12 @@ DEFAULTS: dict[str, Any] = {
     "presence_motion_min_area_frac": 0.02,  # changed fraction of region to count as motion
     "presence_global_change_frac": 0.5,  # whole-frame change above this = discard motion evidence
     "presence_absence_failsafe_seconds": 3600,  # zero-evidence ceiling before forced absence
+    # Significance Filter (ho-09)
+    "significance_filter_enabled": True,  # master switch; false = today's behavior
+    "merge_window_seconds": 300,  # DEPARTED→ARRIVED within this = same visit (0 disables)
+    "min_significant_seconds": 30,  # below this detection-duration: log-only (0 disables)
+    "damping_arrivals_threshold": 8,  # arrivals per window to enter damped mode (0 disables)
+    "damping_window_hours": 1,  # rolling window for the arrival count
     # Output & Storage
     "output_dir": "output",  # results directory
     "data_dir": "data",  # thumbnails, events, etc.
@@ -276,13 +282,40 @@ def _validate(cfg: dict[str, Any]) -> None:
             f"Consider increasing clip_departure_before or clip_departure_after."
         )
 
-    # short_visit_threshold should be reasonable
+    # short_visit_threshold is deprecated (ho-09): validated here but consumed
+    # nowhere in the detection path. min_significant_seconds (significance
+    # filter) supersedes it. The range check is kept so existing configs keep
+    # their load-time guarantees until the key is removed.
+    if "short_visit_threshold" in cfg:
+        logger.warning(
+            "⚠️  short_visit_threshold is deprecated and has no effect — "
+            "use min_significant_seconds (significance filter) instead"
+        )
     short_visit_threshold = cfg.get("short_visit_threshold", 600)
     if short_visit_threshold < 60:
         raise ValueError(
             f"short_visit_threshold ({short_visit_threshold}s) is too short. "
             f"Minimum recommended value is 60 seconds."
         )
+
+    # Significance filter validation (ho-09 / 025-B)
+    merge_window = cfg.get("merge_window_seconds", DEFAULTS["merge_window_seconds"])
+    if not isinstance(merge_window, (int, float)) or merge_window < 0:
+        raise ValueError("merge_window_seconds must be >= 0 (0 disables merging)")
+
+    min_significant = cfg.get("min_significant_seconds", DEFAULTS["min_significant_seconds"])
+    if not isinstance(min_significant, (int, float)) or min_significant < 0:
+        raise ValueError("min_significant_seconds must be >= 0 (0 disables the significance gate)")
+
+    damping_threshold = cfg.get(
+        "damping_arrivals_threshold", DEFAULTS["damping_arrivals_threshold"]
+    )
+    if not isinstance(damping_threshold, int) or damping_threshold < 0:
+        raise ValueError("damping_arrivals_threshold must be an integer >= 0 (0 disables damping)")
+
+    damping_window = cfg.get("damping_window_hours", DEFAULTS["damping_window_hours"])
+    if not isinstance(damping_window, (int, float)) or damping_window <= 0:
+        raise ValueError("damping_window_hours must be a positive number of hours")
 
     # Presence layer validation (ho-12 / 024-C)
     presence_fraction_keys = (

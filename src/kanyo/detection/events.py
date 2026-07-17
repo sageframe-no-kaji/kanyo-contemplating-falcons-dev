@@ -55,6 +55,10 @@ class FalconVisit:
     thumbnail_path: str | None = None
     arrival_clip_path: str | None = None
     departure_clip_path: str | None = None
+    # Significance filter surface flags (ho-09 / 025-B). Additive with safe
+    # defaults so existing rows and to_dict() consumers are unaffected.
+    insignificant: bool = False  # below min_significant_seconds: recorded log-only
+    merged_segments: int = 1  # >= 2 when this row spans merged visit segments
     id: str = field(default="")
 
     def __post_init__(self):
@@ -104,6 +108,8 @@ class FalconVisit:
             "thumbnail_path": self.thumbnail_path,
             "arrival_clip_path": self.arrival_clip_path,
             "departure_clip_path": self.departure_clip_path,
+            "insignificant": self.insignificant,
+            "merged_segments": self.merged_segments,
         }
 
 

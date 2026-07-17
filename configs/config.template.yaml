@@ -174,6 +174,53 @@ presence_absence_failsafe_seconds: 3600
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Significance Filter
+# ─────────────────────────────────────────────────────────────────────────────
+# The presence layer removes manufactured churn (recognition gaps on roosting
+# birds); the significance filter handles the REAL residual churn — genuine
+# short visits and rapid swaps during active nesting. It sits between the
+# state machine and the public surface: recording and clips always run on the
+# raw events, but notifications and the event timeline flow through the
+# filter's judgment. Data is never thrown away, only de-surfaced.
+#
+# significance_filter_enabled — Master switch. false restores today's
+#   behavior exactly: every arrival/departure notifies immediately and every
+#   visit gets its own timeline row.
+#
+# merge_window_seconds — A departure followed by a re-arrival within this
+#   many seconds is a CONTINUATION of the same visit (an incubation swap, a
+#   bird hopping off-ledge and back): no departure/arrival notifications for
+#   the pair, the redundant arrival clip is discarded, and the timeline gets
+#   ONE merged row spanning the whole stay (with a merged_segments count).
+#   NOTE — by design, the departure notification can arrive up to this many
+#   seconds late: the filter has to wait out the window before it knows the
+#   departure was real. 0 disables merging.
+#
+# min_significant_seconds — Visits with a detection-duration below this are
+#   recorded log-only: the row is written (flagged "insignificant") but no
+#   notification is sent. Replaces the deprecated short_visit_threshold —
+#   and unlike it, the visit is still kept, just not surfaced. 0 disables.
+#
+# damping_arrivals_threshold / damping_window_hours — Above this many
+#   arrivals within the rolling window, individual notifications pause and a
+#   periodic summary takes their place ("N visits in the last hour, median
+#   Xs"). Recording and timeline rows are unaffected. Normal notifications
+#   resume automatically when the rate drops. threshold 0 disables damping.
+#
+# Tuning guidance: during active nesting (Fort Wayne-style swap storms) be
+# aggressive — merge_window_seconds 300–600, min_significant_seconds 60,
+# damping threshold 6–8. On a quiet cliff camera (Harvard-style) be
+# conservative — merge_window_seconds 120, min_significant_seconds 15–30,
+# damping threshold 10+ — so nothing interesting is de-surfaced.
+
+significance_filter_enabled: true
+merge_window_seconds: 300
+min_significant_seconds: 30
+damping_arrivals_threshold: 8
+damping_window_hours: 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Roosting Mode
 # ─────────────────────────────────────────────────────────────────────────────
 # Controls what happens to recording and detection once the bird enters
@@ -291,16 +338,17 @@ record_arrival_on_startup: false
 # clip_departure_after  — Seconds after the last detected frame. Default:
 #   30 + 15 = 45 second departure clip, ending with ~15s of empty nest.
 #
-# short_visit_threshold — Visits shorter than this many seconds are not saved
-#   to the event store. Prevents cluttering the timeline with flyby detections
-#   that passed confirmation but never settled. Minimum: 60.
+# short_visit_threshold — DEPRECATED (ho-09). This key was documented as
+#   dropping short visits from the event store but is consumed nowhere in the
+#   detection path. Use min_significant_seconds (Significance Filter section)
+#   instead — it de-surfaces short visits (no notification) while still
+#   recording them. Setting this key only logs a deprecation warning.
 
 clips_dir: "clips"
 clip_arrival_before: 15
 clip_arrival_after: 30
 clip_departure_before: 30
 clip_departure_after: 15
-short_visit_threshold: 600
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -382,13 +430,13 @@ log_file: "logs/kanyo.log"
 # Default settings are optimised for a hobby monitoring setup:
 #   - roosting_recording_mode: continuous  (simple; change to stop to save disk)
 #   - detection_confidence: 0.3            (generous; catches most visits)
-#   - short_visit_threshold: 600           (skips brief flybys)
+#   - min_significant_seconds: 30          (brief flybys recorded but not notified)
 #   - model_path: yolov8n.pt               (fast nano model)
 #
 # For research archiving, consider:
 #   - roosting_recording_mode: continuous  (preserve complete visit footage)
 #   - detection_confidence: 0.2–0.25       (maximum recall; review false positives manually)
-#   - short_visit_threshold: 60            (capture even brief landings)
+#   - min_significant_seconds: 0           (surface even brief landings)
 #   - model_path: yolov8s.pt               (small model; better accuracy, more CPU)
 #   - No clip retention limits             (keep all footage indefinitely)
 #
