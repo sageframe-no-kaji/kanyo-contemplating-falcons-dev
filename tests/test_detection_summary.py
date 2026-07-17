@@ -30,6 +30,10 @@ def make_monitor(detection_summary_interval: int = 300):
         monitor = BufferMonitor(
             stream_url="test",
             detection_summary_interval=detection_summary_interval,
+            # Legacy-path fixture (mocked detect_birds, MagicMock frames);
+            # the presence-enabled path is covered by
+            # test_presence_integration.py (024-C).
+            presence_enabled=False,
         )
     monitor.visit_recorder.is_recording = False
     monitor.arrival_clip_recorder.is_recording.return_value = False

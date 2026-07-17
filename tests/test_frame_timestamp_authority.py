@@ -29,7 +29,10 @@ def make_monitor(**kwargs):
         patch("kanyo.detection.buffer_monitor.FalconStateMachine"),
         patch("kanyo.detection.buffer_monitor.ArrivalClipRecorder"),
     ):
-        monitor = BufferMonitor(stream_url="test", **kwargs)
+        # Legacy-path fixture (mocked detect_birds, MagicMock frames); the
+        # presence-enabled path is covered by test_presence_integration.py
+        # (024-C).
+        monitor = BufferMonitor(stream_url="test", presence_enabled=False, **kwargs)
     _quiet_frame_mocks(monitor)
     return monitor
 

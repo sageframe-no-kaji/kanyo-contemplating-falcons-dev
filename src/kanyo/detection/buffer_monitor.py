@@ -22,6 +22,7 @@ from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
 from kanyo.detection.event_types import FalconEvent  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
 from kanyo.detection.falcon_state import FalconStateMachine  # noqa: E402
+from kanyo.detection.presence import PresenceTracker  # noqa: E402
 from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder  # noqa: E402
 from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
@@ -92,6 +93,14 @@ class BufferMonitor:
         stream_recovery_threshold: int = 30,
         stream_recovery_confirmation: int = 10,
         stream_read_timeout_s: float = 10.0,
+        # Presence layer settings (ho-12 / 024-C)
+        presence_enabled: bool = True,
+        presence_sustain_confidence: float = 0.15,
+        presence_region_margin_frac: float = 0.25,
+        presence_motion_pixel_threshold: int = 25,
+        presence_motion_min_area_frac: float = 0.02,
+        presence_global_change_frac: float = 0.5,
+        presence_absence_failsafe_seconds: float = 3600.0,
         # Notification settings
         notify_on_startup: bool = True,
         record_arrival_on_startup: bool = False,
@@ -132,13 +141,40 @@ class BufferMonitor:
             now_fn=lambda: get_now_tz(self.full_config),
         )
 
-        # Detector
+        # Detector. With the presence layer enabled, the single inference per
+        # poll runs at the sustain floor so the tracker sees the raw
+        # (any-class, low-confidence) view; the filtered view keeps the
+        # historical detect_birds() semantics (024-A). Disabled, the detector
+        # is constructed exactly as before.
         self.detector = FalconDetector(
             confidence_threshold=confidence_threshold,
             confidence_threshold_ir=confidence_threshold_ir,
             detect_any_animal=detect_any_animal,
             animal_classes=animal_classes,
+            raw_floor_confidence=(presence_sustain_confidence if presence_enabled else None),
         )
+
+        # Presence layer (ho-12 / 024-C): sits between the detector and the
+        # state machine and decides the boolean the state machine consumes.
+        # None when disabled — the pipeline is then byte-identical to the
+        # pre-presence behavior (falcon_detected = len(detections) > 0).
+        self.presence: PresenceTracker | None = None
+        if presence_enabled:
+            self.presence = PresenceTracker(
+                sustain_confidence=presence_sustain_confidence,
+                region_margin_frac=presence_region_margin_frac,
+                motion_pixel_threshold=presence_motion_pixel_threshold,
+                motion_min_area_frac=presence_motion_min_area_frac,
+                global_change_frac=presence_global_change_frac,
+                absence_failsafe_seconds=presence_absence_failsafe_seconds,
+            )
+            # Semantic shift, logged once (ho-12): while present,
+            # last_detection_time / visit_end reflect presence evidence
+            # (sustain-level detections, region motion), not only YOLO hits.
+            logger.info(
+                "🔍 Presence layer ENABLED (ho-12): last_detection_time and visit_end "
+                "reflect presence evidence, not only YOLO hits"
+            )
 
         # Frame buffer for pre-arrival footage
         self.frame_buffer = FrameBuffer(
@@ -318,21 +354,47 @@ class BufferMonitor:
                         return  # skip YOLO this frame
                 self.last_roosting_check = now
 
-            # Run detection
-            detections = self.detector.detect_birds(frame_data, timestamp=now)
-            falcon_detected = len(detections) > 0
+            # Run detection — exactly ONE inference per poll (ho-12).
+            #
+            # Presence enabled: the same inference yields the raw (any-class,
+            # sustain-floor) view the tracker reasons over. `detections`
+            # stays the filtered view for everything that inspects
+            # confidences/boxes (peak tracking 022-A, summary 022-E,
+            # thumbnails); `falcon_detected` becomes the tracker's judgment —
+            # the boolean the state machine and visit lifetime consume.
+            #
+            # `yolo_detected` (filtered hits) keeps feeding the arrival/
+            # startup/recovery confirmation counters: ho-12 keeps ENTER
+            # exactly as strict as today ("feeding the existing arrival
+            # confirmation window unchanged"), and the recovery window must
+            # still be able to notice a bird that left during an outage —
+            # fed the presence boolean, a parked-sustain would make those
+            # windows vacuous.
+            if self.presence is not None:
+                detections, raw_detections = self.detector.detect_with_raw(
+                    frame_data, timestamp=now
+                )
+                yolo_detected = len(detections) > 0
+                falcon_detected = self.presence.update(frame_data, now, detections, raw_detections)
+            else:
+                # Legacy path — byte-identical to pre-presence behavior.
+                detections = self.detector.detect_birds(frame_data, timestamp=now)
+                yolo_detected = len(detections) > 0
+                falcon_detected = yolo_detected
 
-            # Track visit-scoped peak confidence (022-A)
+            # Track visit-scoped peak confidence (022-A) — keyed to filtered
+            # detections, never to presence evidence.
             self._frame_peak_confidence = max((d.confidence for d in detections), default=0.0)
-            if falcon_detected:
+            if yolo_detected:
                 self._visit_peak_confidence = max(
                     self._visit_peak_confidence, self._frame_peak_confidence
                 )
 
-            # Accumulate detection-confidence summary data (022-E)
+            # Accumulate detection-confidence summary data (022-E) — a YOLO
+            # threshold-tuning surface, so it counts filtered hits only.
             if self.detection_summary_interval > 0:
                 self._summary_poll_count += 1
-                if falcon_detected:
+                if yolo_detected:
                     self._summary_detected_confidences.append(self._frame_peak_confidence)
                 if time.time() - self._summary_window_start >= self.detection_summary_interval:
                     self._emit_detection_summary()
@@ -359,10 +421,12 @@ class BufferMonitor:
                         self._snapshot_departure_candidate(now)
                     self._roosting_last_poll_detected = False
 
-            # Startup confirmation logic (similar to arrival, but no telegram until confirmed)
+            # Startup confirmation logic (similar to arrival, but no telegram until confirmed).
+            # Counts filtered YOLO hits, not presence judgment — see the
+            # detection block above.
             if self.startup_pending and self.startup_pending_start is not None:
                 self.startup_frame_count += 1
-                if falcon_detected:
+                if yolo_detected:
                     self.startup_detection_count += 1
 
                 elapsed = (now - self.startup_pending_start).total_seconds()
@@ -375,11 +439,20 @@ class BufferMonitor:
                     else:
                         # FAILURE - not enough detections
                         self._cancel_startup_presence(ratio, now)
+                        # The tracker was just reset with the state machine;
+                        # the presence boolean computed at the top of this
+                        # frame is stale. Fall back to this frame's YOLO
+                        # evidence so a parked-sustain cannot instantly
+                        # re-arrive off a reset (ho-12 / 024-C). Disabled,
+                        # the two are already equal.
+                        falcon_detected = yolo_detected
 
-            # Arrival confirmation logic
+            # Arrival confirmation logic. Counts filtered YOLO hits, not
+            # presence judgment — ENTER semantics stay exactly as strict as
+            # today (ho-12).
             if self.arrival_pending and self.arrival_pending_start is not None:
                 self.arrival_frame_count += 1
-                if falcon_detected:
+                if yolo_detected:
                     self.arrival_detection_count += 1
 
                 elapsed = (now - self.arrival_pending_start).total_seconds()
@@ -392,11 +465,17 @@ class BufferMonitor:
                     else:
                         # FAILURE
                         self._cancel_arrival(ratio, now)
+                        # Stale presence boolean after a reset — see the
+                        # startup cancel above (ho-12 / 024-C).
+                        falcon_detected = yolo_detected
 
-            # Recovery confirmation logic (after stream outage)
+            # Recovery confirmation logic (after stream outage). Counts
+            # filtered YOLO hits, not presence judgment — the outage hid any
+            # exit motion from the tracker, so only fresh recognition can
+            # prove the bird is still there.
             if self.recovery_pending and self.recovery_pending_start is not None:
                 self.recovery_frame_count += 1
-                if falcon_detected:
+                if yolo_detected:
                     self.recovery_detection_count += 1
                     self.recovery_latest_detection = now
 
@@ -410,6 +489,9 @@ class BufferMonitor:
                     else:
                         # FAILURE - bird left during outage
                         self._cancel_recovery(ratio, now)
+                        # Stale presence boolean after a reset — see the
+                        # startup cancel above (ho-12 / 024-C).
+                        falcon_detected = yolo_detected
 
             # Debug logging for detection tracking
             if falcon_detected:
@@ -624,6 +706,12 @@ class BufferMonitor:
                 self._cancel_arrival(ratio, event_time)
                 return  # Do not process departure normally
 
+            # The visit is over — the tracker's presence episode ends with it,
+            # so the next presence can only begin with a strict ENTER
+            # (ho-12 / 024-C). Without this, a stale episode could flip back
+            # to "present" on region motion alone after the departure.
+            self._reset_presence()
+
             # Stop arrival clip if still active (short visit may not have hit its time limit)
             if self.arrival_clip_recorder.is_recording():
                 self.arrival_clip_recorder.stop_recording(event_time)
@@ -829,6 +917,9 @@ class BufferMonitor:
         # Reset state machine to ABSENT
         self.state_machine.reset_to_absent()
 
+        # Tracker resets with the state machine (ho-12 / 024-C)
+        self._reset_presence()
+
         # Cancelled visit — discard its peak confidence (022-A)
         self._visit_peak_confidence = 0.0
 
@@ -961,6 +1052,9 @@ class BufferMonitor:
         # Get departure events from state machine (uses last_detection from before outage)
         events = self.state_machine.cancel_recovery(now)
 
+        # Tracker resets with the state machine (ho-12 / 024-C)
+        self._reset_presence()
+
         # Handle deparure event (create clips, notify, etc.)
         for event_type, event_time, metadata in events:
             self.event_handler.handle_event(event_type, event_time, metadata)
@@ -973,11 +1067,26 @@ class BufferMonitor:
         self.recovery_frame_count = 0
         self.recovery_latest_detection = None
 
+    def _reset_presence(self) -> None:
+        """Reset the presence tracker so it cannot disagree with the state machine.
+
+        Called wherever the state machine is force-reset (cancelled arrival,
+        cancelled startup, cancelled recovery, outage-exceeded) and on a real
+        DEPARTED — the tracker's episode ends with the visit, so a new
+        presence can only begin with a strict ENTER (filtered detection).
+        No-op when the presence layer is disabled (ho-12 / 024-C).
+        """
+        if self.presence is not None:
+            self.presence.reset()
+
     def _reset_pending_states(self) -> None:
         """Reset all pending confirmation states (startup, arrival, and recovery)."""
         # Any visit in progress is being abandoned (cancelled startup or
         # outage-exceeded reset) — discard its peak confidence (022-A)
         self._visit_peak_confidence = 0.0
+
+        # Tracker and state machine reset together (ho-12 / 024-C)
+        self._reset_presence()
 
         self.startup_pending = False
         self.startup_pending_start = None
@@ -1168,6 +1277,18 @@ class BufferMonitor:
 
                             # Seed the visit peak from startup init detections (022-A)
                             self._visit_peak_confidence = max_conf
+
+                            # Seed the presence tracker from the startup
+                            # detections on entering PENDING_STARTUP
+                            # (ho-12 / 024-C): the episode begins with a
+                            # region from the best startup bbox and this
+                            # frame as the motion baseline. The init loop
+                            # itself stays on plain detection — no presence
+                            # judgment before the state machine initializes.
+                            if self.presence is not None:
+                                self.presence.update(
+                                    frame.data, now, initial_detections, initial_detections
+                                )
 
                             # If falcon detected, state is PENDING_STARTUP
                             # We need to confirm presence before transitioning to ROOSTING
@@ -1400,6 +1521,13 @@ def main():
             stream_recovery_threshold=config.get("stream_recovery_threshold", 30),
             stream_recovery_confirmation=config.get("stream_recovery_confirmation", 10),
             stream_read_timeout_s=config.get("stream_read_timeout_s", 10.0),
+            presence_enabled=config.get("presence_enabled", True),
+            presence_sustain_confidence=config.get("presence_sustain_confidence", 0.15),
+            presence_region_margin_frac=config.get("presence_region_margin_frac", 0.25),
+            presence_motion_pixel_threshold=config.get("presence_motion_pixel_threshold", 25),
+            presence_motion_min_area_frac=config.get("presence_motion_min_area_frac", 0.02),
+            presence_global_change_frac=config.get("presence_global_change_frac", 0.5),
+            presence_absence_failsafe_seconds=config.get("presence_absence_failsafe_seconds", 3600),
             notify_on_startup=config.get("notify_on_startup", True),
             record_arrival_on_startup=config.get("record_arrival_on_startup", False),
             max_runtime_seconds=config.get("max_runtime_seconds"),

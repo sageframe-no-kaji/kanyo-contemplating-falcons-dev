@@ -24,6 +24,10 @@ def make_monitor(roosting_recording_mode: str = "stop", roosting_detection_inter
     ):
         monitor = BufferMonitor(
             stream_url="test",
+            # Legacy-path fixture (mocked detect_birds, MagicMock frames);
+            # the presence-enabled path is covered by
+            # test_presence_integration.py (024-C).
+            presence_enabled=False,
             full_config={
                 "roosting_recording_mode": roosting_recording_mode,
                 "roosting_detection_interval": roosting_detection_interval,
