@@ -155,6 +155,41 @@ class NotificationManager:
 
         return success
 
+    def send_count_change(self, timestamp: datetime, old_count: int, new_count: int) -> bool:
+        """
+        Send a bird-count change notification to Telegram (issue #3).
+
+        Fires only for confirmed count changes while the nest is occupied
+        (1→2, 2→1, …) — the 0-boundary changes are the arrival/departure
+        notifications' territory. Text-only, no cooldown interaction: count
+        changes are already gated by the count confirmation window and folded
+        into summaries by the significance filter's activity damping.
+
+        Args:
+            timestamp: When the change confirmed (stream local)
+            old_count: The previously confirmed count
+            new_count: The newly confirmed count
+
+        Returns:
+            True if sent, False if disabled or failed
+        """
+        if not self.telegram_enabled:
+            return False
+
+        ts_str = timestamp.strftime("%I:%M %p")
+        birds = "bird" if new_count == 1 else "birds"
+        if new_count > old_count:
+            message = (
+                f"🦅 Another falcon arrived — {new_count} {birds} in view "
+                f"({ts_str} stream local)"
+            )
+        else:
+            message = (
+                f"👋 One falcon left — {new_count} {birds} still in view "
+                f"({ts_str} stream local)"
+            )
+        return self._send_telegram_text(message)
+
     def send_activity_summary(self, message: str) -> bool:
         """
         Send an activity summary to Telegram (significance filter damped mode, ho-09).

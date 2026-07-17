@@ -101,3 +101,14 @@ class FalconEventHandler:
         elif event_type == FalconEvent.ROOSTING:
             duration_str = format_duration(metadata.get("visit_duration_seconds", 0))
             logger.event(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")
+
+        elif event_type == FalconEvent.COUNT_CHANGED:
+            # Confirmed bird-count change while occupied (issue #3).
+            old_count = metadata.get("old_count", 0)
+            new_count = metadata.get("new_count", 0)
+            logger.event(
+                f"🔢 BIRD COUNT {old_count} → {new_count} at "
+                f"{timestamp.strftime('%I:%M:%S %p')} (stream local)"
+            )
+            if self.notifications:
+                self.notifications.send_count_change(timestamp, old_count, new_count)

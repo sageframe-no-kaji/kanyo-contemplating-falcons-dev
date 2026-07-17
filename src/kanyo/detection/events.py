@@ -59,6 +59,10 @@ class FalconVisit:
     # defaults so existing rows and to_dict() consumers are unaffected.
     insignificant: bool = False  # below min_significant_seconds: recorded log-only
     merged_segments: int = 1  # >= 2 when this row spans merged visit segments
+    # Bird count tracking (issue #3). None when count tracking is disabled;
+    # otherwise the highest confirmed concurrent bird count during the visit.
+    # Additive: consumers that don't know the field ignore it.
+    max_concurrent_birds: int | None = None
     id: str = field(default="")
 
     def __post_init__(self):
@@ -110,6 +114,7 @@ class FalconVisit:
             "departure_clip_path": self.departure_clip_path,
             "insignificant": self.insignificant,
             "merged_segments": self.merged_segments,
+            "max_concurrent_birds": self.max_concurrent_birds,
         }
 
 

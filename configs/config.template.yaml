@@ -174,6 +174,43 @@ presence_absence_failsafe_seconds: 3600
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Bird Count Tracking
+# ─────────────────────────────────────────────────────────────────────────────
+# Tracks HOW MANY birds are in frame, not just whether one is (issue #3).
+# Count is a parallel judgment beside the presence layer — arrival/departure
+# semantics, clips, and the state machine are completely unchanged. What you
+# get with it on:
+#
+#   - A confirmed bird count in the logs (EVENT lines on every confirmed
+#     change, count= in heartbeats).
+#   - Telegram notifications for count changes while the nest is occupied
+#     (1→2 "another falcon arrived", 2→1 "one falcon left"). The 0-boundary
+#     stays with the normal arrival/departure notifications, and count
+#     notifications respect the significance filter's activity damping.
+#   - max_concurrent_birds recorded on every visit row in the event JSON
+#     (null when disabled), so "both adults present" visits are queryable.
+#
+# The count uses the same evidence discipline as the presence layer: a count
+# CHANGE confirms only after bird_count_confirmation_seconds of unbroken
+# differing evidence — single-frame YOLO flicker (a second box appearing for
+# one poll) never changes the count. When recognition drops out entirely on a
+# parked bird, the count holds, exactly as presence does.
+#
+# bird_count_enabled — Master switch. Default false for safe rollout: enable
+#   per-camera once you've watched the count EVENT lines behave sensibly in
+#   the logs. Particularly useful during chick season (see the preset below)
+#   and for pair-bonding observation.
+#
+# bird_count_confirmation_seconds — Sustained-evidence window before a count
+#   change confirms. 10 matches the arrival confirmation window. Raise (e.g.
+#   20–30) on cameras where overlapping birds make YOLO's box count jumpy;
+#   lower for faster count response on clean wide views.
+
+bird_count_enabled: false
+bird_count_confirmation_seconds: 10
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Significance Filter
 # ─────────────────────────────────────────────────────────────────────────────
 # The presence layer removes manufactured churn (recognition gaps on roosting
