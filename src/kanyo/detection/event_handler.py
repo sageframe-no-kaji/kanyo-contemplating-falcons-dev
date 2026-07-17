@@ -7,6 +7,7 @@ Handles falcon state machine events with notifications and thumbnails.
 from datetime import datetime
 
 from kanyo.detection.event_types import FalconEvent
+from kanyo.utils.creature import Creature
 from kanyo.utils.logger import get_logger
 from kanyo.utils.notifications import NotificationManager
 from kanyo.utils.output import format_duration, save_thumbnail
@@ -26,6 +27,7 @@ class FalconEventHandler:
         self,
         notifications: NotificationManager | None = None,
         clips_dir: str = "clips",
+        creature: Creature | None = None,
     ):
         """
         Initialize event handler.
@@ -33,9 +35,12 @@ class FalconEventHandler:
         Args:
             notifications: Optional notification manager for alerts
             clips_dir: Base directory for saving thumbnails
+            creature: Creature identity for EVENT log lines (issue #8).
+                Defaults to falcon/🦅 — the historical output, byte-for-byte.
         """
         self.notifications = notifications
         self.clips_dir = clips_dir
+        self.creature = creature or Creature()
         self.last_frame = None  # Store last frame for thumbnails
 
     def update_frame(self, frame):
@@ -60,7 +65,10 @@ class FalconEventHandler:
             metadata: Additional event data (duration, counts, etc.)
         """
         if event_type == FalconEvent.ARRIVED:
-            logger.event(f"🦅 FALCON ARRIVED at {timestamp.strftime('%I:%M:%S %p')} (stream local)")
+            logger.event(
+                f"{self.creature.emoji} {self.creature.upper} ARRIVED at "
+                f"{timestamp.strftime('%I:%M:%S %p')} (stream local)"
+            )
 
             # Send arrival notification
             if self.notifications:
@@ -82,8 +90,8 @@ class FalconEventHandler:
             duration_str = format_duration(duration)
 
             logger.event(
-                f"🦅 FALCON DEPARTED at {timestamp.strftime('%I:%M:%S %p')} "
-                f"({duration_str} visit, stream local)"
+                f"{self.creature.emoji} {self.creature.upper} DEPARTED at "
+                f"{timestamp.strftime('%I:%M:%S %p')} ({duration_str} visit, stream local)"
             )
 
             # Send departure notification
@@ -100,7 +108,10 @@ class FalconEventHandler:
 
         elif event_type == FalconEvent.ROOSTING:
             duration_str = format_duration(metadata.get("visit_duration_seconds", 0))
-            logger.event(f"🏠 FALCON ROOSTING - settled for long-term stay (visit: {duration_str})")
+            logger.event(
+                f"🏠 {self.creature.upper} ROOSTING - settled for long-term stay "
+                f"(visit: {duration_str})"
+            )
 
         elif event_type == FalconEvent.COUNT_CHANGED:
             # Confirmed bird-count change while occupied (issue #3).

@@ -30,6 +30,27 @@ video_source: "https://youtube.com/watch?v=YOUR_STREAM_ID"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Creature Identity (issue #8)
+# ─────────────────────────────────────────────────────────────────────────────
+# What the camera watches. The name and emoji appear in Telegram notifications
+# ("🦅 Falcon arrived at ...") and EVENT log lines ("🦅 FALCON ARRIVED ...").
+# Defaults are falcon/🦅 — with the defaults the output is byte-identical to
+# earlier releases, so existing sites change nothing.
+#
+# creature_name  — lowercase singular ("falcon", "eagle", "hummingbird",
+#   "shark"). Casing variants (Falcon, FALCON) are derived automatically.
+# creature_emoji — any emoji string. Used wherever the arrival emoji appears.
+#
+# Invalid values (empty, wrong type) fall back to the defaults with a logged
+# warning — they never break startup or notifications. Note the "BUFFER-BASED
+# FALCON MONITOR" startup banner is deliberately NOT configurable: the admin
+# log viewer parses it as a fixed startup marker.
+
+creature_name: "falcon"
+creature_emoji: "🦅"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Detection Tuning
 # ─────────────────────────────────────────────────────────────────────────────
 # detection_confidence    — YOLO confidence threshold for daytime detection.

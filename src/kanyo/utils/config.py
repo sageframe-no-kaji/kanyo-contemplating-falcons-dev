@@ -74,6 +74,11 @@ DEFAULTS: dict[str, Any] = {
     # Logging
     "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     "log_file": "logs/kanyo.log",
+    # Creature Identity (issue #8) — name + emoji used in notification
+    # messages and EVENT log lines. Defaults reproduce the pre-#8 output
+    # byte-for-byte; invalid values fall back safely (see utils/creature.py).
+    "creature_name": "falcon",
+    "creature_emoji": "🦅",
     # Notifications
     "telegram_enabled": False,
     "telegram_channel": "",  # Can be set in YAML or via TELEGRAM_CHANNEL env var

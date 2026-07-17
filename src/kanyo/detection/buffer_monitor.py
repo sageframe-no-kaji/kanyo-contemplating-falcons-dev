@@ -30,6 +30,7 @@ from kanyo.detection.significance_filter import (  # noqa: E402
 )
 from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder  # noqa: E402
 from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
+from kanyo.utils.creature import Creature  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
@@ -137,6 +138,10 @@ class BufferMonitor:
         self.max_runtime_seconds = max_runtime_seconds
         self.full_config = full_config or {}
 
+        # Creature identity for EVENT log lines and notifications (issue #8).
+        # Defaults (falcon/🦅) reproduce the historical output byte-for-byte.
+        self.creature = Creature.from_config(self.full_config)
+
         # Stream recovery config
         self.stream_recovery_threshold = stream_recovery_threshold
         self.stream_recovery_confirmation = stream_recovery_confirmation
@@ -233,6 +238,7 @@ class BufferMonitor:
         # Event handler for notifications
         self.event_handler = FalconEventHandler(
             clips_dir=clips_dir,
+            creature=self.creature,
         )
 
         # State machine
@@ -480,7 +486,8 @@ class BufferMonitor:
                         # not a departure. Discard it; a later first-miss
                         # snapshots a fresh one.
                         logger.event(
-                            "🦅 Roosting bird re-confirmed — discarding departure-candidate clip"
+                            f"{self.creature.emoji} Roosting bird re-confirmed — "
+                            "discarding departure-candidate clip"
                         )
                         self._discard_departure_candidate()
                     self._roosting_last_poll_detected = True
@@ -845,8 +852,8 @@ class BufferMonitor:
         if event_type == FalconEvent.ARRIVED:
             # Start arrival confirmation - don't notify yet
             logger.event(
-                "🦅 FALCON ARRIVED at %s (stream local) - pending confirmation"
-                % event_time.strftime("%I:%M:%S %p")
+                f"{self.creature.emoji} {self.creature.upper} ARRIVED at "
+                f"{event_time.strftime('%I:%M:%S %p')} (stream local) - pending confirmation"
             )
 
             # Set pending state
@@ -902,7 +909,10 @@ class BufferMonitor:
 
             # Handle departure from roosting stop mode (visit recorder already stopped)
             if self.roosting_mode_active and self.roosting_recording_mode == "stop":
-                logger.event("🦅 DEPARTURE from roost — finalizing departure-candidate clip")
+                logger.event(
+                    f"{self.creature.emoji} DEPARTURE from roost — "
+                    "finalizing departure-candidate clip"
+                )
                 # Finalize the candidate snapshotted at the first missed poll
                 # (022-C). The direct buffer extraction this replaces could
                 # never work here: event_time is last_detection, which is
@@ -962,7 +972,7 @@ class BufferMonitor:
                 return
 
             # Stop recording and create clips
-            logger.event("🦅 DEPARTURE - Stopping visit recording")
+            logger.event(f"{self.creature.emoji} DEPARTURE - Stopping visit recording")
 
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
@@ -1178,7 +1188,10 @@ class BufferMonitor:
         median_str = format_duration(decision.metadata.get("median_duration_seconds", 0.0))
         window_hours = decision.metadata.get("window_hours", 1)
         window_str = f"{window_hours:g} hour" + ("s" if window_hours != 1 else "")
-        message = f"🦅 Busy nest: {count} visits in the last {window_str} (median {median_str})"
+        message = (
+            f"{self.creature.emoji} Busy nest: {count} visits in the last {window_str} "
+            f"(median {median_str})"
+        )
         logger.event(f"📊 Activity summary: {message}")
 
         notifications = self.event_handler.notifications
