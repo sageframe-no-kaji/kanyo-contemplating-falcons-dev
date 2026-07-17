@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from app.services import (
     clip_service,
+    compose_snippet,
     config_service,
     docker_service,
     file_service,
@@ -21,7 +22,7 @@ from app.services.stream_manager import (
     validate_stream_form,
 )
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -643,14 +644,11 @@ async def create_new_stream(
         f'<ol class="list-decimal list-inside space-y-1">'
         f'<li>Review the config in the <a href="/streams/{stream_id_url}/config" '
         f'class="underline">config editor</a>.</li>'
-        f"<li>Start a detector: add a service block for this stream to the host "
-        f"compose (<code class='bg-zinc-700 px-1 rounded'>/opt/services/kanyo-admin/"
-        f"docker-compose.yml</code>) following the template's profile pattern "
-        f"(<code class='bg-zinc-700 px-1 rounded'>docker/docker-compose.yml</code>, "
-        f"bigbear example), then "
-        f"<code class='bg-zinc-700 px-1 rounded'>docker compose --profile "
-        f"{_h(stream_id)} up -d {_h(stream_id)}-gpu</code>. "
-        f"Container creation is deliberately not automated (see issue #7).</li>"
+        f"<li>Start a detector: paste the generated snippet below into the host "
+        f"compose + .env, then run the start command. It follows the template's "
+        f"profile pattern (<code class='bg-zinc-700 px-1 rounded'>docker/"
+        f"docker-compose.yml</code>, bigbear example). Container creation is "
+        f"deliberately not automated (see issue #7).</li>"
         f"<li>ZFS hosts: if this stream should live on its own dataset, create it "
         f"<em>before</em> pointing the detector at it (e.g. "
         f"<code class='bg-zinc-700 px-1 rounded'>sudo zfs create "
@@ -659,8 +657,29 @@ async def create_new_stream(
         f"<li>Telegram: create the channel in the Telegram app, add the bot as a "
         f"channel admin, then set the channel in the config editor. Both steps "
         f"require a human in the Telegram UI.</li>"
-        f"</ol></div></div>"
+        f"</ol>"
+        f'<pre class="bg-zinc-900 text-zinc-200 text-xs rounded p-3 mt-3 '
+        f'overflow-x-auto whitespace-pre">{_h(compose_snippet.build_snippet(stream_id))}</pre>'
+        f'<p class="text-xs text-zinc-500 mt-1">Snippet stays available at '
+        f'<a href="/api/streams/{stream_id_url}/compose-snippet" class="underline">'
+        f"/api/streams/{_h(stream_id)}/compose-snippet</a>.</p>"
+        f"</div></div>"
     )
+
+
+@router.get("/streams/{stream_id}/compose-snippet")
+async def get_compose_snippet(stream_id: str):
+    """Compose service block + .env additions for an existing stream dir.
+
+    Bounded issue #7 slice: text to paste into the host compose — no live
+    orchestration. Works for any discovered stream, so a detector can be
+    added later for streams created before this endpoint existed.
+    """
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    return PlainTextResponse(compose_snippet.build_snippet(stream_id))
 
 
 @router.post("/admin/restart")
