@@ -109,10 +109,12 @@ class TestFalconDetector:
         assert str(detector.model_path) == "models/yolov8n.pt"
 
     def test_detect_on_blank_frame(self):
-        """Detection on blank frame returns empty list."""
+        """Detection on a frame with no birds returns an empty list."""
         from kanyo.detection.detect import FalconDetector
 
         detector = FalconDetector()
+        # Mock the model (no YOLO weights needed in test env); no boxes = no birds
+        detector._model = Mock(return_value=_mock_yolo_results([]))
         blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
         detections = detector.detect(blank_frame)
 

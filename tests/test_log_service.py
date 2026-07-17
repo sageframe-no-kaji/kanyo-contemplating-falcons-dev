@@ -13,6 +13,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "admin" / "web"))
 from app.services import log_service  # noqa: E402
 
 
+def _recent_ts(offset_seconds: int) -> str:
+    """
+    Timestamp string offset from a fixed base 30 minutes ago (UTC).
+
+    Keeps test log lines inside any since-window ("1h", "24h", ...) regardless
+    of the date the suite runs on.
+    """
+    base = datetime.now(timezone.utc) - timedelta(minutes=30)
+    return (base + timedelta(seconds=offset_seconds)).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
 class TestParseLogLine:
     """Test log line parsing."""
 
@@ -282,14 +293,14 @@ class TestShowContext:
         """When show_context=True, include DEBUG lines before/after EVENT logs."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
             # Write logs with DEBUG lines surrounding an EVENT
-            f.write("2026-01-11 12:00:00 UTC | DEBUG    | kanyo | Detection check 1\n")
-            f.write("2026-01-11 12:00:01 UTC | DEBUG    | kanyo | Detection check 2\n")
-            f.write("2026-01-11 12:00:02 UTC | DEBUG    | kanyo | Detection check 3\n")
-            f.write("2026-01-11 12:00:03 UTC | EVENT    | kanyo | Falcon detected - arrival\n")
-            f.write("2026-01-11 12:00:04 UTC | DEBUG    | kanyo | Detection check 4\n")
-            f.write("2026-01-11 12:00:05 UTC | DEBUG    | kanyo | Detection check 5\n")
-            f.write("2026-01-11 12:00:06 UTC | DEBUG    | kanyo | Detection check 6\n")
-            f.write("2026-01-11 12:00:07 UTC | INFO     | kanyo | Some other log\n")
+            f.write(f"{_recent_ts(0)} | DEBUG    | kanyo | Detection check 1\n")
+            f.write(f"{_recent_ts(1)} | DEBUG    | kanyo | Detection check 2\n")
+            f.write(f"{_recent_ts(2)} | DEBUG    | kanyo | Detection check 3\n")
+            f.write(f"{_recent_ts(3)} | EVENT    | kanyo | Falcon detected - arrival\n")
+            f.write(f"{_recent_ts(4)} | DEBUG    | kanyo | Detection check 4\n")
+            f.write(f"{_recent_ts(5)} | DEBUG    | kanyo | Detection check 5\n")
+            f.write(f"{_recent_ts(6)} | DEBUG    | kanyo | Detection check 6\n")
+            f.write(f"{_recent_ts(7)} | INFO     | kanyo | Some other log\n")
             log_path = Path(f.name)
 
         # Create mock data directory structure
@@ -339,10 +350,10 @@ class TestShowContext:
     def test_show_context_false_only_shows_requested_levels(self):
         """When show_context=False, only show requested log levels."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-            f.write("2026-01-11 12:00:00 UTC | DEBUG    | kanyo | Debug line 1\n")
-            f.write("2026-01-11 12:00:01 UTC | EVENT    | kanyo | Event line\n")
-            f.write("2026-01-11 12:00:02 UTC | DEBUG    | kanyo | Debug line 2\n")
-            f.write("2026-01-11 12:00:03 UTC | INFO     | kanyo | Info line\n")
+            f.write(f"{_recent_ts(0)} | DEBUG    | kanyo | Debug line 1\n")
+            f.write(f"{_recent_ts(1)} | EVENT    | kanyo | Event line\n")
+            f.write(f"{_recent_ts(2)} | DEBUG    | kanyo | Debug line 2\n")
+            f.write(f"{_recent_ts(3)} | INFO     | kanyo | Info line\n")
             log_path = Path(f.name)
 
         data_dir = Path(tempfile.mkdtemp())
@@ -372,13 +383,13 @@ class TestShowContext:
     def test_show_context_with_multiple_events(self):
         """Context should be added for each EVENT independently."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-            f.write("2026-01-11 12:00:00 UTC | DEBUG    | kanyo | Before event 1 - line 1\n")
-            f.write("2026-01-11 12:00:01 UTC | EVENT    | kanyo | Event 1\n")
-            f.write("2026-01-11 12:00:02 UTC | DEBUG    | kanyo | After event 1 - line 1\n")
-            f.write("2026-01-11 12:00:03 UTC | INFO     | kanyo | Info between events\n")
-            f.write("2026-01-11 12:00:04 UTC | DEBUG    | kanyo | Before event 2 - line 1\n")
-            f.write("2026-01-11 12:00:05 UTC | EVENT    | kanyo | Event 2\n")
-            f.write("2026-01-11 12:00:06 UTC | DEBUG    | kanyo | After event 2 - line 1\n")
+            f.write(f"{_recent_ts(0)} | DEBUG    | kanyo | Before event 1 - line 1\n")
+            f.write(f"{_recent_ts(1)} | EVENT    | kanyo | Event 1\n")
+            f.write(f"{_recent_ts(2)} | DEBUG    | kanyo | After event 1 - line 1\n")
+            f.write(f"{_recent_ts(3)} | INFO     | kanyo | Info between events\n")
+            f.write(f"{_recent_ts(4)} | DEBUG    | kanyo | Before event 2 - line 1\n")
+            f.write(f"{_recent_ts(5)} | EVENT    | kanyo | Event 2\n")
+            f.write(f"{_recent_ts(6)} | DEBUG    | kanyo | After event 2 - line 1\n")
             log_path = Path(f.name)
 
         data_dir = Path(tempfile.mkdtemp())
