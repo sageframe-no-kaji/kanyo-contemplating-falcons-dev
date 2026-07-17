@@ -9,7 +9,10 @@
     </a>
 
     <h1 class="text-3xl font-bold mb-2">Add New Stream</h1>
-    <p class="text-zinc-400 mb-8">Configure a new falcon cam to monitor.</p>
+    <p class="text-zinc-400 mb-8">
+        Creates the on-disk stream definition: directory, config.yaml, clips/ and logs/.
+        Starting a detection container stays a manual step (shown after creation).
+    </p>
 
     <form hx-post="/api/streams"
           hx-target="#form-feedback"
@@ -18,7 +21,7 @@
 
         <div id="form-feedback"></div>
 
-        <!-- Stream ID -->
+        <!-- Stream Identity -->
         <div class="bg-zinc-800 rounded-lg p-6">
             <h2 class="text-xl font-semibold mb-4">Stream Identity</h2>
 
@@ -35,7 +38,8 @@
                            placeholder="e.g., melbourne, cornell-redtail"
                            class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <p class="text-zinc-500 text-sm mt-1">
-                        Lowercase letters, numbers, hyphens, underscores only. This becomes the directory and container name.
+                        Lowercase letters, numbers, hyphens, underscores only. Becomes the
+                        directory (kanyo-&lt;id&gt;) and container name (kanyo-&lt;id&gt;-gpu).
                     </p>
                 </div>
 
@@ -49,7 +53,21 @@
                            placeholder="e.g., Melbourne Peregrine Falcon Cam"
                            class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <p class="text-zinc-500 text-sm mt-1">
-                        Human-readable name shown in the admin interface.
+                        Human-readable name shown in the admin interface and logs.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">
+                        Short Name <span class="text-red-400">*</span>
+                    </label>
+                    <input type="text"
+                           name="short_name"
+                           required
+                           placeholder="e.g., Melbourne"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-zinc-500 text-sm mt-1">
+                        2–4 word label for stream cards on the public viewer.
                     </p>
                 </div>
             </div>
@@ -69,48 +87,143 @@
                        placeholder="https://www.youtube.com/watch?v=..."
                        class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <p class="text-zinc-500 text-sm mt-1">
-                    The YouTube live stream URL to monitor. Must be a public live stream.
+                    The YouTube live stream URL to monitor. Must be a /watch?v= URL, not a channel URL.
                 </p>
             </div>
         </div>
 
-        <!-- Timezone -->
+        <!-- Location -->
         <div class="bg-zinc-800 rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4">Location Settings</h2>
+            <h2 class="text-xl font-semibold mb-4">Location &amp; Species</h2>
 
-            <div>
-                <label class="block text-sm font-medium mb-2">Timezone</label>
-                <select name="timezone"
-                        class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="-12:00">UTC-12:00 (Baker Island)</option>
-                    <option value="-11:00">UTC-11:00 (American Samoa)</option>
-                    <option value="-10:00">UTC-10:00 (Hawaii)</option>
-                    <option value="-09:00">UTC-09:00 (Alaska)</option>
-                    <option value="-08:00">UTC-08:00 (Pacific Time)</option>
-                    <option value="-07:00">UTC-07:00 (Mountain Time)</option>
-                    <option value="-06:00">UTC-06:00 (Central Time)</option>
-                    <option value="-05:00">UTC-05:00 (Eastern Time)</option>
-                    <option value="-04:00">UTC-04:00 (Atlantic Time)</option>
-                    <option value="-03:00">UTC-03:00 (Buenos Aires)</option>
-                    <option value="+00:00" selected>UTC+00:00 (London/GMT)</option>
-                    <option value="+01:00">UTC+01:00 (Paris/Berlin)</option>
-                    <option value="+02:00">UTC+02:00 (Cairo)</option>
-                    <option value="+03:00">UTC+03:00 (Moscow)</option>
-                    <option value="+04:00">UTC+04:00 (Dubai)</option>
-                    <option value="+05:00">UTC+05:00 (Karachi)</option>
-                    <option value="+05:30">UTC+05:30 (India)</option>
-                    <option value="+06:00">UTC+06:00 (Bangladesh)</option>
-                    <option value="+07:00">UTC+07:00 (Bangkok)</option>
-                    <option value="+08:00">UTC+08:00 (Singapore/Perth)</option>
-                    <option value="+09:00">UTC+09:00 (Tokyo)</option>
-                    <option value="+09:30">UTC+09:30 (Adelaide)</option>
-                    <option value="+10:00">UTC+10:00 (Sydney)</option>
-                    <option value="+11:00">UTC+11:00 (Solomon Islands)</option>
-                    <option value="+12:00">UTC+12:00 (Auckland)</option>
-                </select>
-                <p class="text-zinc-500 text-sm mt-1">
-                    Timezone where the camera is located. Used for clip timestamps.
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">
+                        Location <span class="text-red-400">*</span>
+                    </label>
+                    <input type="text"
+                           name="location"
+                           required
+                           placeholder="e.g., Melbourne, Victoria, Australia"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">
+                        Timezone <span class="text-red-400">*</span>
+                    </label>
+                    <select name="timezone"
+                            required
+                            class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="UTC" selected>UTC</option>
+                        <optgroup label="Americas">
+                            <option value="America/New_York">America/New_York (Eastern)</option>
+                            <option value="America/Chicago">America/Chicago (Central)</option>
+                            <option value="America/Denver">America/Denver (Mountain)</option>
+                            <option value="America/Phoenix">America/Phoenix (Arizona, no DST)</option>
+                            <option value="America/Los_Angeles">America/Los_Angeles (Pacific)</option>
+                            <option value="America/Anchorage">America/Anchorage (Alaska)</option>
+                            <option value="Pacific/Honolulu">Pacific/Honolulu (Hawaii)</option>
+                            <option value="America/Toronto">America/Toronto</option>
+                            <option value="America/Vancouver">America/Vancouver</option>
+                            <option value="America/Mexico_City">America/Mexico_City</option>
+                            <option value="America/Sao_Paulo">America/Sao_Paulo</option>
+                            <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
+                        </optgroup>
+                        <optgroup label="Europe / Africa">
+                            <option value="Europe/London">Europe/London</option>
+                            <option value="Europe/Paris">Europe/Paris</option>
+                            <option value="Europe/Berlin">Europe/Berlin</option>
+                            <option value="Europe/Madrid">Europe/Madrid</option>
+                            <option value="Europe/Rome">Europe/Rome</option>
+                            <option value="Europe/Moscow">Europe/Moscow</option>
+                            <option value="Africa/Cairo">Africa/Cairo</option>
+                            <option value="Africa/Johannesburg">Africa/Johannesburg</option>
+                        </optgroup>
+                        <optgroup label="Asia">
+                            <option value="Asia/Dubai">Asia/Dubai</option>
+                            <option value="Asia/Karachi">Asia/Karachi</option>
+                            <option value="Asia/Kolkata">Asia/Kolkata (India)</option>
+                            <option value="Asia/Dhaka">Asia/Dhaka</option>
+                            <option value="Asia/Bangkok">Asia/Bangkok</option>
+                            <option value="Asia/Singapore">Asia/Singapore</option>
+                            <option value="Asia/Tokyo">Asia/Tokyo</option>
+                            <option value="Asia/Seoul">Asia/Seoul</option>
+                        </optgroup>
+                        <optgroup label="Australia / Pacific">
+                            <option value="Australia/Perth">Australia/Perth</option>
+                            <option value="Australia/Adelaide">Australia/Adelaide</option>
+                            <option value="Australia/Brisbane">Australia/Brisbane</option>
+                            <option value="Australia/Sydney">Australia/Sydney</option>
+                            <option value="Australia/Melbourne">Australia/Melbourne</option>
+                            <option value="Pacific/Auckland">Pacific/Auckland</option>
+                        </optgroup>
+                    </select>
+                    <p class="text-zinc-500 text-sm mt-1">
+                        IANA timezone of the camera's physical location (handles DST correctly).
+                        Used for clip timestamps and the viewer timeline.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-2">
+                        Species <span class="text-red-400">*</span>
+                    </label>
+                    <input type="text"
+                           name="species"
+                           required
+                           placeholder="e.g., Peregrine Falcon (Falco peregrinus)"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Latitude</label>
+                        <input type="number" step="any" min="-90" max="90"
+                               name="latitude"
+                               placeholder="-37.8136"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Longitude</label>
+                        <input type="number" step="any" min="-180" max="180"
+                               name="longitude"
+                               placeholder="144.9631"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <p class="text-zinc-500 text-sm -mt-2">
+                    Optional decimal degrees, used for the viewer's map display.
                 </p>
+            </div>
+        </div>
+
+        <!-- Maintainer (optional) -->
+        <div class="bg-zinc-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Maintainer <span class="text-sm font-normal text-zinc-500">(optional)</span></h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Maintainer Name</label>
+                    <input type="text"
+                           name="maintainer"
+                           placeholder="e.g., Victorian Peregrine Project"
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Maintainer URL</label>
+                    <input type="url"
+                           name="maintainer_url"
+                           placeholder="https://..."
+                           class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Description</label>
+                    <textarea name="description"
+                              rows="2"
+                              placeholder="1–3 sentence description shown on the public stream page."
+                              class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
             </div>
         </div>
 
@@ -138,11 +251,87 @@
                            placeholder="@your_channel_name"
                            class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
                     <p class="text-zinc-500 text-sm mt-1">
-                        The Telegram channel to send notifications to. Bot must be admin of the channel.
+                        The channel must exist and the bot must be a channel admin —
+                        both are manual Telegram-app steps (instructions after creation).
                     </p>
                 </div>
             </div>
         </div>
+
+        <!-- Advanced (collapsible, template defaults) -->
+        <details class="bg-zinc-800 rounded-lg">
+            <summary class="cursor-pointer select-none px-6 py-4 text-xl font-semibold">
+                Advanced Detection Settings
+                <span class="text-sm font-normal text-zinc-500">(defaults from the config template)</span>
+            </summary>
+            <div class="px-6 pb-6 space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Detection Confidence</label>
+                        <input type="number" step="0.05" min="0" max="1"
+                               name="detection_confidence"
+                               value="0.3"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-zinc-500 text-xs mt-1">YOLO daytime threshold (0.0–1.0).</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">IR / Night Confidence</label>
+                        <input type="number" step="0.05" min="0" max="1"
+                               name="detection_confidence_ir"
+                               value="0.25"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-zinc-500 text-xs mt-1">Lower threshold for IR mode. Clear to reuse daytime value.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Frame Interval</label>
+                        <input type="number" min="1" max="60"
+                               name="frame_interval"
+                               value="3"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-zinc-500 text-xs mt-1">Process 1 in every N frames.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Exit Timeout (s)</label>
+                        <input type="number" min="1"
+                               name="exit_timeout"
+                               value="90"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-zinc-500 text-xs mt-1">Continuous absence before DEPARTED fires.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Roosting Threshold (s)</label>
+                        <input type="number" min="2"
+                               name="roosting_threshold"
+                               value="1800"
+                               class="w-full bg-zinc-700 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-zinc-500 text-xs mt-1">Continuous presence before ROOSTING. Must exceed exit timeout.</p>
+                    </div>
+                </div>
+
+                <div class="space-y-2 pt-2">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="detect_any_animal" value="true" checked
+                               class="w-5 h-5 rounded bg-zinc-700 border-zinc-600">
+                        <span>Detect any animal as presence <span class="text-zinc-500 text-sm">(catches "bird"-misclassified falcons)</span></span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="presence_enabled" value="true" checked
+                               class="w-5 h-5 rounded bg-zinc-700 border-zinc-600">
+                        <span>Presence layer <span class="text-zinc-500 text-sm">(sustains presence through recognition gaps)</span></span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="significance_filter_enabled" value="true" checked
+                               class="w-5 h-5 rounded bg-zinc-700 border-zinc-600">
+                        <span>Significance filter <span class="text-zinc-500 text-sm">(merges swap-storms, damps notification floods)</span></span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="bird_count_enabled" value="true"
+                               class="w-5 h-5 rounded bg-zinc-700 border-zinc-600">
+                        <span>Bird count tracking <span class="text-zinc-500 text-sm">(off by default; enable after watching logs)</span></span>
+                    </label>
+                </div>
+            </div>
+        </details>
 
         <!-- Submit -->
         <div class="flex gap-3 justify-end pt-4">
@@ -159,13 +348,18 @@
 
     <!-- Help text -->
     <div class="mt-8 p-4 bg-zinc-800/50 rounded-lg text-sm text-zinc-400">
-        <p class="font-medium text-zinc-300 mb-2">What happens when you create a stream:</p>
+        <p class="font-medium text-zinc-300 mb-2">What "Create Stream" does:</p>
         <ol class="list-decimal list-inside space-y-1 ml-2">
-            <li>Directory created at <code class="bg-zinc-700 px-1 rounded">/opt/services/kanyo-{id}/</code></li>
-            <li>Config file generated with your settings</li>
-            <li>Detection container added to docker-compose and started</li>
-            <li>Admin volume mount added (requires admin restart to see)</li>
+            <li>Creates <code class="bg-zinc-700 px-1 rounded">/opt/services/kanyo-&lt;id&gt;/</code> with <code class="bg-zinc-700 px-1 rounded">clips/</code> and <code class="bg-zinc-700 px-1 rounded">logs/</code></li>
+            <li>Writes <code class="bg-zinc-700 px-1 rounded">config.yaml</code> from the config template plus your values</li>
+            <li>The stream appears in the overview immediately (auto-discovery)</li>
         </ol>
+        <p class="font-medium text-zinc-300 mt-3 mb-1">What it deliberately does NOT do:</p>
+        <ul class="list-disc list-inside space-y-1 ml-2">
+            <li>Start a detection container (manual compose paste — instructions shown after creation)</li>
+            <li>Create ZFS datasets (needs root on the host)</li>
+            <li>Create the Telegram channel or add the bot as admin (Telegram-app-only steps)</li>
+        </ul>
     </div>
 </div>
 {% endblock %}
