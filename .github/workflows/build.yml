@@ -40,11 +40,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Semver tags are flavor-suffixed (1.0.0-cpu / 1.0.0-nvidia) so a
+          # version tag is never ambiguous about hardware flavor. Production
+          # pins the -nvidia flavor (see docker/DOCKER-DEPLOYMENT.md).
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},suffix=-cpu
+            type=semver,pattern={{major}}.{{minor}},suffix=-cpu
             type=raw,value=cpu,enable={{is_default_branch}}
             type=sha,prefix=cpu-
 
@@ -86,6 +89,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=semver,pattern={{version}},suffix=-nvidia
+            type=semver,pattern={{major}}.{{minor}},suffix=-nvidia
             type=raw,value=nvidia,enable={{is_default_branch}}
             type=sha,prefix=nvidia-
 

@@ -204,6 +204,12 @@ Issues and pull requests are welcome. If you're interested in:
 
 ---
 
+## Versioning
+
+v1.0.0 is the first stable release. From v1.0.0 onward the project follows [semantic versioning](https://semver.org/): releases are cut as `v*` git tags, and CI publishes matching Docker image tags to GHCR (flavor-suffixed, e.g. `1.0.0-nvidia`, `1.0.0-cpu`). Production deployments pin a release image tag; see [docker/DOCKER-DEPLOYMENT.md](docker/DOCKER-DEPLOYMENT.md).
+
+---
+
 ## License
 
 MIT

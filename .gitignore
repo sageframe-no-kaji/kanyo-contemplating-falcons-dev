@@ -5,8 +5,10 @@ config.yaml
 /Agent-Tasks/
 devlog/Agent-Tasks/
 
-# Docker - user-specific production config
+# Docker - user-specific production config (host copies stay untracked)
 docker-compose.yml
+# ...but the canonical production template IS tracked:
+!docker/docker-compose.yml
 
 # Data - production configs and outputs
 data/

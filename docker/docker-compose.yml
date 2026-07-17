@@ -1,0 +1,165 @@
+# Kanyo Docker Compose — production template (NVIDIA GPU)
+#
+# This is the canonical template for the production host (kanyo.lan). The live
+# copy runs at /opt/services/kanyo-admin/docker-compose.yml (gitignored host
+# copy). Keep the two in sync: edit here, then copy to the host.
+#
+# Deployment model: IMAGE-BASED. Detectors run a pinned semver image pulled
+# from GHCR (built by CI on git tag push). No source code is mounted into the
+# detector containers — the code baked into the image is what runs.
+# See docker/DOCKER-DEPLOYMENT.md for the deployment guide and
+# docs/deployment-kanyo.md for the production deploy plan.
+#
+# Image tags are flavor-suffixed: <version>-nvidia (production), <version>-cpu.
+# Pin via KANYO_IMAGE in .env; the default below is the fallback.
+#
+# Prerequisites:
+#   - Docker with NVIDIA Container Toolkit (GPU drivers installed)
+#   - .env file providing:
+#       TELEGRAM_BOT_TOKEN   (if notifications enabled)
+#       KANYO_IMAGE          (pinned image, e.g. ...:1.0.0-nvidia)
+#       KANYO_CODE_ROOT      (host checkout, e.g. /opt/services/kanyo-code)
+#       KANYO_CAM1_ROOT      (/opt/services/kanyo-harvard)
+#       KANYO_CAM2_ROOT      (/opt/services/kanyo-nsw)
+#       KANYO_CAM4_ROOT      (/opt/services/kanyo-fortwayne)
+#       KANYO_CAM5_ROOT      (/opt/services/kanyo-umass)
+#       KANYO_CAM6_ROOT      (/opt/services/kanyo-bigbear)
+#   - Per-site directories: <root>/config.yaml, <root>/clips/, <root>/logs/
+#   - Shared YouTube cookies at ${KANYO_CODE_ROOT}/cookies.txt (mounted rw so
+#     yt-dlp can refresh rotating cookie values)
+#
+# For CPU-only or Intel iGPU hosts, see Dockerfile.cpu / Dockerfile.vaapi and
+# the Hardware Variants section of DOCKER-DEPLOYMENT.md.
+
+# =============================================================================
+# YAML anchor — base detector service definition
+# =============================================================================
+x-kanyo-gpu-service: &kanyo-gpu-service
+  image: ${KANYO_IMAGE:-ghcr.io/sageframe-no-kaji/kanyo-contemplating-falcons-dev:1.0.0-nvidia}
+  pull_policy: missing
+  env_file: .env
+  shm_size: '2gb'
+  command: ["/bin/sh", "-c", "umask 027 && exec python -m kanyo.detection.buffer_monitor"]
+  environment:
+    - PYTHONUNBUFFERED=1
+    - MALLOC_ARENA_MAX=2
+    - MALLOC_MMAP_THRESHOLD_=131072
+    - MALLOC_TRIM_THRESHOLD_=131072
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+# =============================================================================
+# Services — one detector per stream + admin dashboard
+# =============================================================================
+services:
+  harvard-gpu:
+    <<: *kanyo-gpu-service
+    container_name: kanyo-harvard-gpu
+    volumes:
+      - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+      - ${KANYO_CAM1_ROOT}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAM1_ROOT}/clips:/app/clips
+      - ${KANYO_CAM1_ROOT}/logs:/app/logs
+
+  nsw-gpu:
+    <<: *kanyo-gpu-service
+    container_name: kanyo-nsw-gpu
+    volumes:
+      - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+      - ${KANYO_CAM2_ROOT}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAM2_ROOT}/clips:/app/clips
+      - ${KANYO_CAM2_ROOT}/logs:/app/logs
+
+  fortwayne-gpu:
+    <<: *kanyo-gpu-service
+    container_name: kanyo-fortwayne-gpu
+    volumes:
+      - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+      - ${KANYO_CAM4_ROOT}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAM4_ROOT}/clips:/app/clips
+      - ${KANYO_CAM4_ROOT}/logs:/app/logs
+
+  umass-gpu:
+    <<: *kanyo-gpu-service
+    container_name: kanyo-umass-gpu
+    volumes:
+      - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+      - ${KANYO_CAM5_ROOT}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAM5_ROOT}/clips:/app/clips
+      - ${KANYO_CAM5_ROOT}/logs:/app/logs
+
+  # bigbear is defined but not normally running (matches the host). Start it
+  # explicitly with:  docker compose --profile bigbear up -d bigbear-gpu
+  bigbear-gpu:
+    <<: *kanyo-gpu-service
+    container_name: kanyo-bigbear-gpu
+    profiles: ["bigbear"]
+    volumes:
+      - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+      - ${KANYO_CAM6_ROOT}/config.yaml:/app/config.yaml:ro
+      - ${KANYO_CAM6_ROOT}/clips:/app/clips
+      - ${KANYO_CAM6_ROOT}/logs:/app/logs
+
+  # ---------------------------------------------------------------------------
+  # Admin dashboard — built ON THE HOST from the kanyo-code checkout.
+  # This is the one service that still depends on ${KANYO_CODE_ROOT} source:
+  # rebuild with  docker compose up -d --build dashboard  (or ops/update-admin.sh).
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build: ${KANYO_CODE_ROOT}/admin/web
+    image: kanyo-admin-dashboard:latest
+    container_name: kanyo-admin-web
+    env_file: .env
+    group_add:
+      - "988"                            # docker group — needed for socket access
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${KANYO_CAM1_ROOT}:/data/harvard
+      - ${KANYO_CAM2_ROOT}:/data/nsw
+      - ${KANYO_CAM4_ROOT}:/data/fortwayne
+      - ${KANYO_CAM5_ROOT}:/data/umass
+      - ${KANYO_CAM6_ROOT}:/data/bigbear
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# =============================================================================
+# Dev mode — legacy src-mount override (DEVELOPMENT ONLY)
+# =============================================================================
+# Production runs the code baked into the pinned image. For rapid iteration on
+# a dev host you can override the baked code with a live source mount, so a
+# git pull + container restart picks up changes without an image rebuild.
+#
+# To enable for a service, add the src mount as the FIRST volume:
+#
+#   harvard-gpu:
+#     <<: *kanyo-gpu-service
+#     container_name: kanyo-harvard-gpu
+#     volumes:
+#       - ${KANYO_CODE_ROOT}/src:/app/src:ro          # DEV ONLY — overrides image code
+#       - ${KANYO_CODE_ROOT}/cookies.txt:/app/cookies.txt:rw
+#       - ${KANYO_CAM1_ROOT}/config.yaml:/app/config.yaml:ro
+#       - ${KANYO_CAM1_ROOT}/clips:/app/clips
+#       - ${KANYO_CAM1_ROOT}/logs:/app/logs
+#
+# Update cycle:  cd ${KANYO_CODE_ROOT} && git pull && docker compose restart <svc>
+#
+# Do not run production this way: a src mount makes the running code invisible
+# to image tags, so "what version is deployed" has no reliable answer.
+# =============================================================================
