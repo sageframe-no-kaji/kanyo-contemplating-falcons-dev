@@ -155,6 +155,65 @@ class NotificationManager:
 
         return success
 
+    def send_activity_summary(self, message: str) -> bool:
+        """
+        Send an activity summary to Telegram (significance filter damped mode, ho-09).
+
+        Summaries replace individual arrival/departure notifications while the
+        arrival rate is above the damping threshold. Text-only — no photo, and
+        no cooldown interaction (summaries are already rate-limited to one per
+        damping window by the filter).
+
+        Args:
+            message: Summary text (e.g. "9 visits in the last hour, median 25s")
+
+        Returns:
+            True if sent, False if disabled or failed
+        """
+        if not self.telegram_enabled:
+            return False
+        return self._send_telegram_text(message)
+
+    def _send_telegram_text(self, text: str) -> bool:
+        """
+        Send a text-only message to the Telegram channel.
+
+        Args:
+            text: Message text
+
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            data = {
+                "chat_id": self.telegram_channel,
+                "text": text,
+            }
+            resp = requests.post(url, data=data, timeout=10)
+
+            if resp.status_code == 200:
+                logger.event(f"📧 Telegram sent: {text}")
+                return True
+
+            error_msg = resp.text[:200]
+            logger.error(f"❌ Telegram API error {resp.status_code}: {error_msg}")
+            self._send_admin_error(f"Telegram delivery failed: {resp.status_code}")
+            return False
+
+        except requests.Timeout:
+            logger.error(f"❌ Telegram timeout (10s): {text}")
+            self._send_admin_error("Telegram delivery timeout")
+            return False
+        except requests.ConnectionError as e:
+            logger.error(f"❌ Telegram connection error: {e}")
+            self._send_admin_error(f"Telegram connection failed: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Telegram unexpected error: {e}")
+            self._send_admin_error(f"Telegram error: {e}")
+            return False
+
     def _send_telegram_photo(self, caption: str, photo_path: Path | str | None) -> bool:
         """
         Send photo message to Telegram channel.
