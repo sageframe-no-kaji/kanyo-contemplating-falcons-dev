@@ -94,6 +94,28 @@ class TestFalconVisit:
         )
         assert not completed.is_active
 
+    def test_ongoing_visit_has_no_duration(self):
+        """A visit without an end time has no duration and reads 'ongoing'."""
+        from kanyo.detection.events import FalconVisit
+
+        visit = FalconVisit(start_time=datetime(2025, 12, 17, 10, 0, 0))
+
+        assert visit.duration is None
+        assert visit.duration_seconds == 0
+        assert visit.duration_str == "ongoing"
+
+    def test_duration_str_with_hours(self):
+        """Visits longer than an hour render as 'Xh Ym'."""
+        from kanyo.detection.events import FalconVisit
+
+        start = datetime(2025, 12, 17, 10, 0, 0)
+        visit = FalconVisit(
+            start_time=start,
+            end_time=start + timedelta(hours=2, minutes=5, seconds=30),
+        )
+
+        assert visit.duration_str == "2h 5m"
+
     def test_to_dict(self):
         """FalconVisit serializes to dict."""
         from kanyo.detection.events import FalconVisit
@@ -141,8 +163,9 @@ class TestEventStore:
 
     def test_append_and_load(self):
         """Events can be appended and reloaded."""
-        from kanyo.detection.events import EventStore, FalconVisit
         from zoneinfo import ZoneInfo
+
+        from kanyo.detection.events import EventStore, FalconVisit
 
         with TemporaryDirectory() as tmpdir:
             clips_dir = Path(tmpdir) / "clips"
@@ -168,8 +191,9 @@ class TestEventStore:
 
     def test_multiple_appends(self):
         """Multiple events accumulate."""
-        from kanyo.detection.events import EventStore, FalconVisit
         from zoneinfo import ZoneInfo
+
+        from kanyo.detection.events import EventStore, FalconVisit
 
         with TemporaryDirectory() as tmpdir:
             clips_dir = Path(tmpdir) / "clips"
@@ -194,8 +218,9 @@ class TestEventStore:
 
     def test_get_today_visits(self):
         """get_today_visits filters by date."""
-        from kanyo.detection.events import EventStore, FalconVisit
         from zoneinfo import ZoneInfo
+
+        from kanyo.detection.events import EventStore, FalconVisit
 
         with TemporaryDirectory() as tmpdir:
             clips_dir = Path(tmpdir) / "clips"
@@ -216,8 +241,9 @@ class TestEventStore:
 
     def test_json_file_format(self):
         """Events are stored as valid JSON."""
-        from kanyo.detection.events import EventStore, FalconVisit
         from zoneinfo import ZoneInfo
+
+        from kanyo.detection.events import EventStore, FalconVisit
 
         with TemporaryDirectory() as tmpdir:
             clips_dir = Path(tmpdir) / "clips"
@@ -236,3 +262,57 @@ class TestEventStore:
                 data = json.load(f)
             assert isinstance(data, list)
             assert len(data) == 1
+
+    def test_event_record_files_under_its_own_timestamp_date(self):
+        """An EventRecord lands in the date file of its own tz-aware timestamp."""
+        from zoneinfo import ZoneInfo
+
+        from kanyo.detection.events import EventRecord, EventStore
+
+        with TemporaryDirectory() as tmpdir:
+            clips_dir = Path(tmpdir) / "clips"
+            store = EventStore(
+                clips_dir=clips_dir,
+                timezone_config={"timezone": "Australia/Sydney"},
+            )
+
+            ts = datetime(2026, 7, 1, 10, 30, 0, tzinfo=ZoneInfo("Australia/Sydney"))
+            event = EventRecord(event_type="falcon_enter", timestamp=ts, confidence=0.9)
+            store.append(event)
+
+            events_file = clips_dir / "2026-07-01" / "events_2026-07-01.json"
+            assert events_file.exists()
+            loaded = store.load(events_file)
+            assert loaded[0]["event_type"] == "falcon_enter"
+
+    def test_naive_timestamp_falls_back_to_stream_local_today(self):
+        """A naive timestamp (shouldn't happen) files under today's date in
+        the stream's local timezone rather than crashing."""
+        from kanyo.detection.events import EventStore, FalconVisit
+        from kanyo.utils.config import get_now_tz
+
+        with TemporaryDirectory() as tmpdir:
+            clips_dir = Path(tmpdir) / "clips"
+            timezone_config = {"timezone": "Australia/Sydney"}
+            store = EventStore(clips_dir=clips_dir, timezone_config=timezone_config)
+
+            naive_visit = FalconVisit(start_time=datetime(2020, 1, 1, 0, 0, 0))
+            date_str = store._get_event_date(naive_visit)
+
+            # Not the naive timestamp's date — the stream-local "today".
+            assert date_str != "2020-01-01"
+            assert date_str == get_now_tz(timezone_config).strftime("%Y-%m-%d")
+
+    def test_corrupted_events_file_returns_empty(self):
+        """A corrupted JSON file is treated as a fresh (empty) event list."""
+        from kanyo.detection.events import EventStore
+
+        with TemporaryDirectory() as tmpdir:
+            clips_dir = Path(tmpdir) / "clips"
+            store = EventStore(clips_dir=clips_dir)
+
+            events_path = clips_dir / "2026-07-01" / "events_2026-07-01.json"
+            events_path.parent.mkdir(parents=True)
+            events_path.write_text("{not valid json")
+
+            assert store.load(events_path) == []

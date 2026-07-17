@@ -679,3 +679,78 @@ class TestStreamRecovery:
         # Should stay in PENDING_RECOVERY - buffer_monitor handles confirmation
         assert fsm.state == FalconState.PENDING_RECOVERY
         assert len(events) == 0
+
+
+class TestPendingStartupAbsence:
+    """Absence while PENDING_STARTUP defers to buffer_monitor's ratio check."""
+
+    def test_absence_during_pending_startup_generates_no_events(self):
+        """No detection during PENDING_STARTUP: state holds, no events —
+        confirmation failure is buffer_monitor's call, not the machine's."""
+        config = {"exit_timeout": 90}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.set_pending_startup(t0)
+        events = fsm.update(falcon_detected=False, timestamp=t0 + timedelta(seconds=30))
+
+        assert events == []
+        assert fsm.state == FalconState.PENDING_STARTUP
+
+
+class TestConfirmationGuards:
+    """Confirmation/cancel calls in the wrong state are ignored loudly."""
+
+    def test_confirm_startup_ignored_outside_pending_startup(self):
+        """confirm_startup_presence from ABSENT is a no-op."""
+        config = {}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.confirm_startup_presence(t0)
+
+        assert fsm.state == FalconState.ABSENT
+        assert fsm.roosting_start is None
+
+    def test_confirm_startup_backfills_missing_visit_start(self):
+        """A PENDING_STARTUP entered without visit context still gets a
+        visit_start on confirmation, so departure durations compute."""
+        config = {}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.state = FalconState.PENDING_STARTUP
+        fsm.visit_start = None
+        fsm.confirm_startup_presence(t0)
+
+        assert fsm.state == FalconState.ROOSTING
+        assert fsm.visit_start == t0
+        assert fsm.roosting_start == t0
+
+    def test_cancel_recovery_ignored_outside_pending_recovery(self):
+        """cancel_recovery from ABSENT returns no events and changes nothing."""
+        config = {}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        events = fsm.cancel_recovery(t0)
+
+        assert events == []
+        assert fsm.state == FalconState.ABSENT
+
+
+class TestPendingRecoveryFromUnexpectedState:
+    """set_pending_recovery outside VISITING/ROOSTING falls back to VISITING."""
+
+    def test_pending_recovery_from_absent_defaults_to_visiting(self):
+        """Recovery entered from a non-present state records VISITING as the
+        pre-outage state with no roosting context."""
+        config = {}
+        fsm = FalconStateMachine(config)
+        t0 = datetime.now()
+
+        fsm.set_pending_recovery(t0)
+
+        assert fsm.state == FalconState.PENDING_RECOVERY
+        assert fsm.pre_outage_state == FalconState.VISITING
+        assert fsm.pre_outage_roosting_start is None

@@ -1,8 +1,10 @@
 """Tests for NotificationManager."""
+
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
 
 from kanyo.utils.notifications import NotificationManager
@@ -207,3 +209,112 @@ class TestAdminNotifications:
         ):
             # Should not raise
             mgr._send_admin_notification("error msg", "Title")
+
+    def test_send_admin_notification_non_2xx_logged_not_raised(self):
+        """A non-2xx ntfy response is logged as a warning, never raised."""
+        mgr = _make_manager(ntfy_admin_enabled=True)
+        mock_resp = Mock(status_code=500)
+        with patch("kanyo.utils.notifications.requests.post", return_value=mock_resp) as mock_post:
+            # Should not raise
+            mgr._send_admin_notification("an error", "Title")
+        mock_post.assert_called_once()
+
+    def test_send_admin_notification_includes_title_header(self):
+        """The notification title travels as the ntfy Title header."""
+        mgr = _make_manager(ntfy_admin_enabled=True)
+        mock_resp = Mock(status_code=200)
+        with patch("kanyo.utils.notifications.requests.post", return_value=mock_resp) as mock_post:
+            mgr.send_system_alert("stream down", title="Kanyo System Alert")
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Title"] == "Kanyo System Alert"
+
+
+class TestSendActivitySummary:
+    def test_returns_false_when_disabled(self):
+        """Summaries are dropped when Telegram is disabled."""
+        mgr = _make_manager()
+        assert mgr.send_activity_summary("9 visits in the last hour") is False
+
+    def test_sends_text_message_when_enabled(self):
+        """An enabled manager sends the summary as a text-only message."""
+        mgr = _make_manager(telegram_enabled=True)
+        mock_resp = Mock(status_code=200)
+        with patch("kanyo.utils.notifications.requests.post", return_value=mock_resp) as mock_post:
+            result = mgr.send_activity_summary("9 visits in the last hour, median 25s")
+
+        assert result is True
+        url = mock_post.call_args[0][0]
+        assert "sendMessage" in url
+        data = mock_post.call_args.kwargs["data"]
+        assert data["text"] == "9 visits in the last hour, median 25s"
+        assert data["chat_id"] == "@testchan"
+
+
+class TestSendTelegramText:
+    def test_success_returns_true(self):
+        mgr = _make_manager(telegram_enabled=True)
+        mock_resp = Mock(status_code=200)
+        with patch("kanyo.utils.notifications.requests.post", return_value=mock_resp) as mock_post:
+            result = mgr._send_telegram_text("hello")
+
+        assert result is True
+        url = mock_post.call_args[0][0]
+        assert url == "https://api.telegram.org/bottesttoken/sendMessage"
+
+    def test_api_error_reports_to_admin(self):
+        """A non-200 Telegram response fails and pings the admin channel."""
+        mgr = _make_manager(telegram_enabled=True, ntfy_admin_enabled=True)
+        telegram_resp = Mock(status_code=403, text="Forbidden: bot was blocked")
+        ntfy_resp = Mock(status_code=200)
+        with patch(
+            "kanyo.utils.notifications.requests.post",
+            side_effect=[telegram_resp, ntfy_resp],
+        ) as mock_post:
+            result = mgr._send_telegram_text("hello")
+
+        assert result is False
+        # Second post is the admin-error notification to ntfy
+        assert mock_post.call_count == 2
+        assert "ntfy.sh/testtopic" in mock_post.call_args_list[1][0][0]
+
+    def test_timeout_returns_false(self):
+        import requests as req
+
+        mgr = _make_manager(telegram_enabled=True)
+        with patch(
+            "kanyo.utils.notifications.requests.post",
+            side_effect=req.Timeout("timed out"),
+        ):
+            assert mgr._send_telegram_text("hello") is False
+
+    def test_connection_error_returns_false(self):
+        import requests as req
+
+        mgr = _make_manager(telegram_enabled=True)
+        with patch(
+            "kanyo.utils.notifications.requests.post",
+            side_effect=req.ConnectionError("refused"),
+        ):
+            assert mgr._send_telegram_text("hello") is False
+
+    def test_unexpected_error_returns_false(self):
+        mgr = _make_manager(telegram_enabled=True)
+        with patch(
+            "kanyo.utils.notifications.requests.post",
+            side_effect=ValueError("boom"),
+        ):
+            assert mgr._send_telegram_text("hello") is False
+
+
+class TestSendTelegramPhotoUnexpectedError:
+    def test_unexpected_error_returns_false(self, tmp_path):
+        """A non-requests exception during photo send is caught and reported."""
+        mgr = _make_manager(telegram_enabled=True)
+        thumb = tmp_path / "t.jpg"
+        thumb.write_bytes(b"data")
+
+        with patch(
+            "kanyo.utils.notifications.requests.post",
+            side_effect=ValueError("boom"),
+        ):
+            assert mgr._send_telegram_photo("caption", thumb) is False

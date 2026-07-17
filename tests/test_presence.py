@@ -352,3 +352,43 @@ class TestReset:
 
         # Absent again: enter stays strict.
         assert tracker.update(make_frame(blob), ts(5), [], []) is False
+
+
+class TestRegionGuards:
+    """Degenerate region mapping and defensive guards on region helpers."""
+
+    def test_resolution_drop_maps_region_off_frame_keeps_parked_presence(self):
+        """A stream resolution drop can leave the region entirely outside the
+        new frame. The mapped region is degenerate — no motion evidence can be
+        read from it — and parked logic keeps presence."""
+        tracker = make_tracker()
+
+        # Enter on a 640x480 frame with the bird on the far right.
+        h, w = 480, 640
+        blob = (500, 200, 580, 280)
+        frame0 = np.zeros((h, w, 3), dtype=np.uint8)
+        frame0[200:280, 500:580] = 200
+        det = bird(0.8, blob, ts(0))
+        assert tracker.update(frame0, ts(0), [det], [det]) is True
+
+        # Stream drops to 320x240: same downscaled shape as the 640x480
+        # baseline, but the region (x ~ 480..600) is beyond the new width.
+        small = np.zeros((240, 320, 3), dtype=np.uint8)
+        assert tracker.update(small, ts(5), [], []) is True
+
+        info = tracker.state_info()
+        assert info["present"] is True
+        # No motion evidence was recorded from the degenerate region.
+        assert info["last_evidence_type"] == "detection"
+        assert info["last_evidence_time"] == ts(0).isoformat()
+
+    def test_overlap_guard_without_region_is_false(self):
+        """No region (absent): no bbox can overlap it."""
+        tracker = make_tracker()
+        assert tracker._overlaps_region((0, 0, 10, 10)) is False
+
+    def test_shift_guard_without_region_is_noop(self):
+        """Shifting toward a centroid with no region is a safe no-op."""
+        tracker = make_tracker()
+        tracker._shift_region_toward((50.0, 50.0), FRAME_W, FRAME_H)
+        assert tracker.state_info()["region"] is None

@@ -1,12 +1,37 @@
 """Tests for visit recorder module."""
 
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from kanyo.utils.visit_recorder import VisitRecorder
+
+
+def _make_recording_recorder(
+    tmp_path: Path,
+    fps: int = 30,
+    stream_recovery_threshold: int = 30,
+) -> tuple[VisitRecorder, MagicMock]:
+    """Build a recorder in a simulated recording state (no ffmpeg launched)."""
+    with patch(
+        "kanyo.utils.visit_recorder.detect_hardware_encoder",
+        return_value="libx264",
+    ):
+        recorder = VisitRecorder(
+            clips_dir=str(tmp_path),
+            fps=fps,
+            stream_recovery_threshold=stream_recovery_threshold,
+        )
+    mock_process = MagicMock()
+    mock_process.poll.return_value = None  # Still running
+    mock_process.stdin = MagicMock()
+    mock_process.stdin.fileno.return_value = 3
+    recorder._process = mock_process
+    return recorder, mock_process
 
 
 class TestVisitRecorderInit:
@@ -373,3 +398,456 @@ class TestVisitRecorderDetectionTracking:
             recorder.start_recording(datetime.now())
 
         assert recorder._last_detection_frame == 0
+
+
+class TestStreamOutageHandling:
+    """Tests for None-frame (stream outage) handling in write_frame."""
+
+    def test_stream_outage_exceeded_false_initially(self, tmp_path):
+        """Fresh recorder reports no outage."""
+        recorder, _ = _make_recording_recorder(tmp_path)
+        assert recorder.stream_outage_exceeded is False
+
+    def test_none_frame_without_freeze_frame_is_skipped(self, tmp_path):
+        """A None frame before any good frame is a no-op, not a failure."""
+        recorder, mock_process = _make_recording_recorder(tmp_path)
+
+        result = recorder.write_frame(None)
+
+        assert result is True
+        assert recorder._consecutive_none_frames == 1
+        mock_process.stdin.write.assert_not_called()
+
+    @patch("select.select", return_value=([], [3], []))
+    def test_none_frame_uses_freeze_frame(self, mock_select, tmp_path):
+        """During an outage the last good frame is written as a freeze frame."""
+        recorder, mock_process = _make_recording_recorder(tmp_path)
+        good_frame = np.full((4, 4, 3), 42, dtype=np.uint8)
+
+        assert recorder.write_frame(good_frame) is True
+        assert recorder.write_frame(None) is True
+
+        # Two writes: the good frame, then the freeze frame with the same bytes
+        assert mock_process.stdin.write.call_count == 2
+        first_bytes = mock_process.stdin.write.call_args_list[0][0][0]
+        second_bytes = mock_process.stdin.write.call_args_list[1][0][0]
+        assert first_bytes == second_bytes
+        assert recorder._frame_count == 2
+
+    def test_outage_exceeding_threshold_returns_false(self, tmp_path):
+        """An outage longer than the recovery threshold fails the write."""
+        recorder, _ = _make_recording_recorder(tmp_path, fps=1, stream_recovery_threshold=2)
+        # Threshold is 2s @ 1fps = 2 frames; third None frame exceeds it
+        assert recorder.write_frame(None) is True
+        assert recorder.write_frame(None) is True
+        assert recorder.write_frame(None) is False
+        assert recorder.stream_outage_exceeded is True
+
+    @patch("select.select", return_value=([], [3], []))
+    def test_stream_recovery_resets_outage_counter(self, mock_select, tmp_path):
+        """A good frame after an outage resets the None-frame counter."""
+        recorder, _ = _make_recording_recorder(tmp_path)
+        good_frame = np.zeros((4, 4, 3), dtype=np.uint8)
+
+        recorder.write_frame(good_frame)
+        recorder.write_frame(None)
+        assert recorder._consecutive_none_frames == 1
+
+        recorder.write_frame(good_frame)
+        assert recorder._consecutive_none_frames == 0
+        assert recorder.stream_outage_exceeded is False
+
+    @patch("select.select", return_value=([], [3], []))
+    def test_write_frame_infers_frame_size_when_unset(self, mock_select, tmp_path):
+        """write_frame derives frame size from the first frame if unknown."""
+        recorder, _ = _make_recording_recorder(tmp_path)
+        recorder._frame_size = None
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        assert recorder.write_frame(frame) is True
+        assert recorder._frame_size == (640, 480)
+
+
+class TestWriteRawFrameFailures:
+    """Tests for _write_raw_frame error paths."""
+
+    def test_no_process_returns_false(self, tmp_path):
+        """Without an ffmpeg process there is nothing to write to."""
+        recorder, _ = _make_recording_recorder(tmp_path)
+        recorder._process = None
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        assert recorder._write_raw_frame(frame) is False
+
+    def test_no_stdin_returns_false(self, tmp_path):
+        """A process without stdin cannot accept frames."""
+        recorder, mock_process = _make_recording_recorder(tmp_path)
+        mock_process.stdin = None
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        assert recorder._write_raw_frame(frame) is False
+
+    @patch("select.select", return_value=([], [], []))
+    def test_stdin_not_ready_drops_frame(self, mock_select, tmp_path):
+        """A stalled encoder (stdin not writable) drops the frame."""
+        recorder, mock_process = _make_recording_recorder(tmp_path)
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        assert recorder.write_frame(frame) is False
+        mock_process.stdin.write.assert_not_called()
+        assert recorder._frame_count == 0
+
+    @patch("select.select", return_value=([], [3], []))
+    def test_broken_pipe_returns_false(self, mock_select, tmp_path):
+        """A broken pipe (ffmpeg died) fails the write without raising."""
+        recorder, mock_process = _make_recording_recorder(tmp_path)
+        mock_process.stdin.write.side_effect = BrokenPipeError("pipe closed")
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        assert recorder.write_frame(frame) is False
+        assert recorder._frame_count == 0
+
+    @patch("select.select", return_value=([], [3], []))
+    def test_closed_stdin_value_error_returns_false(self, mock_select, tmp_path):
+        """A closed stdin (ValueError) fails the write without raising."""
+        recorder, mock_process = _make_recording_recorder(tmp_path)
+        mock_process.stdin.write.side_effect = ValueError("I/O operation on closed file")
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        assert recorder.write_frame(frame) is False
+
+
+class TestStartRecordingEncoderBranches:
+    """Tests for encoder-specific ffmpeg command construction."""
+
+    @pytest.mark.parametrize(
+        "encoder,expected_args",
+        [
+            ("h264_videotoolbox", ["h264_videotoolbox", "-q:v"]),
+            ("h264_vaapi", ["h264_vaapi", "-vaapi_device", "format=nv12,hwupload"]),
+            ("h264_nvenc", ["h264_nvenc", "-cq"]),
+            ("libx264", ["libx264", "-crf", "-preset"]),
+        ],
+    )
+    @patch("subprocess.Popen")
+    def test_encoder_command_options(self, mock_popen, encoder, expected_args, tmp_path):
+        """Each detected encoder produces its specific ffmpeg options."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value=encoder,
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+
+        cmd = mock_popen.call_args[0][0]
+        for arg in expected_args:
+            assert arg in cmd
+
+    @patch("subprocess.Popen")
+    def test_popen_failure_cleans_up_and_raises(self, mock_popen, tmp_path):
+        """A failure launching ffmpeg propagates after cleaning up state."""
+        mock_popen.side_effect = OSError("ffmpeg not found")
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+
+        with pytest.raises(OSError):
+            recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+
+        assert recorder._process is None
+        assert recorder._stderr_file is None
+        assert recorder.is_recording is False
+
+    @patch("select.select", return_value=([], [3], []))
+    @patch("subprocess.Popen")
+    def test_lead_in_frames_written_on_start(self, mock_popen, mock_select, tmp_path):
+        """Buffered lead-in frames are decoded and written at recording start."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.stdin.fileno.return_value = 3
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+
+        lead_in = []
+        for _ in range(3):
+            buffered = MagicMock()
+            buffered.decode.return_value = np.zeros((4, 4, 3), dtype=np.uint8)
+            lead_in.append(buffered)
+
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0), lead_in_frames=lead_in)
+
+        assert mock_process.stdin.write.call_count == 3
+        assert recorder._frame_count == 3
+        # Arrival event offset reflects the lead-in frames already written
+        assert recorder._events[0]["type"] == "arrival"
+        assert recorder._events[0]["offset_seconds"] == 3 / 30
+
+
+class TestStopRecordingEdgeCases:
+    """Tests for stop_recording error and cleanup paths."""
+
+    def test_stop_when_not_recording_returns_empty(self, tmp_path):
+        """Stopping an idle recorder is a safe no-op."""
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+
+        path, metadata = recorder.stop_recording(datetime.now())
+
+        assert path is None
+        assert metadata == {}
+
+    @patch("subprocess.Popen")
+    def test_stop_kills_ffmpeg_on_timeout(self, mock_popen, tmp_path):
+        """An ffmpeg that won't finish is killed and cleanup still happens."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="ffmpeg", timeout=30),
+            0,
+        ]
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+
+        path, metadata = recorder.stop_recording(datetime(2024, 1, 15, 15, 0, 0))
+
+        mock_process.kill.assert_called_once()
+        assert mock_process.wait.call_count == 2
+        assert recorder._stderr_file is None
+        assert path is not None
+        assert "events" in metadata
+
+    @patch("subprocess.Popen")
+    def test_stop_survives_close_error(self, mock_popen, tmp_path):
+        """An error while closing ffmpeg still produces metadata and cleanup."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.stdin.close.side_effect = RuntimeError("close failed")
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+
+        path, metadata = recorder.stop_recording(datetime(2024, 1, 15, 15, 0, 0))
+
+        assert recorder._stderr_file is None
+        assert path is not None
+        assert metadata["duration_seconds"] == 1800.0
+
+    @patch("subprocess.Popen")
+    def test_confirmed_stop_survives_rename_failure(self, mock_popen, tmp_path):
+        """A failed .tmp → .mp4 rename is logged; the .tmp path is returned."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+        tmp_file = recorder._visit_path
+        assert tmp_file is not None
+        tmp_file.write_bytes(b"fake mp4 data")
+        recorder.rename_to_final()  # confirm while recording
+
+        with patch.object(Path, "rename", side_effect=OSError("permission denied")):
+            path, metadata = recorder.stop_recording(datetime(2024, 1, 15, 15, 0, 0))
+
+        # Rename failed, so the .tmp file survives and metadata points at it
+        assert path == tmp_file
+        assert metadata["visit_file"].endswith(".tmp")
+        assert tmp_file.exists()
+
+    @patch("subprocess.Popen")
+    def test_confirmed_stop_survives_log_unlink_failure(self, mock_popen, tmp_path):
+        """A failed ffmpeg-log deletion does not break stop_recording."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.wait.return_value = 0
+        mock_popen.return_value = mock_process
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        recorder.start_recording(datetime(2024, 1, 15, 14, 30, 0))
+        tmp_file = recorder._visit_path
+        final_file = recorder._final_path
+        assert tmp_file is not None and final_file is not None
+        tmp_file.write_bytes(b"fake mp4 data")
+        # Log file at the post-rename path so the deletion branch runs
+        final_file.with_suffix(".ffmpeg.log").write_text("ffmpeg output")
+        recorder.rename_to_final()
+
+        with patch.object(Path, "unlink", side_effect=OSError("busy")):
+            path, metadata = recorder.stop_recording(datetime(2024, 1, 15, 15, 0, 0))
+
+        assert path == final_file
+        assert metadata["visit_file"] == str(final_file)
+
+
+class TestExtractClipDelegation:
+    """Tests for the instance extract_clip delegating to the static method."""
+
+    @patch("subprocess.run")
+    def test_extract_clip_delegates_when_visit_file_exists(self, mock_run, tmp_path):
+        """With a visit file on disk, extraction runs against it."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        visit_file = tmp_path / "visit.mp4"
+        visit_file.write_bytes(b"fake mp4 data")
+        recorder._visit_path = visit_file
+
+        result = recorder.extract_clip(
+            start_offset=2.0,
+            duration=4.0,
+            output_path=tmp_path / "clip.mp4",
+        )
+
+        assert result is True
+        cmd = mock_run.call_args[0][0]
+        assert str(visit_file) in cmd
+
+
+class TestExtractClipFromFileErrorPaths:
+    """Tests for extract_clip_from_file error handling."""
+
+    @patch("subprocess.run")
+    def test_log_unlink_failure_still_succeeds(self, mock_run, tmp_path):
+        """A leftover ffmpeg log that can't be deleted doesn't fail extraction."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        visit_file = tmp_path / "visit.mp4"
+        visit_file.write_bytes(b"fake mp4 data")
+        output_path = tmp_path / "clip.mp4"
+
+        with patch.object(Path, "unlink", side_effect=OSError("busy")):
+            result = VisitRecorder.extract_clip_from_file(
+                visit_file,
+                start_offset=1.0,
+                duration=2.0,
+                output_path=output_path,
+            )
+
+        assert result is True
+
+    @patch("subprocess.run")
+    def test_subprocess_exception_returns_false(self, mock_run, tmp_path):
+        """A hung ffmpeg (TimeoutExpired) is caught and reported as failure."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="ffmpeg", timeout=60)
+
+        visit_file = tmp_path / "visit.mp4"
+        visit_file.write_bytes(b"fake mp4 data")
+
+        result = VisitRecorder.extract_clip_from_file(
+            visit_file,
+            start_offset=1.0,
+            duration=2.0,
+            output_path=tmp_path / "clip.mp4",
+        )
+
+        assert result is False
+
+
+class TestRenameToFinalImmediate:
+    """Tests for rename_to_final when not recording (immediate rename)."""
+
+    def test_immediate_rename_success(self, tmp_path):
+        """When idle, rename_to_final renames .tmp to .mp4 on the spot."""
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        tmp_file = tmp_path / "visit.mp4.tmp"
+        tmp_file.write_bytes(b"fake mp4 data")
+        final_file = tmp_path / "visit.mp4"
+        recorder._visit_path = tmp_file
+        recorder._final_path = final_file
+
+        result = recorder.rename_to_final()
+
+        assert result == final_file
+        assert final_file.exists()
+        assert not tmp_file.exists()
+        assert recorder._visit_path == final_file
+
+
+class TestGetTempPath:
+    """Tests for get_temp_path."""
+
+    def test_returns_tmp_path_while_unconfirmed(self, tmp_path):
+        """A .tmp visit path is exposed for deletion of cancelled recordings."""
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        assert recorder.get_temp_path() is None  # no visit path yet
+
+        recorder._visit_path = tmp_path / "visit.mp4.tmp"
+        assert recorder.get_temp_path() == recorder._visit_path
+
+        recorder._visit_path = tmp_path / "visit.mp4"  # finalized
+        assert recorder.get_temp_path() is None
+
+
+class TestRenameToFinalErrorPath:
+    """Tests for rename_to_final immediate-rename failure."""
+
+    def test_immediate_rename_failure_returns_none(self, tmp_path):
+        """A failed immediate rename returns None and leaves the .tmp path."""
+        with patch(
+            "kanyo.utils.visit_recorder.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            recorder = VisitRecorder(clips_dir=str(tmp_path))
+        tmp_file = tmp_path / "visit.mp4.tmp"
+        tmp_file.write_bytes(b"fake mp4 data")
+        recorder._visit_path = tmp_file
+        recorder._final_path = tmp_path / "visit.mp4"
+
+        with patch.object(Path, "rename", side_effect=OSError("permission denied")):
+            result = recorder.rename_to_final()
+
+        assert result is None
+        assert recorder._visit_path == tmp_file

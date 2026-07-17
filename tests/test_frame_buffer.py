@@ -1,10 +1,37 @@
 """Tests for frame buffer module."""
 
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 
+import cv2
 import numpy as np
 
 from kanyo.utils.frame_buffer import BufferedFrame, FrameBuffer
+
+
+def _make_real_frame(
+    timestamp: datetime | None = None,
+    frame_number: int = 0,
+    size: tuple[int, int] = (8, 8),
+) -> BufferedFrame:
+    """Build a BufferedFrame around a real tiny JPEG."""
+    img = np.zeros((size[0], size[1], 3), dtype=np.uint8)
+    success, jpeg = cv2.imencode(".jpg", img)
+    assert success
+    return BufferedFrame(
+        timestamp=timestamp or datetime.now(),
+        frame_number=frame_number,
+        jpeg_data=jpeg.tobytes(),
+    )
+
+
+def _make_ffmpeg_process(returncode: int = 0, stderr: bytes = b"") -> MagicMock:
+    """Mock subprocess.Popen result mimicking a piped ffmpeg process."""
+    process = MagicMock()
+    process.stdin = MagicMock()
+    process.communicate.return_value = (b"", stderr)
+    process.returncode = returncode
+    return process
 
 
 class TestBufferedFrame:
@@ -237,3 +264,232 @@ class TestFrameBufferProperties:
             buffer.add_frame(frame, datetime.now(), frame_number=i)
 
         assert buffer.duration_seconds == 5.0
+
+
+class TestFrameBufferAddFrameFailure:
+    """Tests for JPEG encode failure handling."""
+
+    def test_add_frame_encode_failure_drops_frame(self):
+        """A frame that fails JPEG encoding is dropped, not buffered."""
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+        frame = np.zeros((50, 50, 3), dtype=np.uint8)
+
+        with patch("cv2.imencode", return_value=(False, None)):
+            buffer.add_frame(frame, datetime.now(), frame_number=7)
+
+        assert len(buffer) == 0
+
+
+class TestFrameBufferGetRecentFramesEmpty:
+    """Tests for get_recent_frames on an empty buffer."""
+
+    def test_get_recent_frames_empty_buffer(self):
+        """Empty buffer yields an empty list without error."""
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+        assert buffer.get_recent_frames(seconds=5) == []
+
+
+class TestFrameBufferExtractClip:
+    """Tests for extract_clip (mocked ffmpeg subprocess)."""
+
+    def _fill_buffer(self, buffer: FrameBuffer, count: int, start_time: datetime) -> None:
+        for i in range(count):
+            frame = np.zeros((8, 8, 3), dtype=np.uint8)
+            buffer.add_frame(frame, start_time + timedelta(seconds=i), frame_number=i)
+
+    def test_extract_clip_no_frames_in_range(self, tmp_path):
+        """Extraction fails cleanly when the range contains no frames."""
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+        base_time = datetime(2024, 1, 1, 12, 0, 0)
+
+        result = buffer.extract_clip(
+            base_time,
+            base_time + timedelta(seconds=5),
+            tmp_path / "clip.mp4",
+        )
+
+        assert result is False
+
+    @patch("kanyo.utils.frame_buffer.detect_hardware_encoder", return_value="libx264")
+    @patch("subprocess.Popen")
+    def test_extract_clip_success(self, mock_popen, mock_encoder, tmp_path):
+        """Frames in range are piped to ffmpeg and success is reported."""
+        mock_process = _make_ffmpeg_process(returncode=0)
+        mock_popen.return_value = mock_process
+
+        buffer = FrameBuffer(buffer_seconds=30, fps=1)
+        base_time = datetime(2024, 1, 1, 12, 0, 0)
+        self._fill_buffer(buffer, 10, base_time)
+
+        output_path = tmp_path / "out" / "clip.mp4"
+        result = buffer.extract_clip(
+            base_time,
+            base_time + timedelta(seconds=4),
+            output_path,
+        )
+
+        assert result is True
+        # One raw frame write per buffered frame in range (5 frames: 0-4)
+        assert mock_process.stdin.write.call_count == 5
+        mock_process.stdin.close.assert_called_once()
+        # Output directory was created for ffmpeg
+        assert output_path.parent.exists()
+        # Buffer fps used when fps arg is None
+        cmd = mock_popen.call_args[0][0]
+        assert "-r" in cmd
+        assert cmd[cmd.index("-r") + 1] == "1"
+
+    @patch("kanyo.utils.frame_buffer.detect_hardware_encoder", return_value="libx264")
+    @patch("subprocess.Popen")
+    def test_extract_clip_explicit_fps_overrides_buffer_fps(
+        self, mock_popen, mock_encoder, tmp_path
+    ):
+        """An explicit fps argument overrides the buffer's fps."""
+        mock_popen.return_value = _make_ffmpeg_process(returncode=0)
+
+        buffer = FrameBuffer(buffer_seconds=30, fps=1)
+        base_time = datetime(2024, 1, 1, 12, 0, 0)
+        self._fill_buffer(buffer, 5, base_time)
+
+        result = buffer.extract_clip(
+            base_time,
+            base_time + timedelta(seconds=4),
+            tmp_path / "clip.mp4",
+            fps=24,
+        )
+
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[cmd.index("-r") + 1] == "24"
+
+
+class TestWriteFramesToVideo:
+    """Tests for _write_frames_to_video internals (mocked ffmpeg subprocess)."""
+
+    def test_empty_frames_returns_false(self, tmp_path):
+        """No frames means nothing to write."""
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+        result = buffer._write_frames_to_video([], tmp_path / "clip.mp4", fps=30, crf=23)
+        assert result is False
+
+    def test_undecodable_first_frame_returns_false(self, tmp_path):
+        """Corrupt first frame aborts before ffmpeg is launched."""
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+        bad_frame = BufferedFrame(
+            timestamp=datetime.now(),
+            frame_number=0,
+            jpeg_data=b"not a jpeg",
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            result = buffer._write_frames_to_video(
+                [bad_frame], tmp_path / "clip.mp4", fps=30, crf=23
+            )
+
+        assert result is False
+        mock_popen.assert_not_called()
+
+    @patch("subprocess.Popen")
+    def test_videotoolbox_encoder_options(self, mock_popen, tmp_path):
+        """VideoToolbox encoder maps crf to a -q:v quality value."""
+        mock_popen.return_value = _make_ffmpeg_process(returncode=0)
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+
+        with patch(
+            "kanyo.utils.frame_buffer.detect_hardware_encoder",
+            return_value="h264_videotoolbox",
+        ):
+            result = buffer._write_frames_to_video(
+                [_make_real_frame()], tmp_path / "clip.mp4", fps=30, crf=23
+            )
+
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "h264_videotoolbox" in cmd
+        assert "-q:v" in cmd
+        assert cmd[cmd.index("-q:v") + 1] == str((51 - 23) * 2)
+
+    @patch("subprocess.Popen")
+    def test_vaapi_encoder_options(self, mock_popen, tmp_path):
+        """VAAPI encoder adds the render device and hwupload filter."""
+        mock_popen.return_value = _make_ffmpeg_process(returncode=0)
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+
+        with patch(
+            "kanyo.utils.frame_buffer.detect_hardware_encoder",
+            return_value="h264_vaapi",
+        ):
+            result = buffer._write_frames_to_video(
+                [_make_real_frame()], tmp_path / "clip.mp4", fps=30, crf=23
+            )
+
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "h264_vaapi" in cmd
+        assert "-vaapi_device" in cmd
+        assert "format=nv12,hwupload" in cmd
+
+    @patch("subprocess.Popen")
+    def test_nvenc_encoder_options(self, mock_popen, tmp_path):
+        """NVENC encoder uses -cq quality control."""
+        mock_popen.return_value = _make_ffmpeg_process(returncode=0)
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+
+        with patch(
+            "kanyo.utils.frame_buffer.detect_hardware_encoder",
+            return_value="h264_nvenc",
+        ):
+            result = buffer._write_frames_to_video(
+                [_make_real_frame()], tmp_path / "clip.mp4", fps=30, crf=23
+            )
+
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "h264_nvenc" in cmd
+        assert "-cq" in cmd
+
+    @patch("subprocess.Popen")
+    def test_libx264_encoder_options(self, mock_popen, tmp_path):
+        """Software fallback uses libx264 with -crf."""
+        mock_popen.return_value = _make_ffmpeg_process(returncode=0)
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+
+        with patch(
+            "kanyo.utils.frame_buffer.detect_hardware_encoder",
+            return_value="libx264",
+        ):
+            result = buffer._write_frames_to_video(
+                [_make_real_frame()], tmp_path / "clip.mp4", fps=30, crf=18
+            )
+
+        assert result is True
+        cmd = mock_popen.call_args[0][0]
+        assert "libx264" in cmd
+        assert "-crf" in cmd
+        assert cmd[cmd.index("-crf") + 1] == "18"
+
+    @patch("kanyo.utils.frame_buffer.detect_hardware_encoder", return_value="libx264")
+    @patch("subprocess.Popen")
+    def test_ffmpeg_nonzero_exit_returns_false(self, mock_popen, mock_encoder, tmp_path):
+        """A non-zero ffmpeg exit code is reported as failure."""
+        mock_popen.return_value = _make_ffmpeg_process(returncode=1, stderr=b"encode error")
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+
+        result = buffer._write_frames_to_video(
+            [_make_real_frame()], tmp_path / "clip.mp4", fps=30, crf=23
+        )
+
+        assert result is False
+
+    @patch("kanyo.utils.frame_buffer.detect_hardware_encoder", return_value="libx264")
+    @patch("subprocess.Popen")
+    def test_popen_exception_returns_false(self, mock_popen, mock_encoder, tmp_path):
+        """An OS-level failure launching ffmpeg is caught and reported."""
+        mock_popen.side_effect = OSError("ffmpeg not found")
+        buffer = FrameBuffer(buffer_seconds=10, fps=1)
+
+        result = buffer._write_frames_to_video(
+            [_make_real_frame()], tmp_path / "clip.mp4", fps=30, crf=23
+        )
+
+        assert result is False
