@@ -20,6 +20,20 @@ RUN apt-get update && apt-get install -y \
     vainfo \
     && rm -rf /var/lib/apt/lists/*
 
+# JavaScript runtimes for yt-dlp YouTube extraction (parity with the nvidia image):
+#   node — nsig (n-signature) challenge solver (needs v20+ for --experimental-permission)
+#   deno — PO-token / BotGuard challenge solver, required for pure-live streams.
+# Without deno, live streams fail resolution with "This video is not available".
+RUN apt-get update && apt-get install -y curl unzip \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && curl -fsSL -o /tmp/deno.zip https://github.com/denoland/deno/releases/download/v2.9.3/deno-x86_64-unknown-linux-gnu.zip \
+    && unzip -q /tmp/deno.zip -d /usr/local/bin \
+    && rm /tmp/deno.zip \
+    && chmod 755 /usr/local/bin/deno \
+    && node --version && deno --version \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /app
 
