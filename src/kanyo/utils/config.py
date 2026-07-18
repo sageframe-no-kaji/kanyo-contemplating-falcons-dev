@@ -49,6 +49,9 @@ DEFAULTS: dict[str, Any] = {
     "presence_motion_min_area_frac": 0.02,  # changed fraction of region to count as motion
     "presence_global_change_frac": 0.5,  # whole-frame change above this = discard motion evidence
     "presence_absence_failsafe_seconds": 3600,  # zero-evidence ceiling before forced absence
+    # Bird Count Tracking (issue #3)
+    "bird_count_enabled": False,  # count tracking on/off (off = presence-only, today's behavior)
+    "bird_count_confirmation_seconds": 10,  # sustained evidence before a count change confirms
     # Significance Filter (ho-09)
     "significance_filter_enabled": True,  # master switch; false = today's behavior
     "merge_window_seconds": 300,  # DEPARTED→ARRIVED within this = same visit (0 disables)
@@ -71,6 +74,11 @@ DEFAULTS: dict[str, Any] = {
     # Logging
     "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     "log_file": "logs/kanyo.log",
+    # Creature Identity (issue #8) — name + emoji used in notification
+    # messages and EVENT log lines. Defaults reproduce the pre-#8 output
+    # byte-for-byte; invalid values fall back safely (see utils/creature.py).
+    "creature_name": "falcon",
+    "creature_emoji": "🦅",
     # Notifications
     "telegram_enabled": False,
     "telegram_channel": "",  # Can be set in YAML or via TELEGRAM_CHANNEL env var
@@ -316,6 +324,13 @@ def _validate(cfg: dict[str, Any]) -> None:
     damping_window = cfg.get("damping_window_hours", DEFAULTS["damping_window_hours"])
     if not isinstance(damping_window, (int, float)) or damping_window <= 0:
         raise ValueError("damping_window_hours must be a positive number of hours")
+
+    # Bird count tracking validation (issue #3)
+    count_confirmation = cfg.get(
+        "bird_count_confirmation_seconds", DEFAULTS["bird_count_confirmation_seconds"]
+    )
+    if not isinstance(count_confirmation, (int, float)) or count_confirmation <= 0:
+        raise ValueError("bird_count_confirmation_seconds must be a positive number of seconds")
 
     # Presence layer validation (ho-12 / 024-C)
     presence_fraction_keys = (

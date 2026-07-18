@@ -123,8 +123,8 @@ class TestDisabledPassThrough:
 
         drive_departure(monitor, ts(0), ts(20))  # even a 20s visit
 
-        monitor.event_store.append.assert_called_once()
-        row = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        row = monitor.event_store.upsert.call_args[0][0]
         assert isinstance(row, FalconVisit)
         assert row.insignificant is False
         assert row.merged_segments == 1
@@ -149,7 +149,14 @@ class TestDisabledPassThrough:
         confirm_arrival(monitor, ts(720))
         drive_departure(monitor, ts(720), ts(900))
 
-        assert monitor.event_store.append.call_count == 2
+        # Two finalized rows (the confirm also upserts a provisional row —
+        # end_time null — which the second departure's row replaces by id).
+        finalized = [
+            c.args[0]
+            for c in monitor.event_store.upsert.call_args_list
+            if c.args[0].end_time is not None
+        ]
+        assert len(finalized) == 2
         assert len(departed_notifications(monitor)) == 2
         assert len(arrived_notifications(monitor)) == 1
 
@@ -160,7 +167,7 @@ class TestMergedVisit:
 
         # First segment departs — held: no row, no notification.
         drive_departure(monitor, ts(0), ts(600))
-        monitor.event_store.append.assert_not_called()
+        monitor.event_store.upsert.assert_not_called()
         assert departed_notifications(monitor) == []
 
         # Re-arrival inside the window — swallowed: no arrival notification,
@@ -173,12 +180,12 @@ class TestMergedVisit:
 
         # Second segment departs — still held.
         drive_departure(monitor, ts(720), ts(900))
-        monitor.event_store.append.assert_not_called()
+        monitor.event_store.upsert.assert_not_called()
 
         # Window expires: ONE merged row + ONE departure notification.
         tick(monitor, ts(900 + 301))
-        monitor.event_store.append.assert_called_once()
-        row = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.start_time == ts(0)
         assert row.end_time == ts(900)
         assert row.merged_segments == 2
@@ -202,7 +209,7 @@ class TestMergedVisit:
         drive_departure(monitor, ts(700), ts(900))
 
         tick(monitor, ts(900 + 301))
-        row = monitor.event_store.append.call_args[0][0]
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.peak_confidence == 0.9
 
     def test_continuation_arrival_clip_deleted(self, tmp_path):
@@ -233,11 +240,11 @@ class TestMergedVisit:
 
         drive_departure(monitor, ts(0), ts(600))
         tick(monitor, ts(600 + 300))  # boundary — still held
-        monitor.event_store.append.assert_not_called()
+        monitor.event_store.upsert.assert_not_called()
 
         tick(monitor, ts(600 + 301))
-        monitor.event_store.append.assert_called_once()
-        row = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.start_time == ts(0)
         assert row.end_time == ts(600)
         assert row.merged_segments == 1
@@ -253,8 +260,8 @@ class TestInsignificantVisit:
         drive_departure(monitor, ts(0), ts(20))
         tick(monitor, ts(20 + 301))
 
-        monitor.event_store.append.assert_called_once()
-        row = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.insignificant is True
         assert departed_notifications(monitor) == []
 
@@ -290,13 +297,13 @@ class TestShutdownFlush:
         lost on SIGTERM."""
         monitor = make_monitor(clips_dir=str(tmp_path), merge_window_seconds=300)
         drive_departure(monitor, ts(0), ts(600))
-        monitor.event_store.append.assert_not_called()
+        monitor.event_store.upsert.assert_not_called()
 
         # The same wiring run()'s finally block executes:
         monitor._execute_decisions(monitor.significance_filter.flush(ts(650)))
 
-        monitor.event_store.append.assert_called_once()
-        row = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        row = monitor.event_store.upsert.call_args[0][0]
         assert row.start_time == ts(0)
 
     def test_run_finally_flushes_filter(self):
@@ -404,7 +411,7 @@ class TestTickWiredIntoProcessFrame:
         """A held departure is released by process_frame's per-poll tick."""
         monitor = make_monitor(clips_dir=str(tmp_path), merge_window_seconds=300)
         drive_departure(monitor, ts(0), ts(600))
-        monitor.event_store.append.assert_not_called()
+        monitor.event_store.upsert.assert_not_called()
 
         # Quiet frame past the window: no events, tick releases the hold.
         monitor.visit_recorder.is_recording = False
@@ -417,4 +424,4 @@ class TestTickWiredIntoProcessFrame:
 
         monitor.process_frame(frame, frame_number=1, timestamp=ts(600 + 301))
 
-        monitor.event_store.append.assert_called_once()
+        monitor.event_store.upsert.assert_called_once()

@@ -15,9 +15,10 @@ from concurrent.futures import Future  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+from kanyo.detection.bird_count import BirdCountTracker  # noqa: E402
 from kanyo.detection.buffer_clip_manager import BufferClipManager  # noqa: E402
 from kanyo.detection.capture import StreamCapture  # noqa: E402
-from kanyo.detection.detect import FalconDetector  # noqa: E402
+from kanyo.detection.detect import Detection, FalconDetector  # noqa: E402
 from kanyo.detection.event_handler import FalconEventHandler  # noqa: E402
 from kanyo.detection.event_types import FalconEvent  # noqa: E402
 from kanyo.detection.events import EventStore, FalconVisit  # noqa: E402
@@ -29,6 +30,7 @@ from kanyo.detection.significance_filter import (  # noqa: E402
 )
 from kanyo.utils.arrival_clip_recorder import ArrivalClipRecorder  # noqa: E402
 from kanyo.utils.config import get_now_tz, load_config  # noqa: E402
+from kanyo.utils.creature import Creature  # noqa: E402
 from kanyo.utils.frame_buffer import FrameBuffer  # noqa: E402
 from kanyo.utils.logger import get_logger, setup_logging_from_config  # noqa: E402
 from kanyo.utils.notifications import NotificationManager  # noqa: E402
@@ -114,6 +116,10 @@ class BufferMonitor:
         min_significant_seconds: float = 30,
         damping_arrivals_threshold: int = 8,
         damping_window_hours: float = 1,
+        # Bird count tracking (issue #3). Default False for safe rollout —
+        # production configs opt in explicitly.
+        bird_count_enabled: bool = False,
+        bird_count_confirmation_seconds: float = 10.0,
         # Notification settings
         notify_on_startup: bool = True,
         record_arrival_on_startup: bool = False,
@@ -131,6 +137,10 @@ class BufferMonitor:
         self.clips_dir = clips_dir
         self.max_runtime_seconds = max_runtime_seconds
         self.full_config = full_config or {}
+
+        # Creature identity for EVENT log lines and notifications (issue #8).
+        # Defaults (falcon/🦅) reproduce the historical output byte-for-byte.
+        self.creature = Creature.from_config(self.full_config)
 
         # Stream recovery config
         self.stream_recovery_threshold = stream_recovery_threshold
@@ -228,6 +238,7 @@ class BufferMonitor:
         # Event handler for notifications
         self.event_handler = FalconEventHandler(
             clips_dir=clips_dir,
+            creature=self.creature,
         )
 
         # State machine
@@ -255,6 +266,23 @@ class BufferMonitor:
                 "🔎 Significance filter ENABLED (ho-09): departures may surface up to "
                 f"{merge_window_seconds:.0f}s late by design (merge window)"
             )
+        # Bird count tracker (issue #3): a parallel judgment beside the
+        # presence layer. None when disabled — the pipeline then carries no
+        # count state at all and visit rows record max_concurrent_birds=null.
+        self.bird_count: BirdCountTracker | None = None
+        if bird_count_enabled:
+            self.bird_count = BirdCountTracker(
+                confirmation_seconds=bird_count_confirmation_seconds,
+            )
+            logger.info(
+                "🔢 Bird count tracking ENABLED (issue #3): count changes confirm after "
+                f"{bird_count_confirmation_seconds:.0f}s of sustained evidence"
+            )
+        # Visit-scoped max of the confirmed count (mirrors the peak-confidence
+        # pattern, 022-A): written into the FalconVisit row on departure,
+        # reset on every path that closes or cancels a visit.
+        self._visit_max_concurrent: int = 0
+
         # The frame time driving filter decisions (ho-11 time authority):
         # set per processed frame; direct _handle_event calls fall back to
         # the event's own timestamp.
@@ -263,6 +291,11 @@ class BufferMonitor:
         # segments merge into it: the row is the unit of meaning, the visit
         # files remain the unit of storage.
         self._pending_visit_row: FalconVisit | None = None
+        # The provisional row written at visit confirmation (end_time null —
+        # the viewer's "ongoing visit" state) and replaced in place at visit
+        # close. Same id as the final row by construction (both derive it
+        # from visit_start, microseconds included).
+        self._provisional_visit: FalconVisit | None = None
 
         # State tracking
         self.current_visit: FalconVisit | None = None
@@ -418,8 +451,11 @@ class BufferMonitor:
                 yolo_detected = len(detections) > 0
                 falcon_detected = self.presence.update(frame_data, now, detections, raw_detections)
             else:
-                # Legacy path — byte-identical to pre-presence behavior.
+                # Legacy path — byte-identical to pre-presence behavior. The
+                # raw view collapses onto the filtered one (no low floor), so
+                # count candidates come from filtered detections only.
                 detections = self.detector.detect_birds(frame_data, timestamp=now)
+                raw_detections = detections
                 yolo_detected = len(detections) > 0
                 falcon_detected = yolo_detected
 
@@ -450,7 +486,8 @@ class BufferMonitor:
                         # not a departure. Discard it; a later first-miss
                         # snapshots a fresh one.
                         logger.event(
-                            "🦅 Roosting bird re-confirmed — discarding departure-candidate clip"
+                            f"{self.creature.emoji} Roosting bird re-confirmed — "
+                            "discarding departure-candidate clip"
                         )
                         self._discard_departure_candidate()
                     self._roosting_last_poll_detected = True
@@ -534,6 +571,12 @@ class BufferMonitor:
                         # startup cancel above (ho-12 / 024-C).
                         falcon_detected = yolo_detected
 
+            # Bird count tracking (issue #3): runs after the confirmation
+            # blocks so a cancelled arrival's stale presence boolean has
+            # already been corrected. Count changes surface through the
+            # significance filter; the visit row records the max.
+            self._update_bird_count(falcon_detected, detections, raw_detections, now)
+
             # Debug logging for detection tracking
             if falcon_detected:
                 logger.debug(f"Bird detected at {now}, updating last_detection_time")
@@ -564,6 +607,106 @@ class BufferMonitor:
 
         except Exception as e:
             logger.error(f"❌ Error processing frame {frame_number}: {e}", exc_info=True)
+
+    def _update_bird_count(
+        self,
+        falcon_detected: bool,
+        detections: list[Detection],
+        raw_detections: list[Detection],
+        now: datetime,
+    ) -> None:
+        """Derive the per-frame candidate count and feed the tracker (issue #3).
+
+        Candidate derivation:
+
+        - Presence absent → candidate 0 (the count lives inside a presence
+          episode; the exit-timeout debounce means a wrong 0 here confirms
+          only after sustained absence, and 0-boundary changes never surface
+          as count notifications anyway).
+        - Any boxes → the raw (sustain-floor) box count. The raw view is a
+          superset of the filtered view in presence mode, so this counts
+          mixed-confidence groups correctly: an adult at full confidence
+          plus chicks at sustain level is 3 birds, not 1 (the chick-season
+          scenario, issue #1/#2). With presence disabled the raw view
+          collapses onto the filtered one, so this is the filtered count.
+        - Present with no boxes at all (parked bird) → no evidence; the
+          confirmed count holds.
+
+        Per-frame noise in the raw view is absorbed by the tracker's
+        sustained-confirmation window, never by dropping evidence here.
+
+        Confirmed changes update the visit max; changes between nonzero
+        counts route through the significance filter as COUNT_CHANGED (the
+        0-boundary is the arrival/departure surface).
+        """
+        if self.bird_count is None:
+            return
+
+        candidate: int | None
+        if not falcon_detected:
+            candidate = 0
+        elif raw_detections or detections:
+            # max() is defensive: raw should always superset filtered, but a
+            # detector misconfiguration must not undercount confirmed birds.
+            candidate = max(len(raw_detections), len(detections))
+        else:
+            candidate = None
+
+        change = self.bird_count.update(candidate, now)
+        if change is None:
+            return
+
+        self._visit_max_concurrent = max(self._visit_max_concurrent, change.new_count)
+        logger.event(
+            f"🔢 Bird count: {change.old_count} → {change.new_count} "
+            f"(confirmed after {self.bird_count.confirmation_seconds:.0f}s sustained evidence)"
+        )
+
+        if change.old_count >= 1 and change.new_count >= 1:
+            decisions = self.significance_filter.process(
+                (
+                    FalconEvent.COUNT_CHANGED,
+                    change.timestamp,
+                    {"old_count": change.old_count, "new_count": change.new_count},
+                ),
+                now,
+            )
+            self._execute_decisions(decisions)
+
+    def _write_provisional_visit(self, start_time: datetime) -> None:
+        """Write the provisional visit row at confirmation (viewer contract).
+
+        The row goes to the event store with ``end_time`` null — exactly the
+        viewer's "ongoing visit" state — and is replaced in place (same id,
+        derived from the same ``start_time``) when the visit closes. The
+        thumbnail may not exist yet at confirmation time; the finalized row
+        re-derives every path field, so the provisional's nulls are
+        temporary by design.
+        """
+        arrival_clip_path = get_output_path(self.clips_dir, start_time, "arrival", "mp4")
+        thumbnail_path = get_output_path(self.clips_dir, start_time, "arrival", "jpg")
+        row = FalconVisit(
+            start_time=start_time,
+            end_time=None,
+            peak_confidence=self._visit_peak_confidence,
+            arrival_clip_path=(str(arrival_clip_path) if arrival_clip_path.exists() else None),
+            thumbnail_path=(str(thumbnail_path) if thumbnail_path.exists() else None),
+            max_concurrent_birds=self._visit_max_birds(),
+        )
+        self._provisional_visit = row
+        self.event_store.upsert(row)
+        logger.debug(f"Provisional visit row written: {row.id} (end_time null)")
+
+    def _visit_max_birds(self) -> int | None:
+        """The max_concurrent_birds value for a closing visit's row (issue #3).
+
+        None when count tracking is disabled (the field stays additive and
+        inert). A visit that closed before any count confirmation still had
+        at least one bird — floor at 1.
+        """
+        if self.bird_count is None:
+            return None
+        return max(1, self._visit_max_concurrent)
 
     def _emit_detection_summary(self) -> None:
         """Emit the rolling detection-confidence summary and reset the window (022-E).
@@ -709,8 +852,8 @@ class BufferMonitor:
         if event_type == FalconEvent.ARRIVED:
             # Start arrival confirmation - don't notify yet
             logger.event(
-                "🦅 FALCON ARRIVED at %s (stream local) - pending confirmation"
-                % event_time.strftime("%I:%M:%S %p")
+                f"{self.creature.emoji} {self.creature.upper} ARRIVED at "
+                f"{event_time.strftime('%I:%M:%S %p')} (stream local) - pending confirmation"
             )
 
             # Set pending state
@@ -720,8 +863,10 @@ class BufferMonitor:
             self.arrival_frame_count = 1
 
             # New visit: discard any stale peak and seed with the arriving
-            # frame's confidence (022-A)
+            # frame's confidence (022-A); stale count max resets with it
+            # (issue #3)
             self._visit_peak_confidence = self._frame_peak_confidence
+            self._visit_max_concurrent = 0
 
             # Get lead-in frames from buffer
             lead_in_frames = self.frame_buffer.get_frames_before(
@@ -764,7 +909,10 @@ class BufferMonitor:
 
             # Handle departure from roosting stop mode (visit recorder already stopped)
             if self.roosting_mode_active and self.roosting_recording_mode == "stop":
-                logger.event("🦅 DEPARTURE from roost — finalizing departure-candidate clip")
+                logger.event(
+                    f"{self.creature.emoji} DEPARTURE from roost — "
+                    "finalizing departure-candidate clip"
+                )
                 # Finalize the candidate snapshotted at the first missed poll
                 # (022-C). The direct buffer extraction this replaces could
                 # never work here: event_time is last_detection, which is
@@ -792,6 +940,10 @@ class BufferMonitor:
                     departure_clip_path = get_output_path(
                         self.clips_dir, visit_end_dt, "departure", "mp4"
                     )
+                    # The roosting-stop visit file was finalized at the
+                    # roosting threshold; its path lives in the metadata
+                    # captured then.
+                    roost_visit_file = self._roosting_visit_metadata.get("visit_file")
                     visit_row = FalconVisit(
                         start_time=metadata["visit_start"],
                         end_time=last_detection_time,
@@ -803,8 +955,11 @@ class BufferMonitor:
                         departure_clip_path=(
                             str(departure_clip_path) if departure_clip_scheduled else None
                         ),
+                        max_concurrent_birds=self._visit_max_birds(),
+                        visit_clip_paths=([str(roost_visit_file)] if roost_visit_file else []),
                     )
                 self._visit_peak_confidence = 0.0
+                self._visit_max_concurrent = 0
                 self.roosting_mode_active = False
                 self.last_roosting_check = None
                 self._roosting_visit_metadata = None
@@ -817,7 +972,7 @@ class BufferMonitor:
                 return
 
             # Stop recording and create clips
-            logger.event("🦅 DEPARTURE - Stopping visit recording")
+            logger.event(f"{self.creature.emoji} DEPARTURE - Stopping visit recording")
 
             visit_path, visit_metadata = self.visit_recorder.stop_recording(event_time)
 
@@ -876,13 +1031,17 @@ class BufferMonitor:
                         departure_clip_path=(
                             str(departure_clip_path) if departure_clip_scheduled else None
                         ),
+                        max_concurrent_birds=self._visit_max_birds(),
+                        visit_clip_paths=[str(visit_path)],
                     )
 
                     duration = visit_metadata.get("duration_seconds", 0)
                     logger.event(f"✅ Visit recorded: {duration:.0f}s → {visit_path}")
 
-            # Visit is over — reset the visit-scoped peak (022-A)
+            # Visit is over — reset the visit-scoped peak (022-A) and count
+            # max (issue #3)
             self._visit_peak_confidence = 0.0
+            self._visit_max_concurrent = 0
 
             # Surface (notification + event-store row) flows through the
             # significance filter (ho-09 / 025-B). Runs even without a row —
@@ -965,6 +1124,15 @@ class BufferMonitor:
         pending.end_time = visit_row.end_time
         pending.peak_confidence = max(pending.peak_confidence, visit_row.peak_confidence)
         pending.departure_clip_path = visit_row.departure_clip_path
+        # Each segment contributes its visit recording — the merged row lists
+        # every file that together covers the stay, in order.
+        pending.visit_clip_paths.extend(visit_row.visit_clip_paths)
+        # Merged visit spans several segments: the row's max concurrent count
+        # is the max across them (issue #3). None stays None (count disabled).
+        if pending.max_concurrent_birds is not None or visit_row.max_concurrent_birds is not None:
+            pending.max_concurrent_birds = max(
+                pending.max_concurrent_birds or 1, visit_row.max_concurrent_birds or 1
+            )
 
     def _execute_decisions(self, decisions: list[FilterDecision]) -> None:
         """Execute significance-filter decisions (025-B)."""
@@ -998,7 +1166,17 @@ class BufferMonitor:
                 row.insignificant = decision.insignificant
                 row.merged_segments = decision.merged_segments
                 if decision.record:
-                    self.event_store.append(row)
+                    # Replaces the provisional row written at confirmation
+                    # (same id); appends when none exists — a finalize can
+                    # never fail on a missing provisional.
+                    self.event_store.upsert(row)
+                self._provisional_visit = None
+            elif self._provisional_visit is not None:
+                # The departure produced no row (recorder yielded no file or
+                # metadata) — remove the provisional so it doesn't sit as a
+                # forever-ongoing visit.
+                self.event_store.discard(self._provisional_visit)
+                self._provisional_visit = None
         elif decision.event_type is not None and decision.notify:
             self.event_handler.handle_event(
                 decision.event_type, decision.event_time, decision.metadata
@@ -1010,7 +1188,10 @@ class BufferMonitor:
         median_str = format_duration(decision.metadata.get("median_duration_seconds", 0.0))
         window_hours = decision.metadata.get("window_hours", 1)
         window_str = f"{window_hours:g} hour" + ("s" if window_hours != 1 else "")
-        message = f"🦅 Busy nest: {count} visits in the last {window_str} (median {median_str})"
+        message = (
+            f"{self.creature.emoji} Busy nest: {count} visits in the last {window_str} "
+            f"(median {median_str})"
+        )
         logger.event(f"📊 Activity summary: {message}")
 
         notifications = self.event_handler.notifications
@@ -1068,7 +1249,8 @@ class BufferMonitor:
                 (FalconEvent.ARRIVED, self.arrival_pending_start, {}), now
             )
 
-        if any(d.discard_arrival_clip for d in decisions):
+        continuation = any(d.discard_arrival_clip for d in decisions)
+        if continuation:
             # Continuation of a merged visit: drop the arrival clip instead
             # of finalizing it. The visit recording still finalizes below —
             # a merged visit may span multiple visit files by design.
@@ -1081,6 +1263,13 @@ class BufferMonitor:
 
         # Rename visit recording from .tmp to final
         self.visit_recorder.rename_to_final()
+
+        # A fresh (non-continuation) confirmed visit gets its provisional row
+        # now — end_time null, the viewer's "ongoing visit" state. A
+        # continuation's row of record is the held first segment's row, whose
+        # provisional is already on file.
+        if not continuation and self.arrival_pending_start is not None:
+            self._write_provisional_visit(self.arrival_pending_start)
 
         # NOW send the notification — if the filter's decision says so
         # (pass-through when the filter is disabled)
@@ -1129,8 +1318,10 @@ class BufferMonitor:
         # Tracker resets with the state machine (ho-12 / 024-C)
         self._reset_presence()
 
-        # Cancelled visit — discard its peak confidence (022-A)
+        # Cancelled visit — discard its peak confidence (022-A) and count
+        # max (issue #3)
         self._visit_peak_confidence = 0.0
+        self._visit_max_concurrent = 0
 
         # Reset pending state
         self.arrival_pending = False
@@ -1162,6 +1353,12 @@ class BufferMonitor:
 
         # Transition from PENDING_STARTUP to ROOSTING
         self.state_machine.confirm_startup_presence(now)
+
+        # Startup-confirmed visits get a provisional row too: the state
+        # machine's visit_start is the startup_pending_start timestamp, so
+        # the finalized row at departure replaces this one by id.
+        if self.startup_pending_start is not None:
+            self._write_provisional_visit(self.startup_pending_start)
 
         # Send notification only if notify_on_startup is enabled — routed
         # through the significance filter like every confirmed arrival
@@ -1290,18 +1487,36 @@ class BufferMonitor:
         DEPARTED — the tracker's episode ends with the visit, so a new
         presence can only begin with a strict ENTER (filtered detection).
         No-op when the presence layer is disabled (ho-12 / 024-C).
+
+        The bird count tracker (issue #3) resets with it — a count only
+        lives inside a presence episode, and its zero crossing is silent
+        (the departure surface owns the 0-boundary).
         """
         if self.presence is not None:
             self.presence.reset()
+        if self.bird_count is not None:
+            self.bird_count.reset()
 
     def _reset_pending_states(self) -> None:
         """Reset all pending confirmation states (startup, arrival, and recovery)."""
         # Any visit in progress is being abandoned (cancelled startup or
-        # outage-exceeded reset) — discard its peak confidence (022-A)
+        # outage-exceeded reset) — discard its peak confidence (022-A) and
+        # count max (issue #3)
         self._visit_peak_confidence = 0.0
+        self._visit_max_concurrent = 0
 
         # Tracker and state machine reset together (ho-12 / 024-C)
         self._reset_presence()
+
+        # A confirmed visit abandoned without a departure event (outage
+        # exceeded): its provisional row would sit as forever-ongoing —
+        # discard it, unless the row of record is already held for release
+        # (pending row with the same id finalizes it later).
+        if self._provisional_visit is not None:
+            pending = self._pending_visit_row
+            if pending is None or pending.id != self._provisional_visit.id:
+                self.event_store.discard(self._provisional_visit)
+            self._provisional_visit = None
 
         self.startup_pending = False
         self.startup_pending_start = None
@@ -1622,9 +1837,14 @@ class BufferMonitor:
                 if now_time - last_heartbeat >= heartbeat_interval:
                     state = self.state_machine.state.value
                     recording = "recording" if self.visit_recorder.is_recording else "monitoring"
+                    count_field = (
+                        f", count={self.bird_count.confirmed_count}"
+                        if self.bird_count is not None
+                        else ""
+                    )
                     logger.debug(
                         f"💓 Heartbeat: {frames_processed} frames processed, "
-                        f"state={state}, {recording}"
+                        f"state={state}{count_field}, {recording}"
                     )
                     last_heartbeat = now_time
 
@@ -1753,6 +1973,8 @@ def main():
             min_significant_seconds=config.get("min_significant_seconds", 30),
             damping_arrivals_threshold=config.get("damping_arrivals_threshold", 8),
             damping_window_hours=config.get("damping_window_hours", 1),
+            bird_count_enabled=config.get("bird_count_enabled", False),
+            bird_count_confirmation_seconds=config.get("bird_count_confirmation_seconds", 10),
             notify_on_startup=config.get("notify_on_startup", True),
             record_arrival_on_startup=config.get("record_arrival_on_startup", False),
             max_runtime_seconds=config.get("max_runtime_seconds"),

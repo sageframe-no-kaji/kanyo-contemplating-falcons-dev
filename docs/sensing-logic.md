@@ -421,6 +421,30 @@ def process_frame(frame, timestamp):
 
 ---
 
+## Chick Season: Continuous Detection (Issue #1)
+
+During breeding season the nest is never truly empty. Growing chicks trigger
+YOLO once they're large enough; fledglings move around constantly; "departure
+= no detection" stops meaning anything. Issue #1 catalogued five candidate
+solutions when the pipeline was a per-frame boolean. On today's architecture,
+the problem decomposes across the existing layers — there is no separate
+"breeding season mode" in code, only a configuration preset:
+
+| Issue #1 option | Where it landed |
+| --- | --- |
+| Require empty frame for departure | Superseded by the **presence layer**: departure now requires *positive exit evidence* (motion out of the region, then quiet). A chick-filled nest keeps producing boxes and motion, so the system settles into ROOSTING and stays there — no manufactured departures, no arrival churn. |
+| Count-based detection (chick baseline vs. adult arrival) | Built as **bird count tracking** (issue #3): chicks hold the count at its baseline; a sustained count increase is an adult arriving, a sustained decrease is one leaving. Count-change notifications fire even though ARRIVED/DEPARTED never do on an always-occupied nest. |
+| Seasonal/manual mode toggle | Delivered as the documented **chick season preset** in `configs/config.template.yaml` — every knob it needs already exists (count tracking, roosting stop mode, significance-filter damping). |
+| Size-based filtering (adult vs. chick bbox area) | **Deferred.** Needs real chick-season footage to calibrate area thresholds — that's the testing prework tracked in issue #2. |
+| Adult-vs-chick classifier | **Deferred.** Model training territory (ho-07), not detection-pipeline logic. |
+
+The residual event noise fledgling activity produces (rapid short
+excursions, feeding-visit clusters) is exactly what the significance filter's
+merge window and activity damping were built for — the preset just tunes
+them more aggressively.
+
+---
+
 ## Configuration Reference
 
 ### Full Configuration

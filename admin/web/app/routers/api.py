@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from app.services import (
     clip_service,
+    compose_snippet,
     config_service,
     docker_service,
     file_service,
@@ -14,9 +15,14 @@ from app.services import (
     stream_service,
     system_service,
 )
-from app.services.stream_manager import create_stream, restart_admin_container, validate_stream_id
+from app.services.stream_manager import (
+    build_stream_config,
+    create_stream,
+    restart_admin_container,
+    validate_stream_form,
+)
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -312,9 +318,15 @@ async def get_logs(
     # Parse levels parameter
     level_list = [level.strip() for level in levels.split(",") if level.strip()] if levels else None
 
-    # Get logs from file (timestamps are UTC-aware)
+    # Get logs from file (timestamps are UTC-aware); logs dir comes from
+    # stream discovery (issue #5) so both mount layouts work.
     logs = log_service.get_logs(
-        stream_id, since=since, lines=lines, levels=level_list, show_context=show_context
+        stream_id,
+        since=since,
+        lines=lines,
+        levels=level_list,
+        show_context=show_context,
+        log_dir=Path(stream["data_path"]) / "logs",
     )
 
     # Format as HTML with data attributes, converting timestamps to stream local time
@@ -521,52 +533,153 @@ async def create_new_stream(
     stream_id: str = Form(...),
     name: str = Form(...),
     video_source: str = Form(...),
-    timezone: str = Form("+00:00"),
+    short_name: str = Form(...),
+    location: str = Form(...),
+    timezone: str = Form(...),
+    species: str = Form(...),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    maintainer: str = Form(""),
+    maintainer_url: str = Form(""),
+    description: str = Form(""),
     telegram_enabled: bool = Form(False),
     telegram_channel: str = Form(""),
+    detection_confidence: float = Form(0.3),
+    detection_confidence_ir: str = Form(""),
+    frame_interval: int = Form(3),
+    exit_timeout: int = Form(90),
+    roosting_threshold: int = Form(1800),
+    detect_any_animal: bool = Form(False),
+    presence_enabled: bool = Form(False),
+    significance_filter_enabled: bool = Form(False),
+    bird_count_enabled: bool = Form(False),
 ):
-    """Create a new stream."""
-    # Validate first
-    valid, error = validate_stream_id(stream_id)
-    if not valid:
+    """Create the on-disk stream definition (issue #6).
+
+    Bounded scope: writes /data/kanyo-<id>/ (config.yaml + clips/ + logs/)
+    and nothing else. No container is created — the success UI surfaces the
+    manual next steps (compose service block via the template's profile
+    pattern, Telegram channel setup, ZFS note).
+    """
+
+    def _error(messages: list[str], status: int = 400) -> HTMLResponse:
+        items = "".join(f"<li>{_h(m)}</li>" for m in messages)
         return HTMLResponse(
-            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
-            f"Error: {_h(error)}"
-            f"</div>",
-            status_code=400,
+            f'<div class="bg-red-600/20 border border-red-600 text-red-400 '
+            f'px-4 py-2 rounded mb-4"><p class="font-medium">Error:</p>'
+            f'<ul class="list-disc list-inside text-sm mt-1">{items}</ul></div>',
+            status_code=status,
         )
 
-    success, message = create_stream(
+    # Parse optional numerics
+    try:
+        conf_ir = float(detection_confidence_ir) if detection_confidence_ir else None
+    except ValueError:
+        return _error(["detection_confidence_ir must be a number"])
+
+    lat = lon = None
+    if latitude or longitude:
+        try:
+            lat = float(latitude)
+            lon = float(longitude)
+        except (TypeError, ValueError):
+            return _error(["Coordinates need both latitude and longitude as numbers"])
+
+    if telegram_enabled and not telegram_channel.strip():
+        return _error(["Telegram is enabled but no channel is set"])
+
+    # Validate everything before touching disk
+    errors = validate_stream_form(
         stream_id=stream_id,
+        video_source=video_source,
+        timezone=timezone,
+        detection_confidence=detection_confidence,
+        detection_confidence_ir=conf_ir,
+        frame_interval=frame_interval,
+        exit_timeout=exit_timeout,
+        roosting_threshold=roosting_threshold,
+    )
+    if errors:
+        return _error(errors)
+
+    config = build_stream_config(
         name=name,
         video_source=video_source,
         timezone=timezone,
+        short_name=short_name,
+        location=location,
+        species=species,
+        latitude=lat,
+        longitude=lon,
+        maintainer=maintainer,
+        maintainer_url=maintainer_url,
+        description=description,
         telegram_enabled=telegram_enabled,
         telegram_channel=telegram_channel,
+        detection_confidence=detection_confidence,
+        detection_confidence_ir=conf_ir,
+        frame_interval=frame_interval,
+        exit_timeout=exit_timeout,
+        roosting_threshold=roosting_threshold,
+        detect_any_animal=detect_any_animal,
+        presence_enabled=presence_enabled,
+        significance_filter_enabled=significance_filter_enabled,
+        bird_count_enabled=bird_count_enabled,
     )
 
-    if success:
-        return HTMLResponse(
-            f'<div class="bg-green-600/20 border border-green-600 text-green-400 '
-            f'px-4 py-3 rounded mb-4">'
-            f'<p class="font-medium mb-2">✓ {_h(message)}</p>'
-            f'<p class="text-sm mb-3">The detection container is now running. '
-            f"Restart the admin to see the new stream in the overview.</p>"
-            f'<button hx-post="/api/admin/restart" '
-            f'        hx-swap="outerHTML" '
-            f'        class="bg-amber-600 hover:bg-amber-500 px-4 py-2 rounded '
-            f'font-medium text-white">'
-            f"    ↻ Restart Admin Now"
-            f"</button>"
-            f"</div>"
-        )
-    else:
-        return HTMLResponse(
-            f'<div class="bg-red-600/20 border border-red-600 text-red-400 px-4 py-2 rounded mb-4">'
-            f"Error: {_h(message)}"
-            f"</div>",
-            status_code=400,
-        )
+    success, message = create_stream(stream_id, config)
+    if not success:
+        return _error([message])
+
+    stream_id_url = _u(stream_id)
+    return HTMLResponse(
+        f'<div class="bg-green-600/20 border border-green-600 text-green-400 '
+        f'px-4 py-3 rounded mb-4">'
+        f"<p class=\"font-medium mb-2\">✓ Stream '{_h(name)}' created at {_h(message)}</p>"
+        f'<p class="text-sm mb-1">config.yaml, clips/ and logs/ are in place. '
+        f'The stream is already visible in the <a href="/" class="underline">overview</a> '
+        f"(container status will show as not found until a detector runs).</p>"
+        f'<div class="text-sm text-zinc-300 mt-3">'
+        f'<p class="font-medium text-green-300 mb-1">Manual next steps:</p>'
+        f'<ol class="list-decimal list-inside space-y-1">'
+        f'<li>Review the config in the <a href="/streams/{stream_id_url}/config" '
+        f'class="underline">config editor</a>.</li>'
+        f"<li>Start a detector: paste the generated snippet below into the host "
+        f"compose + .env, then run the start command. It follows the template's "
+        f"profile pattern (<code class='bg-zinc-700 px-1 rounded'>docker/"
+        f"docker-compose.yml</code>, bigbear example). Container creation is "
+        f"deliberately not automated (see issue #7).</li>"
+        f"<li>ZFS hosts: if this stream should live on its own dataset, create it "
+        f"<em>before</em> pointing the detector at it (e.g. "
+        f"<code class='bg-zinc-700 px-1 rounded'>sudo zfs create "
+        f"rpool/sage/kanyo/{_h(stream_id)}</code>) — dataset creation needs root and "
+        f"cannot be done from this container.</li>"
+        f"<li>Telegram: create the channel in the Telegram app, add the bot as a "
+        f"channel admin, then set the channel in the config editor. Both steps "
+        f"require a human in the Telegram UI.</li>"
+        f"</ol>"
+        f'<pre class="bg-zinc-900 text-zinc-200 text-xs rounded p-3 mt-3 '
+        f'overflow-x-auto whitespace-pre">{_h(compose_snippet.build_snippet(stream_id))}</pre>'
+        f'<p class="text-xs text-zinc-500 mt-1">Snippet stays available at '
+        f'<a href="/api/streams/{stream_id_url}/compose-snippet" class="underline">'
+        f"/api/streams/{_h(stream_id)}/compose-snippet</a>.</p>"
+        f"</div></div>"
+    )
+
+
+@router.get("/streams/{stream_id}/compose-snippet")
+async def get_compose_snippet(stream_id: str):
+    """Compose service block + .env additions for an existing stream dir.
+
+    Bounded issue #7 slice: text to paste into the host compose — no live
+    orchestration. Works for any discovered stream, so a detector can be
+    added later for streams created before this endpoint existed.
+    """
+    stream = stream_service.get_stream(stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    return PlainTextResponse(compose_snippet.build_snippet(stream_id))
 
 
 @router.post("/admin/restart")
@@ -603,8 +716,8 @@ async def cleanup_temp_files(stream_id: str):
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    # Run cleanup
-    result = file_service.cleanup_temp_files(stream_id)
+    # Run cleanup (clips dir from stream discovery, issue #5)
+    result = file_service.cleanup_temp_files(stream_id, clips_path=stream["clips_path"])
 
     # Format bytes for display
     mb_freed = result["bytes_freed"] / (1024 * 1024)
@@ -625,8 +738,8 @@ async def cleanup_log_files(stream_id: str):
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    # Run cleanup
-    result = file_service.cleanup_log_files(stream_id)
+    # Run cleanup (clips dir from stream discovery, issue #5)
+    result = file_service.cleanup_log_files(stream_id, clips_path=stream["clips_path"])
 
     # Format bytes for display
     mb_freed = result["bytes_freed"] / (1024 * 1024)

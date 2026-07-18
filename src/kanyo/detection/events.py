@@ -47,6 +47,20 @@ class FalconVisit:
     A complete falcon visit (enter → exit).
 
     Tracks start/end times, duration, and associated thumbnails/clips.
+
+    Path field semantics (viewer contract): ``thumbnail_path``,
+    ``arrival_clip_path``, ``departure_clip_path``, and every entry of
+    ``visit_clip_paths`` are detector-side paths (``clips/<date>/<file>`` as
+    the detector wrote them). Only the BASENAME is authoritative for
+    consumers — the directory prefix reflects the detector's local layout
+    and may not exist on the consumer's filesystem; viewers should resolve
+    basenames against their own clips mount.
+
+    Row lifecycle: a provisional row (``end_time`` null — the viewer's
+    "ongoing visit" state) is written when the visit is confirmed and
+    replaced in place (matched by ``id``) when the visit closes. A crash can
+    leave a provisional row behind; consumers must tolerate rows whose
+    ``end_time`` stays null.
     """
 
     start_time: datetime
@@ -59,12 +73,27 @@ class FalconVisit:
     # defaults so existing rows and to_dict() consumers are unaffected.
     insignificant: bool = False  # below min_significant_seconds: recorded log-only
     merged_segments: int = 1  # >= 2 when this row spans merged visit segments
+    # Bird count tracking (issue #3). None when count tracking is disabled;
+    # otherwise the highest confirmed concurrent bird count during the visit.
+    # Additive: consumers that don't know the field ignore it.
+    max_concurrent_birds: int | None = None
+    # Visit segment recordings (viewer contract review follow-up). One entry
+    # per visit file; a merged visit accumulates one entry per segment in
+    # chronological order. Same basename-authoritative semantics as the
+    # other path fields.
+    visit_clip_paths: list[str] = field(default_factory=list)
     id: str = field(default="")
 
     def __post_init__(self):
-        """Generate ID from start_time if not provided."""
+        """Generate ID from start_time if not provided.
+
+        Microseconds are included (``%f``) so two visits starting within the
+        same wall-clock second — merge-window edge cases, rapid swap storms —
+        can never collide on id. The id doubles as the replace-by-id key for
+        provisional rows, so collisions would corrupt the store.
+        """
         if not self.id:
-            self.id = self.start_time.strftime("%Y%m%d_%H%M%S")
+            self.id = self.start_time.strftime("%Y%m%d_%H%M%S_%f")
 
     @property
     def duration(self) -> timedelta | None:
@@ -110,6 +139,8 @@ class FalconVisit:
             "departure_clip_path": self.departure_clip_path,
             "insignificant": self.insignificant,
             "merged_segments": self.merged_segments,
+            "max_concurrent_birds": self.max_concurrent_birds,
+            "visit_clip_paths": self.visit_clip_paths,
         }
 
 
@@ -202,6 +233,44 @@ class EventStore:
         events.append(event.to_dict())
         self.save(events, events_path)
         logger.debug(f"Saved event to {events_path.name}: {event}")
+
+    def upsert(self, visit: FalconVisit) -> None:
+        """Write a visit row, replacing any existing row with the same id.
+
+        The provisional-row protocol: a row with ``end_time`` null is written
+        at visit confirmation and REPLACED in place by the finalized row at
+        visit close (both derive the same id from the same ``start_time``, so
+        the date file is also the same by construction). With no matching id
+        on file — a crash between runs, a hand-edited file — the row is
+        appended instead: finalization never fails, and stale provisional
+        rows from crashed runs are tolerated rather than cleaned (the viewer
+        reads a null ``end_time`` as an ongoing visit).
+        """
+        events_path = self._get_events_path(visit)
+        events = self.load(events_path)
+        for i, row in enumerate(events):
+            if row.get("id") == visit.id:
+                events[i] = visit.to_dict()
+                self.save(events, events_path)
+                logger.debug(f"Replaced visit row {visit.id} in {events_path.name}")
+                return
+        events.append(visit.to_dict())
+        self.save(events, events_path)
+        logger.debug(f"Saved visit row {visit.id} to {events_path.name}")
+
+    def discard(self, visit: FalconVisit) -> None:
+        """Remove a visit row by id (abandoned provisional rows).
+
+        Used when a confirmed visit is abandoned without a departure event
+        (stream outage exceeded) — the provisional row would otherwise sit
+        as a forever-ongoing visit. Missing rows are a no-op.
+        """
+        events_path = self._get_events_path(visit)
+        events = self.load(events_path)
+        remaining = [row for row in events if row.get("id") != visit.id]
+        if len(remaining) != len(events):
+            self.save(remaining, events_path)
+            logger.debug(f"Discarded visit row {visit.id} from {events_path.name}")
 
     def get_visits(self, events_path: Path | None = None) -> list[dict]:
         """Get all falcon_visit events."""

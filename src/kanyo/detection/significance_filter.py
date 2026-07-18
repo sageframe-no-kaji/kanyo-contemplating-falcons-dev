@@ -121,6 +121,18 @@ class EventSignificanceFilter:
             return self._process_departed(event_time, metadata, now)
         if event_type == FalconEvent.ARRIVED:
             return self._process_arrived(event_time, metadata, now)
+        if event_type == FalconEvent.COUNT_CHANGED:
+            # Count changes respect activity damping (issue #3): during a
+            # busy-nest storm they fold into the periodic summary like
+            # arrivals do. Never a row — the visit row carries
+            # max_concurrent_birds.
+            self._prune(now)
+            self._update_damped(now)
+            return [
+                FilterDecision(
+                    event_type, event_time, metadata, notify=not self._damped, record=False
+                )
+            ]
 
         # ROOSTING (and anything else) passes through untouched — it has no
         # event-store row today.

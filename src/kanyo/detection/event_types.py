@@ -14,6 +14,11 @@ class FalconEvent(Enum):
     DEPARTED = "departed"  # Falcon left (exceeded timeout)
     ROOSTING = "roosting"  # Transitioned to long-term presence (notification only)
     STARTUP_CONFIRMED = "startup_confirmed"  # Falcon confirmed at startup (no notify)
+    # Confirmed bird-count change while occupied (issue #3). Emitted by the
+    # count tracker beside the state machine, never by the state machine
+    # itself — count is a parallel judgment, not a state. Notification only;
+    # no event-store row (the visit row carries max_concurrent_birds).
+    COUNT_CHANGED = "count_changed"
 
 
 class FalconState(Enum):

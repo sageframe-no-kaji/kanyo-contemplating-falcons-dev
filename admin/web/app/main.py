@@ -1,15 +1,15 @@
 """FastAPI application entry point."""
 
-import secrets
 import os
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets
 from pathlib import Path
 
 from app.config import settings
-
+from app.services import stream_service
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 
 # Basic auth security
 security = HTTPBasic()
@@ -64,8 +64,11 @@ async def health_check():
 
 @app.get("/clips/{stream_id}/{date}/{filename}")
 async def serve_clip(stream_id: str, date: str, filename: str):
-    """Serve clip files (videos and thumbnails) from /data/{stream}/clips/."""
-    file_path = settings.DATA_PATH / stream_id / "clips" / date / filename
+    """Serve clip files (videos and thumbnails) from the stream's clips dir."""
+    stream_dir = stream_service.resolve_stream_dir(stream_id)
+    if stream_dir is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    file_path = stream_dir / "clips" / date / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path)
@@ -74,11 +77,17 @@ async def serve_clip(stream_id: str, date: str, filename: str):
 @app.get("/data/{stream_id}/{path:path}")
 async def serve_data_file(stream_id: str, path: str):
     """Serve any file from stream's data directory."""
-    file_path = settings.DATA_PATH / stream_id / path
+    # Resolve through stream discovery (issue #5): only real stream dirs are
+    # served — reserved service dirs under a parent mount (kanyo-admin,
+    # kanyo-code, ...) are never exposed.
+    stream_dir = stream_service.resolve_stream_dir(stream_id)
+    if stream_dir is None:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    file_path = stream_dir / path
 
     # Security: ensure path stays within stream directory
     try:
-        file_path.resolve().relative_to((settings.DATA_PATH / stream_id).resolve())
+        file_path.resolve().relative_to(stream_dir.resolve())
     except ValueError:
         raise HTTPException(status_code=403, detail="Access denied")
 

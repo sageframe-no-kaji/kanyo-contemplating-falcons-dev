@@ -147,7 +147,9 @@ async def stream_files(request: Request, stream_id: str, path: str = ""):
     if not stream:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    base_path = Path(f"/data/{stream_id}")
+    # Stream data dir comes from discovery (issue #5) — works for both the
+    # parent-mount layout (/data/kanyo-<id>) and per-stream mounts (/data/<id>).
+    base_path = Path(stream["data_path"])
     current_path = base_path / path
 
     # Security: ensure path stays within stream directory

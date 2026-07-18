@@ -24,6 +24,9 @@
 #       KANYO_CAM4_ROOT      (/opt/services/kanyo-fortwayne)
 #       KANYO_CAM5_ROOT      (/opt/services/kanyo-umass)
 #       KANYO_CAM6_ROOT      (/opt/services/kanyo-bigbear)
+#       KANYO_SERVICES_ROOT  (optional; parent of the per-site dirs for the
+#                             dashboard's stream auto-discovery mount,
+#                             default /opt/services — issue #5)
 #   - Per-site directories: <root>/config.yaml, <root>/clips/, <root>/logs/
 #   - Shared YouTube cookies at ${KANYO_CODE_ROOT}/cookies.txt (mounted rw so
 #     yt-dlp can refresh rotating cookie values)
@@ -115,6 +118,14 @@ services:
   # Admin dashboard — built ON THE HOST from the kanyo-code checkout.
   # This is the one service that still depends on ${KANYO_CODE_ROOT} source:
   # rebuild with  docker compose up -d --build dashboard  (or ops/update-admin.sh).
+  #
+  # Stream auto-discovery (issue #5): the whole services root is mounted once
+  # and the dashboard discovers streams as /data/kanyo-<site>/ dirs containing
+  # a config.yaml. Adding a stream needs NO compose edit here — create the
+  # directory and it appears. Mounted rw because the admin edits per-stream
+  # config.yaml, creates new stream dirs, and cleans up clip temp files.
+  # Non-stream service dirs (kanyo-admin, kanyo-code, ...) are excluded by
+  # the discovery code and never served.
   # ---------------------------------------------------------------------------
   dashboard:
     build: ${KANYO_CODE_ROOT}/admin/web
@@ -127,11 +138,7 @@ services:
       - "5000:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${KANYO_CAM1_ROOT}:/data/harvard
-      - ${KANYO_CAM2_ROOT}:/data/nsw
-      - ${KANYO_CAM4_ROOT}:/data/fortwayne
-      - ${KANYO_CAM5_ROOT}:/data/umass
-      - ${KANYO_CAM6_ROOT}:/data/bigbear
+      - ${KANYO_SERVICES_ROOT:-/opt/services}:/data
     restart: unless-stopped
     logging:
       driver: "json-file"

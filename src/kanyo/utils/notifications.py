@@ -17,6 +17,7 @@ from typing import Any
 
 import requests
 
+from kanyo.utils.creature import Creature
 from kanyo.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -55,6 +56,10 @@ class NotificationManager:
         self.ntfy_admin_enabled = bool(config.get("ntfy_admin_enabled", False))
         self.cooldown_minutes = int(config.get("notification_cooldown_minutes", 5))
         self.last_departure_time: datetime | None = None
+
+        # Creature identity for message text (issue #8). Defaults reproduce
+        # the historical falcon/🦅 wording byte-for-byte.
+        self.creature = Creature.from_config(config)
 
         # Load credentials - token from env (secret), channel/topic from config or env
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -113,7 +118,7 @@ class NotificationManager:
 
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
-        caption = f"🦅 Falcon arrived at {ts_str} (stream local)"
+        caption = f"{self.creature.emoji} {self.creature.title} arrived at {ts_str} (stream local)"
 
         return self._send_telegram_photo(caption, thumbnail_path)
 
@@ -141,10 +146,13 @@ class NotificationManager:
 
         # Build message
         ts_str = timestamp.strftime("%I:%M %p")
+        creature = self.creature.title
         if visit_duration_str:
-            caption = f"👋 Falcon departed at {ts_str} (visit: {visit_duration_str}, stream local)"
+            caption = (
+                f"👋 {creature} departed at {ts_str} (visit: {visit_duration_str}, stream local)"
+            )
         else:
-            caption = f"👋 Falcon departed at {ts_str} (stream local)"
+            caption = f"👋 {creature} departed at {ts_str} (stream local)"
 
         # Always send departure (no cooldown check)
         success = self._send_telegram_photo(caption, thumbnail_path)
@@ -154,6 +162,41 @@ class NotificationManager:
             self.last_departure_time = timestamp
 
         return success
+
+    def send_count_change(self, timestamp: datetime, old_count: int, new_count: int) -> bool:
+        """
+        Send a bird-count change notification to Telegram (issue #3).
+
+        Fires only for confirmed count changes while the nest is occupied
+        (1→2, 2→1, …) — the 0-boundary changes are the arrival/departure
+        notifications' territory. Text-only, no cooldown interaction: count
+        changes are already gated by the count confirmation window and folded
+        into summaries by the significance filter's activity damping.
+
+        Args:
+            timestamp: When the change confirmed (stream local)
+            old_count: The previously confirmed count
+            new_count: The newly confirmed count
+
+        Returns:
+            True if sent, False if disabled or failed
+        """
+        if not self.telegram_enabled:
+            return False
+
+        ts_str = timestamp.strftime("%I:%M %p")
+        birds = "bird" if new_count == 1 else "birds"
+        if new_count > old_count:
+            message = (
+                f"{self.creature.emoji} Another {self.creature.name} arrived — "
+                f"{new_count} {birds} in view ({ts_str} stream local)"
+            )
+        else:
+            message = (
+                f"👋 One {self.creature.name} left — {new_count} {birds} still in view "
+                f"({ts_str} stream local)"
+            )
+        return self._send_telegram_text(message)
 
     def send_activity_summary(self, message: str) -> bool:
         """

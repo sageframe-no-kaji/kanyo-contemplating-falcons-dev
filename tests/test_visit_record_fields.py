@@ -130,8 +130,8 @@ class TestNormalDepartureVisitRecord:
 
         self._departure(monitor, visit_start, visit_end, clip_scheduled=True)
 
-        monitor.event_store.append.assert_called_once()
-        visit = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert isinstance(visit, FalconVisit)
         assert visit.peak_confidence == 0.77
         expected = str(get_output_path(str(tmp_path), visit_end, "departure", "mp4"))
@@ -145,7 +145,7 @@ class TestNormalDepartureVisitRecord:
 
         self._departure(monitor, visit_start, visit_end, clip_scheduled=False)
 
-        visit = monitor.event_store.append.call_args[0][0]
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert visit.peak_confidence == 0.42
         assert visit.departure_clip_path is None
 
@@ -190,7 +190,7 @@ class TestNormalDepartureVisitRecord:
         }
         monitor._handle_event(FalconEvent.DEPARTED, visit_end + timedelta(seconds=90), metadata)
 
-        visit = monitor.event_store.append.call_args[0][0]
+        visit = monitor.event_store.upsert.call_args[0][0]
         expected = str(get_output_path(str(tmp_path), visit_end, "departure", "mp4"))
         assert visit.departure_clip_path == expected
 
@@ -216,8 +216,8 @@ class TestRoostingStopDepartureVisitRecord:
 
         self._roost_departure(monitor, visit_start, visit_end, clip_scheduled=True)
 
-        monitor.event_store.append.assert_called_once()
-        visit = monitor.event_store.append.call_args[0][0]
+        monitor.event_store.upsert.assert_called_once()
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert isinstance(visit, FalconVisit)
         assert visit.peak_confidence == 0.66
         expected = str(get_output_path(str(tmp_path), visit_end, "departure", "mp4"))
@@ -231,7 +231,7 @@ class TestRoostingStopDepartureVisitRecord:
 
         self._roost_departure(monitor, visit_start, visit_end, clip_scheduled=False)
 
-        visit = monitor.event_store.append.call_args[0][0]
+        visit = monitor.event_store.upsert.call_args[0][0]
         assert visit.departure_clip_path is None
 
     def test_peak_reset_after_roosting_departure(self, tmp_path):

@@ -30,6 +30,27 @@ video_source: "https://youtube.com/watch?v=YOUR_STREAM_ID"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Creature Identity (issue #8)
+# ─────────────────────────────────────────────────────────────────────────────
+# What the camera watches. The name and emoji appear in Telegram notifications
+# ("🦅 Falcon arrived at ...") and EVENT log lines ("🦅 FALCON ARRIVED ...").
+# Defaults are falcon/🦅 — with the defaults the output is byte-identical to
+# earlier releases, so existing sites change nothing.
+#
+# creature_name  — lowercase singular ("falcon", "eagle", "hummingbird",
+#   "shark"). Casing variants (Falcon, FALCON) are derived automatically.
+# creature_emoji — any emoji string. Used wherever the arrival emoji appears.
+#
+# Invalid values (empty, wrong type) fall back to the defaults with a logged
+# warning — they never break startup or notifications. Note the "BUFFER-BASED
+# FALCON MONITOR" startup banner is deliberately NOT configurable: the admin
+# log viewer parses it as a fixed startup marker.
+
+creature_name: "falcon"
+creature_emoji: "🦅"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Detection Tuning
 # ─────────────────────────────────────────────────────────────────────────────
 # detection_confidence    — YOLO confidence threshold for daytime detection.
@@ -171,6 +192,43 @@ presence_motion_pixel_threshold: 25
 presence_motion_min_area_frac: 0.02
 presence_global_change_frac: 0.5
 presence_absence_failsafe_seconds: 3600
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bird Count Tracking
+# ─────────────────────────────────────────────────────────────────────────────
+# Tracks HOW MANY birds are in frame, not just whether one is (issue #3).
+# Count is a parallel judgment beside the presence layer — arrival/departure
+# semantics, clips, and the state machine are completely unchanged. What you
+# get with it on:
+#
+#   - A confirmed bird count in the logs (EVENT lines on every confirmed
+#     change, count= in heartbeats).
+#   - Telegram notifications for count changes while the nest is occupied
+#     (1→2 "another falcon arrived", 2→1 "one falcon left"). The 0-boundary
+#     stays with the normal arrival/departure notifications, and count
+#     notifications respect the significance filter's activity damping.
+#   - max_concurrent_birds recorded on every visit row in the event JSON
+#     (null when disabled), so "both adults present" visits are queryable.
+#
+# The count uses the same evidence discipline as the presence layer: a count
+# CHANGE confirms only after bird_count_confirmation_seconds of unbroken
+# differing evidence — single-frame YOLO flicker (a second box appearing for
+# one poll) never changes the count. When recognition drops out entirely on a
+# parked bird, the count holds, exactly as presence does.
+#
+# bird_count_enabled — Master switch. Default false for safe rollout: enable
+#   per-camera once you've watched the count EVENT lines behave sensibly in
+#   the logs. Particularly useful during chick season (see the preset below)
+#   and for pair-bonding observation.
+#
+# bird_count_confirmation_seconds — Sustained-evidence window before a count
+#   change confirms. 10 matches the arrival confirmation window. Raise (e.g.
+#   20–30) on cameras where overlapping birds make YOLO's box count jumpy;
+#   lower for faster count response on clean wide views.
+
+bird_count_enabled: false
+bird_count_confirmation_seconds: 10
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -422,6 +480,42 @@ display:
 
 log_level: "DEBUG"
 log_file: "logs/kanyo.log"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHICK SEASON PRESET (issue #1)
+# ─────────────────────────────────────────────────────────────────────────────
+# When chicks or fledglings are in the nest, the nest is never truly empty:
+# growing chicks trigger YOLO once they're large enough, fledglings move
+# constantly, and binary presence/absence stops meaning "adult activity".
+# No special mode is needed — the existing layers already carry the load:
+#
+#   - The presence layer keeps the occupied nest PRESENT through chick
+#     wriggling and recognition flicker (departure needs positive exit
+#     evidence, which a chick-filled nest never produces). The system settles
+#     into ROOSTING and stays there — no arrival/departure churn.
+#   - The significance filter damps whatever residual event noise fledgling
+#     activity produces (merge window + activity damping).
+#   - Bird count tracking is how you see ADULT comings and goings on top of
+#     the chick baseline: chicks hold the count at its baseline (1, 2, ...);
+#     a sustained count increase is an adult arriving, a sustained decrease
+#     is one leaving. Count notifications fire on those changes even though
+#     ARRIVED/DEPARTED never fire on an always-occupied nest.
+#
+# Recommended overrides for a nest with visible chicks:
+#
+#   bird_count_enabled: true          # adult activity = count changes now
+#   bird_count_confirmation_seconds: 20   # chicks huddle/overlap; be patient
+#   roosting_recording_mode: stop     # nest occupied 24/7 — cap visit files
+#   roosting_detection_interval: 30   # low-rate polling during the long roost
+#   merge_window_seconds: 600         # feeding visits cluster; merge them
+#   min_significant_seconds: 60       # fledgling hops aren't visits
+#   damping_arrivals_threshold: 6     # summary mode kicks in earlier
+#   notification_cooldown_minutes: 10 # calmer public channel
+#
+# Revert to your normal profile once the young disperse. Adult-vs-chick
+# discrimination by bounding-box size or a dedicated classifier is future
+# work (needs real chick-season footage to calibrate — see issue #2).
 
 
 # ─────────────────────────────────────────────────────────────────────────────

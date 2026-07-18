@@ -11,13 +11,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-def _get_log_files(stream_id: str, since: str) -> list[Path]:
+def _get_log_files(stream_id: str, since: str, log_dir: Path | None = None) -> list[Path]:
     """
     Get all relevant log files for the time range, oldest first.
 
     Rotated files are named: kanyo.log.YYYY-MM-DD
+
+    Args:
+        stream_id: Stream identifier (used for the legacy default path)
+        since: Time range selector
+        log_dir: Stream's logs directory. When None, falls back to the legacy
+            per-stream mount layout /data/<id>/logs (pre-issue-#5 behavior).
     """
-    log_dir = Path(f"/data/{stream_id}/logs")
+    if log_dir is None:
+        log_dir = Path(f"/data/{stream_id}/logs")
     main_log = log_dir / "kanyo.log"
 
     if not log_dir.exists():
@@ -66,6 +73,7 @@ def get_logs(
     lines: int = 500,
     levels: list[str] | None = None,
     show_context: bool = False,
+    log_dir: Path | str | None = None,
 ) -> list[dict]:
     """
     Read logs from kanyo.log files (including rotated files for longer ranges).
@@ -76,12 +84,14 @@ def get_logs(
         lines: Max lines to return
         levels: List of log levels to include (e.g., ["INFO", "ERROR"])
         show_context: If True, include DEBUG lines within ±5 lines of EVENT logs
+        log_dir: Stream's logs directory (from stream discovery, issue #5).
+            When None, falls back to the legacy /data/<id>/logs layout.
 
     Returns:
         List of log line dicts with timestamp, level, module, message
     """
     # Get all relevant log files
-    log_files = _get_log_files(stream_id, since)
+    log_files = _get_log_files(stream_id, since, Path(log_dir) if log_dir else None)
 
     if not log_files:
         return []
