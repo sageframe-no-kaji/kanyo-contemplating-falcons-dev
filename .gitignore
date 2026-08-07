@@ -287,3 +287,6 @@ docker-compose.local.yml
 __pycache__/
 *.pyc
 *.egg-info/
+
+# Ad-hoc diagnostic frames pulled from the host during investigation
+diagnostics/
